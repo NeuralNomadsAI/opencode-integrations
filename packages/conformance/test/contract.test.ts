@@ -386,6 +386,10 @@ export default {
     assert.match(socketErrors, /tls.connect/)
     assert.match(socketErrors, /net.Socket.connect/)
     assert.match(socketErrors, /dgram.Socket.bind/)
+    const worker = pluginPackage({
+      setup: `const { Worker } = await import("node:worker_threads"); try { new Worker("0", { eval: true }) } catch {}`,
+    })
+    assert.match((await checkPluginLoad(worker)).errors.join("\n"), /worker_threads.Worker/)
   })
 
   it("fails a plugin that launches a process, listens or fetches while loading", async () => {
@@ -530,6 +534,17 @@ describe("repository rules of draft 0.1", () => {
       /tests under integrations\/demo\/ must import checkCodeExecutionGate from the conformance package/,
     )
     assert.match(errors, /must import runSentinelScenario/)
+
+    writeFileSync(
+      join(root, "integrations/demo/test/host.test.ts"),
+      [
+        'import * as conformance from "@neuralnomads/integration-conformance"',
+        "await conformance.checkHostListener(endpoint)",
+        "await conformance.checkCodeExecutionGate(driver)",
+        "await conformance.runSentinelScenario(target)",
+      ].join("\n"),
+    )
+    assert.doesNotMatch(checkRepository(root).errors.join("\n"), /must import/)
   })
 
   it("names the validated draft on the command line", () => {

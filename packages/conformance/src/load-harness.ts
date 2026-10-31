@@ -3,7 +3,9 @@
 // runs the cleanup and prints one JSON line. The parent isolates HOME and XDG.
 // Process launches, listeners, sockets, outbound connections and fetch are
 // blocked and reported for the whole life of the process, including effects
-// deferred by timers during a settle period after setup (PKG-6).
+// deferred by timers within a settle period after setup (1 s by default), and
+// so are worker threads, which would get unguarded builtins (PKG-6). Effects
+// scheduled after the settle period are a review item.
 // Usage: node load-harness.ts <entry file URL> <options JSON> [settle ms]
 
 import childProcess from "node:child_process"
@@ -14,6 +16,7 @@ import https from "node:https"
 import { syncBuiltinESMExports } from "node:module"
 import net from "node:net"
 import tls from "node:tls"
+import workerThreads from "node:worker_threads"
 
 type Registration = { id: string; methods: string[]; events: string[] }
 
@@ -44,6 +47,7 @@ guard(https, ["request", "get"], "https")
 guard(http2, ["connect"], "http2")
 guard(dgram.Socket.prototype, ["bind", "send", "connect"], "dgram.Socket")
 guard(globalThis, ["fetch"], "globalThis")
+guard(workerThreads, ["Worker"], "worker_threads")
 // A blocked call inside a deferred callback must not end the process before the report.
 process.on("uncaughtException", () => {})
 process.on("unhandledRejection", () => {})

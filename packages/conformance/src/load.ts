@@ -2,7 +2,8 @@
 // plugin is imported and set up in a child process whose HOME and XDG
 // directories are fresh temporary folders. Loading writes no file or folder
 // into the OpenCode configuration directories nor into the package, launches
-// no process, opens no listener or connection, registers the RPC contract
+// no process or worker, opens no listener, socket or connection within the
+// settle period, registers the RPC contract
 // under the marker's ID and answers `status` like the marker.
 
 import { execFile } from "node:child_process"

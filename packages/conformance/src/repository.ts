@@ -267,6 +267,10 @@ export function checkRepository(root: string): RepositoryReport {
         if (!/(^|\/)(integration-)?conformance(\/|$)/.test(match[2] ?? "")) continue
         for (const name of (match[1] ?? "").split(",")) imported.add(name.trim().split(/\s+as\s+/)[0] ?? "")
       }
+      for (const match of code.matchAll(/import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*["']([^"']*)["']/g)) {
+        if (!/(^|\/)(integration-)?conformance(\/|$)/.test(match[2] ?? "")) continue
+        for (const check of NATIVE_BEHAVIOUR_CHECKS) if (code.includes(`${match[1]}.${check}`)) imported.add(check)
+      }
     }
     for (const check of NATIVE_BEHAVIOUR_CHECKS) {
       if (!imported.has(check)) {
