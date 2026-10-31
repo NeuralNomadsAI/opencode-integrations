@@ -27,5 +27,8 @@
   },
   "devDependencies": {
     "@opencode/plugin": "2.2.5"
+  },
+  "dependencies": {
+    "semver": "7.8.5"
   }
 }

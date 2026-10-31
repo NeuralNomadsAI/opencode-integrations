@@ -33,8 +33,9 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run check:markers
+      # Conformance loads every built integration package.
       - run: npm run build
+      - run: npm run check:markers
 
   trace-scan:
     name: Trace scan
