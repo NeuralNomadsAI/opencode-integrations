@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "OpenCode for Blender: lets OpenCode inspect and edit an open Blender scene through an authenticated local host.",
-  "license": "MIT",
+  "license": "MIT AND GPL-3.0-or-later",
   "type": "module",
   "keywords": [
     "opencode-integration",

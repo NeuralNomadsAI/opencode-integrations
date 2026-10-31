@@ -7,6 +7,13 @@ import semver from "semver"
 
 import { type CatalogEntry, checkCatalogBytes } from "./catalog.ts"
 import { checkDangerousManifests, type ManifestLike } from "./code-execution.ts"
+import {
+  GPL_HOST_LICENSE,
+  GPL_HOST_PACKAGE_LICENSE,
+  type HostPartLicense,
+  hostPartLicense,
+  PLUGIN_LICENSE,
+} from "./host-license.ts"
 import { checkPluginLoad } from "./load.ts"
 import { formatSchemaErrors, validateMarkerSchema } from "./schemas.ts"
 
@@ -178,13 +185,16 @@ function checkPackage(pkg: IntegrationPackage, errors: string[]) {
     if (marker.plugin !== expected) errors.push(`${label}: marker plugin must be "${expected}"`)
     if (marker.rpc !== expected) errors.push(`${label}: marker rpc must be "${expected}"`)
   }
+  let hostLicense: HostPartLicense | null = null
   if (marker?.host) {
     const payload = join(pkg.dir, ...marker.host.payload.split("/"))
     if (!existsSync(payload) || !statSync(payload).isFile()) {
       errors.push(`${label}: host payload ${marker.host.payload} does not exist`)
     } else {
-      const digest = createHash("sha256").update(readFileSync(payload)).digest("hex")
+      const bytes = readFileSync(payload)
+      const digest = createHash("sha256").update(bytes).digest("hex")
       if (digest !== marker.host.sha256) errors.push(`${label}: host payload sha256 does not match the marker`)
+      hostLicense = hostPartLicense(bytes)
     }
   }
 
@@ -198,7 +208,16 @@ function checkPackage(pkg: IntegrationPackage, errors: string[]) {
     errors.push(...checkDangerousManifests(marker.id, readManifests(pkg.dir)).map((error) => `${label}: ${error}`))
 
   if (json.type !== "module") errors.push(`${label}: "type" must be "module"`)
-  if (json.license !== "MIT") errors.push(`${label}: "license" must be "MIT"`)
+  // PKG-10: the plugin is MIT; an embedded GPL application part adds its licence to the expression.
+  const gplHost = hostLicense?.license === GPL_HOST_LICENSE
+  const license = gplHost ? GPL_HOST_PACKAGE_LICENSE : PLUGIN_LICENSE
+  if (json.license !== license) {
+    const why = gplHost
+      ? `: the embedded host part is ${GPL_HOST_LICENSE}`
+      : ` (only a package embedding a ${GPL_HOST_LICENSE} host part declares "${GPL_HOST_PACKAGE_LICENSE}"` +
+        `${hostLicense?.license === null ? `; ${hostLicense.reason}` : ""})`
+    errors.push(`${label}: "license" must be "${license}"${why}`)
+  }
   if (!Array.isArray(json.files) || json.files.length === 0)
     errors.push(`${label}: "files" must list the package contents`)
   if (!json.keywords?.includes(NPM_KEYWORD)) errors.push(`${label}: keywords must include "${NPM_KEYWORD}"`)

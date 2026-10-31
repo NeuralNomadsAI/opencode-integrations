@@ -32,6 +32,15 @@ export {
   rawHostRequest,
   startFakeHost,
 } from "./host.ts"
+export type { HostPartLicense } from "./host-license.ts"
+export {
+  GPL_HOST_LICENSE,
+  GPL_HOST_PACKAGE_LICENSE,
+  hostPartLicense,
+  PLUGIN_LICENSE,
+  readZipEntries,
+  ZIP_MAX_BYTES,
+} from "./host-license.ts"
 export type { LoadablePackage, LoadReport } from "./load.ts"
 export { checkPluginLoad, packageEntry } from "./load.ts"
 export type { IntegrationPackage, RepositoryReport } from "./repository.ts"

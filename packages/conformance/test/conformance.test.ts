@@ -5,13 +5,17 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { after, describe, it } from "node:test"
+import { deflateRawSync } from "node:zlib"
 
 import {
   CATALOG_MAX_BYTES,
   checkCatalogBytes,
   checkRepository,
+  hostPartLicense,
+  readZipEntries,
   validateCatalogSchema,
   validateMarkerSchema,
+  ZIP_MAX_BYTES,
 } from "../src/index.ts"
 
 const roots: string[] = []
@@ -76,7 +80,68 @@ function catalogEntry(id: string, overrides: Record<string, unknown> = {}) {
   }
 }
 
-type Fixture = { packages?: Record<string, unknown>; catalog?: unknown; files?: Record<string, string> }
+// A ZIP archive of deflated, or stored, entries.
+function zip(entries: Record<string, string>, deflate = true) {
+  const locals: Buffer[] = []
+  const centrals: Buffer[] = []
+  let offset = 0
+  for (const [name, text] of Object.entries(entries)) {
+    const content = Buffer.from(text)
+    const data = deflate ? deflateRawSync(content) : content
+    const nameBytes = Buffer.from(name)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(deflate ? 8 : 0, 8)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(content.length, 22)
+    local.writeUInt16LE(nameBytes.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(deflate ? 8 : 0, 10)
+    central.writeUInt32LE(data.length, 20)
+    central.writeUInt32LE(content.length, 24)
+    central.writeUInt16LE(nameBytes.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(local, nameBytes, data)
+    centrals.push(central, nameBytes)
+    offset += 30 + nameBytes.length + data.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(entries).length, 8)
+  end.writeUInt16LE(Object.keys(entries).length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}
+
+const GPL3_TEXT = "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n"
+const gplPart = (overrides: Record<string, string> = {}, deflate = true) =>
+  zip(
+    {
+      LICENSE: GPL3_TEXT,
+      "__init__.py": "# SPDX-License-Identifier: GPL-3.0-or-later\n",
+      "blender_manifest.toml": 'license = ["SPDX:GPL-3.0-or-later"]\n',
+      "panel.js": "/* SPDX-License-Identifier: GPL-3.0-or-later */\n",
+      "strings.json": '{ "header": "// SPDX-License-Identifier: GPL-3.0-or-later" }\n',
+      ...overrides,
+    },
+    deflate,
+  )
+
+// A package embedding the given payload, its marker digest matching.
+function withPayload(id: string, payload: Buffer, overrides: Record<string, unknown> = {}) {
+  const host = { ...marker(id).host, sha256: createHash("sha256").update(payload).digest("hex") }
+  return packageJson(id, { opencodeIntegration: marker(id, { host }), ...overrides })
+}
+
+type Fixture = {
+  packages?: Record<string, unknown>
+  payloads?: Record<string, Buffer>
+  catalog?: unknown
+  files?: Record<string, string>
+}
 
 function repository(fixture: Fixture = {}) {
   const root = mkdtempSync(join(tmpdir(), "conformance-"))
@@ -89,7 +154,7 @@ function repository(fixture: Fixture = {}) {
   write("catalog.json", JSON.stringify(fixture.catalog ?? { schemaVersion: 1, integrations: [] }))
   for (const [dir, json] of Object.entries(fixture.packages ?? {})) {
     write(`integrations/${dir}/plugin/package.json`, JSON.stringify(json))
-    write(`integrations/${dir}/plugin/host/${dir}/part-0.1.0.zip`, payloadBytes)
+    write(`integrations/${dir}/plugin/host/${dir}/part-0.1.0.zip`, fixture.payloads?.[dir] ?? payloadBytes)
   }
   for (const [file, content] of Object.entries(fixture.files ?? {})) write(file, content)
   execFileSync("git", ["init", "-q"], { cwd: root })
@@ -98,6 +163,12 @@ function repository(fixture: Fixture = {}) {
 
 function errorsOf(fixture: Fixture) {
   return checkRepository(repository(fixture)).errors.join("\n")
+}
+
+function licenseErrorsOf(fixture: Fixture) {
+  return checkRepository(repository(fixture))
+    .errors.filter((error) => error.includes('"license"'))
+    .join("\n")
 }
 
 describe("repository conformance", () => {
@@ -145,6 +216,90 @@ describe("repository conformance", () => {
       errorsOf({ packages: { demo: packageJson("demo", { opencodeIntegration: wrong }) } }),
       /sha256 does not match/,
     )
+  })
+
+  it("requires MIT AND GPL-3.0-or-later exactly when the embedded host part is GPL-3.0-or-later", () => {
+    const gpl = "MIT AND GPL-3.0-or-later"
+    for (const payload of [gplPart(), gplPart({}, false)]) {
+      assert.deepEqual(hostPartLicense(payload), { license: "GPL-3.0-or-later" })
+      const errors = (license?: string) =>
+        licenseErrorsOf({
+          packages: { demo: withPayload("demo", payload, license ? { license } : {}) },
+          payloads: { demo: payload },
+        })
+      assert.equal(errors(gpl), "")
+      assert.match(errors(), /"license" must be "MIT AND GPL-3.0-or-later": the embedded host part is GPL-3.0-or-later/)
+      for (const license of ["GPL-3.0-or-later AND MIT", "MIT OR GPL-3.0-or-later", "(MIT AND GPL-3.0-or-later)"]) {
+        assert.match(errors(license), /"license" must be "MIT AND GPL-3.0-or-later"/, license)
+      }
+    }
+  })
+
+  it("keeps requiring MIT when no GPL-3.0-or-later host part is embedded", () => {
+    const gpl = "MIT AND GPL-3.0-or-later"
+    const mustBeMit = /"license" must be "MIT" \(only a package embedding/
+    // A package without a host part.
+    const { host: _, ...api } = marker("demo", { family: "api" })
+    assert.match(
+      licenseErrorsOf({ packages: { demo: packageJson("demo", { license: gpl, opencodeIntegration: api }) } }),
+      mustBeMit,
+    )
+    // Payloads that do not establish GPL-3.0-or-later, and the reason the error gives.
+    const notGpl: Record<string, [Buffer, RegExp]> = {
+      "not an archive": [Buffer.from("host payload"), /not a readable ZIP archive \(no end of central directory\)/],
+      "no LICENSE": [zip({ "__init__.py": "# SPDX-License-Identifier: GPL-3.0-or-later\n" }), /no GNU GPL version 3/],
+      "LICENSE in a folder": [
+        zip({ "part/LICENSE": GPL3_TEXT, "part/a.py": "# SPDX-License-Identifier: GPL-3.0-or-later\n" }),
+        /no GNU GPL version 3/,
+      ],
+      "GPL-2 text": [
+        gplPart({ LICENSE: "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n" }),
+        /no GNU GPL version 3/,
+      ],
+      "no SPDX declaration": [zip({ LICENSE: GPL3_TEXT, "__init__.py": "\n" }), /declares no SPDX licence/],
+      "GPL-3.0-only": [
+        gplPart({ "__init__.py": "# SPDX-License-Identifier: GPL-3.0-only\n" }),
+        /SPDX declarations are "GPL-3.0-only", "GPL-3.0-or-later"/,
+      ],
+      "a second licence": [gplPart({ "vendor.py": "# SPDX-License-Identifier: Apache-2.0\n" }), /"Apache-2.0"/],
+      "a compound header": [
+        gplPart({ "vendor.py": "# SPDX-License-Identifier: GPL-3.0-or-later AND MIT\n" }),
+        /"GPL-3.0-or-later AND MIT"/,
+      ],
+      "an exception": [
+        gplPart({ "vendor.c": "/* SPDX-License-Identifier: GPL-3.0-or-later WITH GCC-exception-3.1 */\n" }),
+        /"GPL-3.0-or-later WITH GCC-exception-3.1"/,
+      ],
+      "a compound manifest entry": [
+        gplPart({ "blender_manifest.toml": 'license = ["SPDX:GPL-3.0-or-later OR MIT"]\n' }),
+        /"GPL-3.0-or-later OR MIT"/,
+      ],
+      "BSD part": [
+        zip({ LICENSE: "BSD 3-Clause License\n", "a.py": "# SPDX-License-Identifier: BSD-3-Clause\n" }),
+        /no GNU GPL version 3/,
+      ],
+    }
+    for (const [label, [payload, reason]] of Object.entries(notGpl)) {
+      const result = hostPartLicense(payload)
+      assert.equal(result.license, null, label)
+      const errors = (license?: string) =>
+        licenseErrorsOf({
+          packages: { demo: withPayload("demo", payload, license ? { license } : {}) },
+          payloads: { demo: payload },
+        })
+      assert.equal(errors(), "", label)
+      assert.match(errors(gpl), mustBeMit, label)
+      assert.match(errors(gpl), reason, label)
+    }
+  })
+
+  it("refuses payload archives over the decompressed size bound", () => {
+    const huge = Buffer.from(zip({ LICENSE: GPL3_TEXT }))
+    // Claim an uncompressed size over the bound in the central directory entry.
+    huge.writeUInt32LE(ZIP_MAX_BYTES + 1, huge.readUInt32LE(huge.length - 6) + 24)
+    assert.throws(() => readZipEntries(huge), /bytes once decompressed/)
+    const result = hostPartLicense(huge)
+    assert.ok(result.license === null && /not a readable ZIP archive/.test(result.reason))
   })
 
   it("fails two integrations sharing a plugin or rpc ID", () => {
