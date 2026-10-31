@@ -258,9 +258,22 @@ export function checkRepository(root: string): RepositoryReport {
     if (pkg.marker?.family !== "native") continue
     const folder = `${relative(root, dirname(pkg.dir)).split(sep).join(posix.sep)}/`
     const tests = files.filter((file) => file.startsWith(folder) && /\.test\.[cm]?[jt]s$/.test(file))
-    const text = tests.map((file) => readFileSync(join(root, file), "utf8")).join("\n")
+    const imported = new Set<string>()
+    for (const file of tests) {
+      // Comments do not count: only an import from the conformance package does.
+      const code = readFileSync(join(root, file), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "")
+      for (const match of code.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']([^"']*)["']/g)) {
+        // @neuralnomads/integration-conformance, or a path into packages/conformance.
+        if (!/(^|\/)(integration-)?conformance(\/|$)/.test(match[2] ?? "")) continue
+        for (const name of (match[1] ?? "").split(",")) imported.add(name.trim().split(/\s+as\s+/)[0] ?? "")
+      }
+    }
     for (const check of NATIVE_BEHAVIOUR_CHECKS) {
-      if (!text.includes(check)) errors.push(`${pkg.packageJson.name}: the tests under ${folder} must run ${check}`)
+      if (!imported.has(check)) {
+        errors.push(
+          `${pkg.packageJson.name}: the tests under ${folder} must import ${check} from the conformance package`,
+        )
+      }
     }
   }
 

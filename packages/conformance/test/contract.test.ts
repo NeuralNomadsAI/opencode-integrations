@@ -369,6 +369,25 @@ export default {
     assert.match((await checkPluginLoad(folder)).errors.join("\n"), /writes into the OpenCode configuration \(skills/)
   })
 
+  it("fails deferred side effects and TLS, raw and datagram sockets", async () => {
+    const deferred = pluginPackage({
+      setup: `setTimeout(() => fetch("http://127.0.0.1:9/"), 50); setTimeout(async () => (await import("node:child_process")).spawn(process.execPath, ["-e", "0"]), 60)`,
+    })
+    const errors = (await checkPluginLoad(deferred)).errors.join("\n")
+    assert.match(errors, /globalThis.fetch/)
+    assert.match(errors, /child_process.spawn/)
+    const sockets = pluginPackage({
+      setup: `const tls = await import("node:tls"); const net = await import("node:net"); const dgram = await import("node:dgram")
+    try { tls.connect(9, "127.0.0.1") } catch {}
+    try { new net.Socket().connect(9, "127.0.0.1") } catch {}
+    try { dgram.createSocket("udp4").bind(0) } catch {}`,
+    })
+    const socketErrors = (await checkPluginLoad(sockets)).errors.join("\n")
+    assert.match(socketErrors, /tls.connect/)
+    assert.match(socketErrors, /net.Socket.connect/)
+    assert.match(socketErrors, /dgram.Socket.bind/)
+  })
+
   it("fails a plugin that launches a process, listens or fetches while loading", async () => {
     const spawn = pluginPackage({
       setup: `const { spawn } = await import("node:child_process"); spawn(process.execPath, ["-e", "0"])`,
@@ -498,12 +517,19 @@ describe("repository rules of draft 0.1", () => {
     const root = repository({
       "catalog.json": JSON.stringify({ schemaVersion: 1, integrations: [] }),
       "integrations/demo/plugin/package.json": packageJson({ opencodeIntegration: nativeMarker }),
-      "integrations/demo/test/host.test.ts": "// checkHostListener only\n",
+      "integrations/demo/test/host.test.ts": [
+        'import { checkHostListener } from "../../../packages/conformance/src/index.ts"',
+        "// checkCodeExecutionGate is only mentioned in a comment",
+        '/* import { runSentinelScenario } from "@neuralnomads/integration-conformance" */',
+      ].join("\n"),
     })
     const errors = checkRepository(root).errors.join("\n")
-    assert.doesNotMatch(errors, /must run checkHostListener/)
-    assert.match(errors, /tests under integrations\/demo\/ must run checkCodeExecutionGate/)
-    assert.match(errors, /must run runSentinelScenario/)
+    assert.doesNotMatch(errors, /must import checkHostListener/)
+    assert.match(
+      errors,
+      /tests under integrations\/demo\/ must import checkCodeExecutionGate from the conformance package/,
+    )
+    assert.match(errors, /must import runSentinelScenario/)
   })
 
   it("names the validated draft on the command line", () => {

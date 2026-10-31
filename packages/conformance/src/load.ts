@@ -65,7 +65,7 @@ function changes(before: Map<string, string>, after: Map<string, string>): strin
 
 export async function checkPluginLoad(
   pkg: LoadablePackage,
-  options: { pluginOptions?: Record<string, unknown>; timeoutMs?: number } = {},
+  options: { pluginOptions?: Record<string, unknown>; timeoutMs?: number; settleMs?: number } = {},
 ): Promise<LoadReport> {
   const label = pkg.packageJson.name ?? pkg.dir
   const errors: string[] = []
@@ -107,7 +107,12 @@ export async function checkPluginLoad(
     const stdout = await new Promise<string>((done) => {
       execFile(
         process.execPath,
-        [fileURLToPath(harness), pathToFileURL(entry).href, JSON.stringify(options.pluginOptions ?? {})],
+        [
+          fileURLToPath(harness),
+          pathToFileURL(entry).href,
+          JSON.stringify(options.pluginOptions ?? {}),
+          String(options.settleMs ?? 1_000),
+        ],
         { cwd: root, env, timeout: options.timeoutMs ?? 20_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
         (_, out) => done(out),
       )

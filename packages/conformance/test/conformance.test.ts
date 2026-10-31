@@ -110,7 +110,7 @@ describe("repository conformance", () => {
           "integrations/demo/plugin/skills/demo-scene/SKILL.md":
             "---\nname: demo-scene\ndescription: Scenes.\n---\nBody\n",
           "integrations/demo/test/conformance.test.ts":
-            "// checkHostListener, checkCodeExecutionGate and runSentinelScenario run here.\n",
+            'import { checkCodeExecutionGate, checkHostListener, runSentinelScenario } from "@neuralnomads/integration-conformance"\n',
         },
       }),
     )

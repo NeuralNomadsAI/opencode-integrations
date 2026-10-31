@@ -1,25 +1,26 @@
 // Child process of checkPluginLoad: imports a plugin entry, runs its setup
 // with an inert context that records RPC registrations, calls `status` once,
 // runs the cleanup and prints one JSON line. The parent isolates HOME and XDG.
-// Process launches, listeners, outbound connections and fetch are blocked and
-// reported while the plugin loads (PKG-6).
-// Usage: node load-harness.ts <entry file URL> <options JSON>
+// Process launches, listeners, sockets, outbound connections and fetch are
+// blocked and reported for the whole life of the process, including effects
+// deferred by timers during a settle period after setup (PKG-6).
+// Usage: node load-harness.ts <entry file URL> <options JSON> [settle ms]
 
 import childProcess from "node:child_process"
+import dgram from "node:dgram"
 import http from "node:http"
+import http2 from "node:http2"
 import https from "node:https"
 import { syncBuiltinESMExports } from "node:module"
 import net from "node:net"
+import tls from "node:tls"
 
 type Registration = { id: string; methods: string[]; events: string[] }
 
 const sideEffects: string[] = []
-let guarding = true
 const blocked = (name: string) => {
-  if (guarding) {
-    sideEffects.push(name)
-    throw new Error(`${name} is not allowed while loading`)
-  }
+  sideEffects.push(name)
+  throw new Error(`${name} is not allowed while loading`)
 }
 const guard = <T extends object>(owner: T, names: string[], label: string) => {
   const target = owner as Record<string, unknown>
@@ -34,10 +35,18 @@ const guard = <T extends object>(owner: T, names: string[], label: string) => {
 }
 guard(childProcess, ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"], "child_process")
 guard(net, ["connect", "createConnection"], "net")
+// Covers tls, http2 and raw sockets, which all connect through net.Socket.
+guard(net.Socket.prototype, ["connect"], "net.Socket")
 guard(net.Server.prototype, ["listen"], "net.Server")
+guard(tls, ["connect"], "tls")
 guard(http, ["request", "get"], "http")
 guard(https, ["request", "get"], "https")
+guard(http2, ["connect"], "http2")
+guard(dgram.Socket.prototype, ["bind", "send", "connect"], "dgram.Socket")
 guard(globalThis, ["fetch"], "globalThis")
+// A blocked call inside a deferred callback must not end the process before the report.
+process.on("uncaughtException", () => {})
+process.on("unhandledRejection", () => {})
 // ESM named imports of builtins see the guarded functions.
 syncBuiltinESMExports()
 
@@ -55,7 +64,8 @@ function inert(): unknown {
   })
 }
 
-const [entry, rawOptions] = process.argv.slice(2)
+const [entry, rawOptions, rawSettle] = process.argv.slice(2)
+const settleMs = Number(rawSettle ?? 1000)
 const registrations: Registration[] = []
 const handlers = new Map<string, Record<string, (input: unknown, context: unknown) => Promise<unknown>>>()
 const events: Array<{ name: string; data: unknown }> = []
@@ -103,6 +113,8 @@ try {
   result.pluginID = plugin.id
   const cleanup = await (plugin.setup as (context: unknown) => unknown)(context)
   result.registrations = registrations
+  // Let timers and promises scheduled by setup run while the guards stay on.
+  await new Promise((resolve) => setTimeout(resolve, settleMs))
   const signal = new AbortController().signal
   for (const [id, methods] of handlers) {
     if (typeof methods.status === "function") {
@@ -115,7 +127,6 @@ try {
 } catch (error) {
   result.error = String((error as Error)?.message ?? error)
 }
-guarding = false
 result.sideEffects = sideEffects
 process.stdout.write(`${JSON.stringify(result)}\n`)
 // Plugins may leave timers or sockets behind; the result is complete.
