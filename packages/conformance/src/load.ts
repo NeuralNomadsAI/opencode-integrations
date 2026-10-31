@@ -1,8 +1,9 @@
-// Loading check (spec/integrations.md, PKG-5 and PKG-6): the built plugin is
-// imported and set up in a child process whose HOME and XDG directories are
-// fresh temporary folders. Loading writes nothing into the OpenCode
-// configuration directories nor into the package, registers the RPC
-// contract under the marker's ID and answers `status` like the marker.
+// Loading check (spec/integrations.md, PKG-5 to PKG-7, MRK-6): the built
+// plugin is imported and set up in a child process whose HOME and XDG
+// directories are fresh temporary folders. Loading writes no file or folder
+// into the OpenCode configuration directories nor into the package, launches
+// no process, opens no listener or connection, registers the RPC contract
+// under the marker's ID and answers `status` like the marker.
 
 import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -42,8 +43,11 @@ function snapshot(root: string, skip: Set<string> = new Set()): Map<string, stri
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (skip.has(entry.name)) continue
       const full = join(dir, entry.name)
-      if (entry.isDirectory()) walk(full)
-      else {
+      if (entry.isDirectory()) {
+        // An empty folder (plugins/, skills/) is enough for OpenCode's watcher.
+        files.set(`${relative(root, full)}/`, "dir")
+        walk(full)
+      } else {
         const stat = statSync(full)
         files.set(relative(root, full), `${stat.size}:${stat.mtimeMs}`)
       }
@@ -114,13 +118,16 @@ export async function checkPluginLoad(
       registrations?: Array<{ id: string; methods: string[]; events: string[] }>
       status?: unknown
       error?: string
+      sideEffects?: string[]
     }
     try {
       result = JSON.parse(line)
     } catch {
       return { errors: [`${label}: loading did not complete`] }
     }
-    if (result.error) errors.push(`${label}: loading failed: ${result.error}`)
+    const sideEffects = [...new Set(result.sideEffects ?? [])]
+    if (sideEffects.length > 0) errors.push(`${label}: loading has side effects (${sideEffects.join(", ")})`)
+    else if (result.error) errors.push(`${label}: loading failed: ${result.error}`)
 
     watched.forEach((dir, index) => {
       const written = changes(before[index] ?? new Map(), snapshot(dir))

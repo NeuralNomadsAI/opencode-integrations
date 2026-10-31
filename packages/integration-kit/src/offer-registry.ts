@@ -1,9 +1,9 @@
-// Offer registry of a native integration (spec/host-handshake.md,
-// "Advertisement"). OpenCode instantiates a plugin per Location and evaluates
+// Offer registry of a native integration (spec/host-handshake.md, HST-11 to
+// HST-16). OpenCode instantiates a plugin per Location and evaluates
 // a locally installed module once per Location, so the daemon-wide registry
 // lives on globalThis under Symbol.for("neuralnomads.<app>.offers").
 
-import { randomBytes } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 
 import {
   type AdvertiseOutcome,
@@ -62,14 +62,25 @@ type OfferRecord = {
   scriptHandle: string
   label: string
   hello: Hello
+  // Display fields of the hello, dropped when they mention a secret.
+  document?: string
+  appVersion?: string
   compatibility: HostCompatibility
   expiresAt: number
 }
 
 const defaultHello: HelloProbe = (endpoint) => requestHost(endpoint, "hello", {}, { timeoutMs: HELLO_TIMEOUT_MS })
 
-function mentions(text: string, secrets: string[]) {
-  return secrets.some((secret) => text.includes(secret))
+// Whether display text reveals the token, the offer key, the script handle or the port.
+function revealsSecret(text: string, input: { token: string; offer_key: string; script_handle: string; port: number }) {
+  if ([input.token, input.offer_key, input.script_handle].some((secret) => text.includes(secret))) return true
+  return new RegExp(`(^|\\D)${input.port}(\\D|$)`).test(text)
+}
+
+function sameToken(a: string, b: string) {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  return left.length === right.length && timingSafeEqual(left, right)
 }
 
 export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistry {
@@ -118,13 +129,12 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     const refused = { outcome: "refused" as const }
     const input = parseAdvertiseInput(raw)
     if (!input || input.protocol !== options.expected.protocol) return refused
-    const secrets = [input.token, input.offer_key, input.script_handle]
-    if (mentions(input.label, secrets) || new RegExp(`(^|\\D)${input.port}(\\D|$)`).test(input.label)) return refused
+    if (revealsSecret(input.label, input)) return refused
     sweep()
     const current = offers.get(input.offer_key)
     if (
       current &&
-      current.endpoint.token === input.token &&
+      sameToken(current.endpoint.token, input.token) &&
       current.endpoint.port === input.port &&
       current.scriptHandle === input.script_handle
     ) {
@@ -144,6 +154,8 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     const previous = offers.get(input.offer_key)
     if (previous) drop(previous)
     if (!previous && offers.size >= MAX_OFFERS) return refused
+    const document = documentLabel(hello)
+    const appVersion = hello.app_version
     offers.set(input.offer_key, {
       offerID: newOfferID(),
       key: input.offer_key,
@@ -151,6 +163,8 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       scriptHandle: input.script_handle,
       label: input.label,
       hello,
+      document: document && !revealsSecret(document, input) ? document : undefined,
+      appVersion: revealsSecret(appVersion, input) ? undefined : appVersion,
       compatibility: evaluateHello(hello, options.expected),
       expiresAt: now() + OFFER_LEASE_MS,
     })
@@ -179,7 +193,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     withdraw(raw) {
       const input = parseWithdrawInput(raw)
       const record = input ? offers.get(input.offer_key) : undefined
-      if (!input || !record || record.endpoint.token !== input.token) return { outcome: "none" }
+      if (!input || !record || !sameToken(record.endpoint.token, input.token)) return { outcome: "none" }
       drop(record)
       emit("hosts", "status")
       return { outcome: "withdrawn" }
@@ -194,9 +208,8 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
             label: record.label,
             protocol: record.compatibility === "incompatible" ? "incompatible" : "ok",
           }
-          const document = documentLabel(record.hello)
-          if (document) offer.document = document
-          offer.appVersion = record.hello.app_version
+          if (record.document) offer.document = record.document
+          if (record.appVersion) offer.appVersion = record.appVersion
           return offer
         }),
       }
@@ -235,7 +248,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       return [...offers.values()].map((record) => ({
         compatibility: record.compatibility,
         partVersion: record.hello.host_version,
-        appVersion: record.hello.app_version,
+        appVersion: record.appVersion,
       }))
     },
 

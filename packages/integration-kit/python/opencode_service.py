@@ -1,13 +1,14 @@
 """Reference discovery client of a headless native host (Python standard library only).
 
-Contract (spec/host-handshake.md, "Discovery and advertisement"):
+Contract (spec/host-handshake.md, HST-18 to HST-22):
 
 - Discovery reads only the service registrations under
   $XDG_STATE_HOME/opencode (default ~/.local/state/opencode): service.json,
   shared by the latest, dev, beta and next channels, and service-<name>.json
   for named services. A registration counts when its URL is loopback and
   /api/info answers with the same pid and version. Nothing here ever starts
-  a daemon.
+  a daemon. Requests never use a proxy and never follow a redirect: the
+  daemon password and the host token go to the loopback service only.
 - advertise and withdraw target the conventional Location: the daemon's
   global configuration directory, $XDG_CONFIG_HOME/opencode (default
   ~/.config/opencode). A daemon started with OPENCODE_CONFIG_DIR has another
@@ -24,6 +25,7 @@ Call these functions off the application's main thread.
 
 import base64
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -34,7 +36,7 @@ import urllib.request
 TIMEOUT = 3.0
 SHARED_CHANNELS = ("latest", "dev", "beta", "next")
 SERVICE_NAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+LOOPBACK_HOSTS = ("127.0.0.1", "::1")
 OUTCOMES = {
     "advertise": ("accepted", "renewed", "refused"),
     "withdraw": ("withdrawn", "none"),
@@ -90,18 +92,31 @@ def _headers(password):
     return headers
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# No proxy (environment or system settings) and no redirect.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+
+
 def _request(url, password, body=None, timeout=TIMEOUT):
+    """(status, JSON body); raises OSError or ValueError when the service is unusable."""
     data = None if body is None else json.dumps(body).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=_headers(password),
                                      method="GET" if body is None else "POST")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             return response.status, json.loads(response.read() or b"null")
     except urllib.error.HTTPError as error:
         try:
             return error.code, json.loads(error.read() or b"null")
         except ValueError:
             return error.code, None
+    except http.client.HTTPException:
+        # A process that does not speak HTTP holds the registered port.
+        raise OSError("invalid HTTP response")
 
 
 def _is_loopback(url):
@@ -141,7 +156,7 @@ def discover(service_name=None, env=None, timeout=TIMEOUT):
             continue
         if status != 200 or not isinstance(body, dict) or body.get("pid") != info["pid"]:
             continue
-        if info.get("version") is not None and body.get("version") != info["version"]:
+        if not isinstance(info.get("version"), str) or body.get("version") != info["version"]:
             continue
         found.append(Service(name, info["url"], body.get("version"), password))
     return found

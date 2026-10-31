@@ -41,6 +41,7 @@ export {
   findIntegrationPackages,
   LEGACY_PLUGIN_SDK,
   listRepositoryFiles,
+  NATIVE_BEHAVIOUR_CHECKS,
   NPM_KEYWORD,
   PLUGIN_SDK,
   PLUGIN_SDK_DEV_VERSION,

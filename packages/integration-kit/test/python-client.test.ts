@@ -6,6 +6,7 @@ import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server } from "node:http"
+import net from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, describe, it } from "node:test"
@@ -228,6 +229,61 @@ describe("Python discovery client", () => {
     const { parsed, output } = await python(env, "advertise_all", ["neuralnomads.demo", offer])
     assert.deepEqual(parsed, [{ service: "service.json", outcome: "error" }])
     assert.doesNotMatch(output, new RegExp(TOKEN))
+  })
+
+  it("never sends the password or the token through a proxy, nor follows redirects", async () => {
+    const { env, register } = fixture()
+    const proxied: string[] = []
+    const proxy = createServer((request, response) => {
+      proxied.push(`${request.method} ${request.url} ${request.headers.authorization ?? ""}`)
+      response.writeHead(502)
+      response.end()
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()))
+    cleanups.push(() => new Promise<void>((resolve) => proxy.close(() => resolve())))
+    const proxyUrl = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`
+    const redirected = await fakeService(303, () => ({ status: 200, body: {} }))
+    const service = await fakeService(101)
+    register("service.json", { url: service.url, pid: 101, version: "2.2.5", password: PASSWORD })
+    const proxyEnv = { ...env, HTTP_PROXY: proxyUrl, http_proxy: proxyUrl, ALL_PROXY: proxyUrl, NO_PROXY: "" }
+    assert.deepEqual((await python(proxyEnv, "advertise_all", ["neuralnomads.demo", offer])).parsed, [
+      { service: "service.json", outcome: "accepted" },
+    ])
+    assert.deepEqual(proxied, [])
+
+    const redirect = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(200, { "content-type": "application/json" })
+        return response.end(JSON.stringify({ pid: 404, version: "2.2.5" }))
+      }
+      response.writeHead(307, { location: `${redirected.url}${request.url}` })
+      response.end()
+    })
+    await new Promise<void>((resolve) => redirect.listen(0, "127.0.0.1", () => resolve()))
+    cleanups.push(() => new Promise<void>((resolve) => redirect.close(() => resolve())))
+    const redirectUrl = `http://127.0.0.1:${(redirect.address() as { port: number }).port}`
+    register("service.json", { url: redirectUrl, pid: 404, version: "2.2.5", password: PASSWORD })
+    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer])).parsed, [
+      { service: "service.json", outcome: "error" },
+    ])
+    assert.deepEqual(redirected.calls, [])
+  })
+
+  it("skips a port held by a non-HTTP process and a registration without version", async () => {
+    const { env, register } = fixture()
+    const garbage = net.createServer((socket) => socket.resume().end("not http\r\n\r\n"))
+    await new Promise<void>((resolve) => garbage.listen(0, "127.0.0.1", () => resolve()))
+    cleanups.push(() => new Promise<void>((resolve) => garbage.close(() => resolve())))
+    const garbagePort = (garbage.address() as { port: number }).port
+    const service = await fakeService(101)
+    const unversioned = await fakeService(202)
+    register("service-garbage.json", { url: `http://127.0.0.1:${garbagePort}`, pid: 7, version: "2.2.5" })
+    register("service-unversioned.json", { url: unversioned.url, pid: 202 })
+    register("service.json", { url: service.url, pid: 101, version: "2.2.5" })
+    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer])).parsed, [
+      { service: "service.json", outcome: "accepted" },
+    ])
+    assert.deepEqual(unversioned.calls, [])
   })
 
   it("computes the same capability hash as the kit", async () => {

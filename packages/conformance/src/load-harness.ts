@@ -1,9 +1,45 @@
 // Child process of checkPluginLoad: imports a plugin entry, runs its setup
 // with an inert context that records RPC registrations, calls `status` once,
 // runs the cleanup and prints one JSON line. The parent isolates HOME and XDG.
+// Process launches, listeners, outbound connections and fetch are blocked and
+// reported while the plugin loads (PKG-6).
 // Usage: node load-harness.ts <entry file URL> <options JSON>
 
+import childProcess from "node:child_process"
+import http from "node:http"
+import https from "node:https"
+import { syncBuiltinESMExports } from "node:module"
+import net from "node:net"
+
 type Registration = { id: string; methods: string[]; events: string[] }
+
+const sideEffects: string[] = []
+let guarding = true
+const blocked = (name: string) => {
+  if (guarding) {
+    sideEffects.push(name)
+    throw new Error(`${name} is not allowed while loading`)
+  }
+}
+const guard = <T extends object>(owner: T, names: string[], label: string) => {
+  const target = owner as Record<string, unknown>
+  for (const name of names) {
+    const original = target[name]
+    if (typeof original !== "function") continue
+    target[name] = function (this: unknown, ...args: unknown[]) {
+      blocked(`${label}.${name}`)
+      return (original as (...a: unknown[]) => unknown).apply(this, args)
+    }
+  }
+}
+guard(childProcess, ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"], "child_process")
+guard(net, ["connect", "createConnection"], "net")
+guard(net.Server.prototype, ["listen"], "net.Server")
+guard(http, ["request", "get"], "http")
+guard(https, ["request", "get"], "https")
+guard(globalThis, ["fetch"], "globalThis")
+// ESM named imports of builtins see the guarded functions.
+syncBuiltinESMExports()
 
 function inert(): unknown {
   const target = () => {}
@@ -79,6 +115,8 @@ try {
 } catch (error) {
   result.error = String((error as Error)?.message ?? error)
 }
+guarding = false
+result.sideEffects = sideEffects
 process.stdout.write(`${JSON.stringify(result)}\n`)
 // Plugins may leave timers or sockets behind; the result is complete.
 process.exit(0)

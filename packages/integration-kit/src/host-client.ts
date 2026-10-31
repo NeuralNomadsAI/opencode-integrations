@@ -1,4 +1,4 @@
-// Loopback client of the host wire protocol (spec/host-handshake.md): one
+// Loopback client of host wire protocol 1 (spec/host-handshake.md, HST-24): one
 // newline-delimited JSON request per TCP connection, one response line.
 
 import { randomUUID } from "node:crypto"
@@ -10,6 +10,23 @@ export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 export const DEFAULT_HOST_TIMEOUT_MS = 30_000
 
 export type HostEndpoint = { host: string; port: number; token: string }
+
+// Error codes of spec/schemas/host.schema.json; any other code is reported as `internal`.
+export const HOST_ERROR_CODES = [
+  "unauthorized",
+  "invalid_request",
+  "method_not_found",
+  "method_disabled",
+  "invalid_args",
+  "stale_handle",
+  "stale_revision",
+  "expectation_failed",
+  "mode_conflict",
+  "busy",
+  "quarantined",
+  "permission_denied",
+  "internal",
+]
 
 export class HostError extends Error {
   readonly code: string
@@ -70,11 +87,13 @@ export async function requestHost(
         return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       }
       const response = envelope as { id?: unknown; ok?: unknown; result?: unknown; error?: { code?: unknown } }
+      if (response.id !== id) return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       if (response.ok === false) {
-        const code = typeof response.error?.code === "string" ? response.error.code : "internal"
+        const raw = response.error?.code
+        const code = typeof raw === "string" && HOST_ERROR_CODES.includes(raw) ? raw : "internal"
         return finish(new HostError(code, `Host refused the request (${code}).`))
       }
-      if (response.id !== id || response.ok !== true || !("result" in response)) {
+      if (response.ok !== true || !("result" in response)) {
         return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       }
       finish(null, response.result)

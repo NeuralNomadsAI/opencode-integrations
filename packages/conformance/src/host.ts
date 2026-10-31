@@ -1,4 +1,4 @@
-// Host wire protocol 1 (spec/host-handshake.md): a reference fake host for
+// Host wire protocol 1 (spec/host-handshake.md, HST-24): a reference fake host for
 // tests, a raw client, and the listener check (loopback only, token required).
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
@@ -47,8 +47,8 @@ export type FakeHostOptions = {
   capabilities?: Capabilities
   // Extra methods, by name; `hello` is built in.
   methods?: Record<string, (params: Record<string, unknown>) => unknown>
-  // Rewrites the hello result before it is sent (negative tests).
-  helloOverride?: (hello: Record<string, unknown>) => unknown
+  // Rewrites the hello result before it is sent; receives the host's endpoint.
+  helloOverride?: (hello: Record<string, unknown>, endpoint: Endpoint) => unknown
 }
 
 export type FakeHost = {
@@ -89,6 +89,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
   if (options.document !== undefined) hello.document = options.document
   const requests: FakeHost["requests"] = []
   const sockets = new Set<net.Socket>()
+  let endpoint: Endpoint = { host: "127.0.0.1", port: 0, token }
 
   const server = net.createServer((socket) => {
     sockets.add(socket)
@@ -114,7 +115,8 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
       if (!authorized) return reply({ id, ok: false, error: { code: "unauthorized" } })
       const params = (typeof request.params === "object" && request.params) || {}
       try {
-        if (method === "hello") return reply({ id, ok: true, result: options.helloOverride?.(hello) ?? hello })
+        if (method === "hello")
+          return reply({ id, ok: true, result: options.helloOverride?.(hello, endpoint) ?? hello })
         const handler = options.methods?.[method]
         if (!handler) return reply({ id, ok: false, error: { code: "method_not_found" } })
         return reply({ id, ok: true, result: handler(params as Record<string, unknown>) })
@@ -129,9 +131,9 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
     server.once("error", reject)
     server.listen(0, options.listen ?? "127.0.0.1", () => resolve())
   })
-  const address = server.address() as net.AddressInfo
+  endpoint = { host: "127.0.0.1", port: (server.address() as net.AddressInfo).port, token }
   return {
-    endpoint: { host: "127.0.0.1", port: address.port, token },
+    endpoint,
     scriptHandle,
     hello,
     requests,

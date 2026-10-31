@@ -1,4 +1,4 @@
-// Host handshake (spec/host-handshake.md, "hello").
+// Host handshake (spec/host-handshake.md, HST-3 and HST-25).
 
 import { createHash } from "node:crypto"
 
@@ -86,7 +86,7 @@ export function parseHello(value: unknown): Hello | null {
   const capabilities = parseCapabilities(value.capabilities)
   if (!capabilities) return null
   if (typeof capability_hash !== "string" || capability_hash !== capabilityHash(capabilities)) return null
-  if (typeof script_handle !== "string" || script_handle.length > 200 || !HANDLE.test(script_handle)) return null
+  if (typeof script_handle !== "string" || [...script_handle].length > 200 || !HANDLE.test(script_handle)) return null
   if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) return null
   if (document !== undefined && !isDisplayText(document, LABEL_MAX)) return null
   return value as Hello
@@ -96,7 +96,7 @@ export function parseHello(value: unknown): Hello | null {
 // leading version numbers.
 export function appVersionSatisfies(appVersion: string, range: string): boolean {
   const version = semver.coerce(appVersion)
-  return version !== null && semver.satisfies(version, range)
+  return version !== null && semver.satisfies(version, range, { includePrerelease: true })
 }
 
 // ok, outdated (host part older than the range) or incompatible (another
@@ -107,9 +107,11 @@ export function evaluateHello(hello: Hello, expected: HostExpectation): HostComp
   return comparePartVersion(hello.host_version, expected.range)
 }
 
+// Prereleases count like releases: 0.1.1-beta.1 is inside ^0.1.0.
 export function comparePartVersion(version: string, range: string): HostCompatibility {
-  if (semver.satisfies(version, range)) return "ok"
-  return semver.gtr(version, range) ? "incompatible" : "outdated"
+  const options = { includePrerelease: true }
+  if (semver.satisfies(version, range, options)) return "ok"
+  return semver.ltr(version, range, options) ? "outdated" : "incompatible"
 }
 
 export function documentLabel(hello: Hello): string | undefined {

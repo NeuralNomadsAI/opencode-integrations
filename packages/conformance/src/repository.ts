@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { join, posix, relative, sep } from "node:path"
+import { dirname, join, posix, relative, sep } from "node:path"
 
 import semver from "semver"
 
@@ -17,6 +17,8 @@ export const PLUGIN_SDK_PEER_RANGE = "^2.2.0 || ^0.0.0-dev"
 export const PLUGIN_SDK_DEV_VERSION = "2.2.5"
 export const LEGACY_PLUGIN_SDK = "@opencode-ai/plugin"
 export const NPM_KEYWORD = "opencode-integration"
+// Behaviour checks every native integration's tests run (CNF-1).
+export const NATIVE_BEHAVIOUR_CHECKS = ["checkHostListener", "checkCodeExecutionGate", "runSentinelScenario"]
 
 type Marker = {
   spec: 0
@@ -188,7 +190,7 @@ function checkPackage(pkg: IntegrationPackage, errors: string[]) {
 
   if (!json.version || semver.valid(json.version) !== json.version) {
     errors.push(`${label}: "version" must be a semver version`)
-  } else if (marker?.host && !semver.satisfies(json.version, marker.host.range)) {
+  } else if (marker?.host && !semver.satisfies(json.version, marker.host.range, { includePrerelease: true })) {
     // The embedded host part has the package's version.
     errors.push(`${label}: host.range "${marker.host.range}" must contain the embedded host part ${json.version}`)
   }
@@ -250,6 +252,17 @@ export function checkRepository(root: string): RepositoryReport {
 
   const packages = findIntegrationPackages(root)
   for (const pkg of packages) checkPackage(pkg, errors)
+
+  // CNF-1: a native integration's own tests run the behaviour checks against its plugin and host.
+  for (const pkg of packages) {
+    if (pkg.marker?.family !== "native") continue
+    const folder = `${relative(root, dirname(pkg.dir)).split(sep).join(posix.sep)}/`
+    const tests = files.filter((file) => file.startsWith(folder) && /\.test\.[cm]?[jt]s$/.test(file))
+    const text = tests.map((file) => readFileSync(join(root, file), "utf8")).join("\n")
+    for (const check of NATIVE_BEHAVIOUR_CHECKS) {
+      if (!text.includes(check)) errors.push(`${pkg.packageJson.name}: the tests under ${folder} must run ${check}`)
+    }
+  }
 
   for (const field of ["plugin", "rpc"] as const) {
     const owners = new Map<string, string>()

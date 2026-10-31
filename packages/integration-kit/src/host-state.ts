@@ -1,4 +1,4 @@
-// Normative derivation of `status.host` (spec/host-handshake.md, "Host state").
+// Normative derivation of `status.host` (spec/host-handshake.md, HST-4 and HST-5).
 
 import { readFileSync } from "node:fs"
 
@@ -10,7 +10,7 @@ import { comparePartVersion, type HostCompatibility } from "./hello.ts"
 // Result of the read-only inspection of the application's add-on folder.
 export type HostInspection = { kind: "not-inspected" } | { kind: "not-found" } | { kind: "found"; version: string }
 
-export type LiveHello = { compatibility: HostCompatibility; partVersion: string; appVersion: string }
+export type LiveHello = { compatibility: HostCompatibility; partVersion: string; appVersion?: string }
 
 export type HostStateInput = {
   unsupported: boolean

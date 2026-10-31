@@ -12,10 +12,13 @@ import {
   startFakeHost,
 } from "../../conformance/src/index.ts"
 import {
+  appVersionSatisfies,
   capabilityHash,
+  comparePartVersion,
   createIntegrationRpc,
   createOfferRegistry,
   deriveHostState,
+  type HostError,
   type HostExpectation,
   type IntegrationMarker,
   isWslDaemon,
@@ -25,6 +28,7 @@ import {
   parseHello,
   parseWithdrawInput,
   RPC_SCHEMAS,
+  requestHost,
   rpcDefinition,
   sharedOfferRegistry,
 } from "../src/index.ts"
@@ -175,6 +179,8 @@ describe("contract schemas", () => {
       { ...hello, capability_hash: "f".repeat(63) },
       { ...hello, capabilities: { ...(hello.capabilities as object), undo: "maybe" } },
       { ...hello, capabilities: { ...(hello.capabilities as object), extra: 1 } },
+      { ...hello, script_handle: "\u{1F600}".repeat(200) },
+      { ...hello, script_handle: "\u{1F600}".repeat(201) },
     ]
     for (const value of corpus) assert.equal(parseHello(value) !== null, validate(value), JSON.stringify(value))
     assert.equal(parseHello({ ...hello, capability_hash: "f".repeat(64) }), null)
@@ -282,6 +288,20 @@ describe("offer registry", () => {
     assert.equal(registry.binding("ses_1"), null, "the replaced offer's bindings are broken")
   })
 
+  it("drops hello display fields that reveal the script handle or the port", async () => {
+    const host = await fakeHost({
+      scriptHandle: "scene.blend",
+      document: "scene.blend",
+      helloOverride: (hello, endpoint) => ({ ...hello, app_version: `5.2.0 build ${endpoint.port}` }),
+    })
+    const registry = createOfferRegistry({ expected })
+    assert.deepEqual(await registry.advertise(offerOf(host, { label: "Blender session" })), { outcome: "accepted" })
+    const [offer] = registry.hosts().offers
+    assert.equal(offer?.document, undefined)
+    assert.equal(offer?.appVersion, undefined)
+    assert.deepEqual(registry.liveHellos(), [{ compatibility: "ok", partVersion: "0.1.0", appVersion: undefined }])
+  })
+
   it("holds at most 16 offers and marks incompatible hosts", async () => {
     const registry = createOfferRegistry({ expected })
     const host = await fakeHost()
@@ -305,6 +325,47 @@ describe("offer registry", () => {
     const two = sharedOfferRegistry("demo-shared", { expected })
     assert.equal(one, two)
     assert.ok((globalThis as unknown as Record<symbol, unknown>)[key])
+  })
+})
+
+describe("host client and versions", () => {
+  it("reports only error codes of the protocol and checks the envelope ID", async () => {
+    const host = await fakeHost({
+      methods: {
+        leak: () => {
+          throw Object.assign(new Error("x"), { code: "D:\\secret\\path" })
+        },
+        busy: () => {
+          throw Object.assign(new Error("x"), { code: "busy" })
+        },
+      },
+    })
+    await assert.rejects(requestHost(host.endpoint, "leak"), (error: HostError) => {
+      assert.equal(error.code, "internal")
+      assert.doesNotMatch(error.message, /secret/)
+      return true
+    })
+    await assert.rejects(requestHost(host.endpoint, "busy"), (error: HostError) => error.code === "busy")
+    await assert.rejects(requestHost({ ...host.endpoint, host: "localhost" }, "hello"), /127.0.0.1 only/)
+    const wrongID = net.createServer((socket) => {
+      socket.resume()
+      socket.end(`${JSON.stringify({ id: "other", ok: false, error: { code: "busy" } })}\n`)
+    })
+    await new Promise<void>((resolve) => wrongID.listen(0, "127.0.0.1", () => resolve()))
+    hosts.push({ close: () => new Promise((resolve) => wrongID.close(() => resolve())) })
+    const port = (wrongID.address() as net.AddressInfo).port
+    await assert.rejects(requestHost({ ...host.endpoint, port }, "hello"), (error: HostError) => {
+      return error.code === "invalid_response"
+    })
+  })
+
+  it("counts prereleases inside a range and compares application versions by their numbers", () => {
+    assert.equal(comparePartVersion("0.1.1-beta.1", "^0.1.0"), "ok")
+    assert.equal(comparePartVersion("0.0.9", "^0.1.0"), "outdated")
+    assert.equal(comparePartVersion("0.2.0", "^0.1.0"), "incompatible")
+    assert.equal(comparePartVersion("0.2.0-rc.1", "^0.1.0"), "incompatible")
+    assert.equal(appVersionSatisfies("5.2.0 LTS Beta", ">=5.2"), true)
+    assert.equal(appVersionSatisfies("5.1.3", ">=5.2"), false)
   })
 })
 

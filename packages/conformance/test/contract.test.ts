@@ -129,7 +129,8 @@ describe("host listener", () => {
     assert.match(errors, /hello succeeds with a wrong token/)
   })
 
-  it("fails a host reachable outside loopback", { skip: !hasExternalInterface }, async () => {
+  // Listening on every interface raises a firewall prompt on developer machines: CI only.
+  it("fails a host reachable outside loopback", { skip: !process.env.CI || !hasExternalInterface }, async () => {
     const host = await fakeHost({ listen: "0.0.0.0" })
     assert.match((await checkHostListener(host.endpoint)).errors.join("\n"), /reachable on a non-loopback interface/)
   })
@@ -232,7 +233,7 @@ describe("code execution gate", () => {
 
 describe("sentinel scenario", () => {
   // A target that serves the contract but leaks what its host advertised.
-  function leakyTarget(leak: "hosts" | "event") {
+  function leakyTarget(leak: "hosts" | "event" | "hello") {
     const offers: Array<Record<string, unknown>> = []
     const events: Array<{ name: string; data: unknown }> = []
     return {
@@ -242,22 +243,26 @@ describe("sentinel scenario", () => {
         switch (method) {
           case "advertise": {
             const { rawHostRequest } = await import("../src/host.ts")
-            await rawHostRequest(
+            const response = (await rawHostRequest(
               { host: "127.0.0.1", port: value.port as number },
               { id: "x", token: value.token, method: "hello", params: {} },
-            )
+            )) as { result: { document?: string; app_version: string } }
             const known = offers.some((offer) => offer.key === value.offer_key)
-            if (!known) offers.push({ key: value.offer_key, handle: value.script_handle, label: value.label })
+            if (!known) offers.push({ key: value.offer_key, label: value.label, hello: response.result })
             events.push({ name: "hosts_changed", data: leak === "event" ? { script_handle: value.script_handle } : {} })
             return { outcome: known ? "renewed" : "accepted" }
           }
           case "hosts":
             return {
-              offers: offers.map((offer) => ({
-                offerID: "offer_abcdefgh",
-                label: leak === "hosts" ? `${offer.label} ${offer.key}` : offer.label,
-                protocol: "ok",
-              })),
+              offers: offers.map((offer) => {
+                const hello = offer.hello as { document?: string; app_version: string }
+                return {
+                  offerID: "offer_abcdefgh",
+                  label: leak === "hosts" ? `${offer.label} ${offer.key}` : offer.label,
+                  protocol: "ok",
+                  ...(leak === "hello" ? { document: hello.document, appVersion: hello.app_version } : {}),
+                }
+              }),
             }
           case "attachHost":
             return { outcome: "attached" }
@@ -275,13 +280,18 @@ describe("sentinel scenario", () => {
 
   it("fails an output that contains an advertised value", async () => {
     const report = await runSentinelScenario(leakyTarget("hosts"))
-    assert.match(report.errors.join("\n"), /hosts: the output contains the sentinel sentinel-key-/)
+    assert.match(report.errors.join("\n"), /hosts: the output contains the offer_key/)
+  })
+
+  it("fails a plugin that copies the host's document label and application version", async () => {
+    const errors = (await runSentinelScenario(leakyTarget("hello"))).errors.join("\n")
+    assert.match(errors, /hosts: the output contains the script_handle/)
+    assert.match(errors, /hosts: the output contains the port/)
   })
 
   it("fails an event that carries a payload", async () => {
     const errors = (await runSentinelScenario(leakyTarget("event"))).errors.join("\n")
-    assert.match(errors, /event hosts_changed/)
-    assert.match(errors, /SENTINEL-HANDLE-/)
+    assert.match(errors, /event hosts_changed: contains the script_handle/)
   })
 })
 
@@ -350,6 +360,26 @@ export default {
     assert.match((await checkPluginLoad(home)).errors.join("\n"), /writes into the OpenCode configuration/)
     const own = pluginPackage({ setup: `writeFileSync(new URL("../cache.json", import.meta.url), "{}")` })
     assert.match((await checkPluginLoad(own)).errors.join("\n"), /writes into the package \(cache.json\)/)
+  })
+
+  it("fails a plugin that creates a folder in the OpenCode configuration while loading", async () => {
+    const folder = pluginPackage({
+      setup: `mkdirSync(join(process.env.XDG_CONFIG_HOME, "opencode", "skills"), { recursive: true })`,
+    })
+    assert.match((await checkPluginLoad(folder)).errors.join("\n"), /writes into the OpenCode configuration \(skills/)
+  })
+
+  it("fails a plugin that launches a process, listens or fetches while loading", async () => {
+    const spawn = pluginPackage({
+      setup: `const { spawn } = await import("node:child_process"); spawn(process.execPath, ["-e", "0"])`,
+    })
+    assert.match((await checkPluginLoad(spawn)).errors.join("\n"), /side effects \(child_process.spawn\)/)
+    const listen = pluginPackage({
+      setup: `const net = await import("node:net"); net.createServer().listen(0, "127.0.0.1")`,
+    })
+    assert.match((await checkPluginLoad(listen)).errors.join("\n"), /side effects \(net.Server.listen\)/)
+    const fetching = pluginPackage({ setup: `await fetch("http://127.0.0.1:9/")` })
+    assert.match((await checkPluginLoad(fetching)).errors.join("\n"), /side effects \(globalThis.fetch\)/)
   })
 
   it("fails a wrong RPC ID, a status unlike the marker and a missing build", async () => {
@@ -453,6 +483,27 @@ describe("repository rules of draft 0.1", () => {
     const errors = checkRepository(root).errors.join("\n")
     assert.match(errors, /host.range "\^0.1.0" must contain the embedded host part 0.2.0/)
     assert.match(errors, /@neuralnomads\/opencode-other: "version" must be a semver version/)
+  })
+
+  it("fails a native integration whose tests do not run the behaviour checks", () => {
+    const host = {
+      app: "demo",
+      protocol: 1,
+      range: "^0.1.0",
+      appVersions: ">=1",
+      payload: "host/demo/part.zip",
+      sha256: "0".repeat(64),
+    }
+    const nativeMarker = { ...JSON.parse(packageJson()).opencodeIntegration, family: "native", host }
+    const root = repository({
+      "catalog.json": JSON.stringify({ schemaVersion: 1, integrations: [] }),
+      "integrations/demo/plugin/package.json": packageJson({ opencodeIntegration: nativeMarker }),
+      "integrations/demo/test/host.test.ts": "// checkHostListener only\n",
+    })
+    const errors = checkRepository(root).errors.join("\n")
+    assert.doesNotMatch(errors, /must run checkHostListener/)
+    assert.match(errors, /tests under integrations\/demo\/ must run checkCodeExecutionGate/)
+    assert.match(errors, /must run runSentinelScenario/)
   })
 
   it("names the validated draft on the command line", () => {
