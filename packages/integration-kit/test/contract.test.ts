@@ -295,6 +295,18 @@ describe("offer registry", () => {
     assert.equal(registry.binding("ses_1"), null, "the replaced offer's bindings are broken")
   })
 
+  it("checks offer and session IDs itself and gives bindings the host's method table", async () => {
+    const host = await fakeHost({})
+    const registry = createOfferRegistry({ expected })
+    assert.deepEqual(await registry.advertise(offerOf(host, { label: "Blender session" })), { outcome: "accepted" })
+    const offerID = registry.hosts().offers[0]?.offerID as string
+    assert.deepEqual(registry.attach(offerID, "../ses"), { outcome: "refused" })
+    assert.deepEqual(registry.attach("x", "ses_one"), { outcome: "gone" })
+    assert.deepEqual(registry.detach(42 as unknown as string), { outcome: "none" })
+    assert.deepEqual(registry.attach(offerID, "ses_one"), { outcome: "attached" })
+    assert.deepEqual(registry.binding("ses_one")?.methods, ["hello", "context", "apply"])
+  })
+
   it("drops hello display fields that reveal the script handle or the port", async () => {
     const host = await fakeHost({
       scriptHandle: "scene.blend",

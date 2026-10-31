@@ -63,7 +63,7 @@ export {
 export type { MethodRegistry } from "./method-registry.ts"
 export { loadMethodRegistry } from "./method-registry.ts"
 export type { HelloProbe, HostBinding, OfferChange, OfferRegistry, OfferRegistryOptions } from "./offer-registry.ts"
-export { createOfferRegistry, offerRegistryKey, sharedOfferRegistry } from "./offer-registry.ts"
+export { createOfferRegistry, MAX_SESSIONS, offerRegistryKey, sharedOfferRegistry } from "./offer-registry.ts"
 export { errorToMessage, toJson } from "./output.ts"
 export type { ManifestExecutor, ToolContent } from "./plugin-tools.ts"
 export { buildPluginTools, buildToolInput, registerPluginTools } from "./plugin-tools.ts"

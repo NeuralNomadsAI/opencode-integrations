@@ -106,6 +106,22 @@ def _json_safe(value):
     return json.loads(json.dumps(value, default=str))
 
 
+def _digest(params):
+    """The change a command_id names: a replay must name the same one."""
+    change = {key: params.get(key) for key in ("operations", "expect", "summary")}
+    return hashlib.sha256(json.dumps(change, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+class _Deferred(object):
+    __slots__ = ("command_id", "digest", "entry", "args")
+
+    def __init__(self, command_id, digest, entry, args):
+        self.command_id = command_id
+        self.digest = digest
+        self.entry = entry
+        self.args = args
+
+
 class HostCore(object):
     def __init__(self, app, folder=HERE):
         self.app = app
@@ -141,7 +157,11 @@ class HostCore(object):
         if method == "context":
             return self.app.on_main(lambda: self._context(params))
         if method == "apply":
-            return self.app.on_main(lambda: self._apply(params))
+            result = self.app.on_main(lambda: self._apply(params, defer_worker=True))
+            if isinstance(result, _Deferred):
+                # A network-only operation: checked on the main thread, run on this request thread.
+                return self._run_worker(result)
+            return result
         if method == CODE_METHOD:
             # Refused before reaching the main thread unless both settings enable it.
             if not (params.get("code_execution") is True and self.app.code_execution_allowed()):
@@ -232,28 +252,32 @@ class HostCore(object):
         summary = bounded_message(summary)[:80] if isinstance(summary, str) and summary.strip() else None
         return command_id, checked, expect, summary or ", ".join(entry["name"] for entry, _ in checked)[:80]
 
-    def _remember(self, command_id, result):
+    def _remember(self, command_id, digest, result):
         handle = self.app.script_handle()
         if self._commands_handle != handle:
             self._commands.clear()
             self._commands_handle = handle
-        self._commands[command_id] = result
+        self._commands[command_id] = (digest, result)
         while len(self._commands) > MAX_COMMANDS:
             self._commands.popitem(last=False)
 
-    def _replayed(self, command_id):
+    def _replayed(self, command_id, digest):
         if self._commands_handle != self.app.script_handle() or command_id not in self._commands:
             return None
-        result = dict(self._commands[command_id])
+        known, stored = self._commands[command_id]
+        if known != digest:
+            raise HostFailure("invalid_args", "This command_id was already used for another change: use a new one.")
+        result = dict(stored)
         result["replayed"] = True
         return result
 
-    def _apply(self, params):
+    def _apply(self, params, defer_worker=False):
         if self.quarantined:
             raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
         self._check_handle(params)
         command_id, checked, expect, summary = self._validate_apply(params)
-        replay = self._replayed(command_id)
+        digest = _digest(params)
+        replay = self._replayed(command_id, digest)
         if replay is not None:
             return replay
         if params["if_revision"] != self.app.revision():
@@ -265,42 +289,74 @@ class HostCore(object):
             if failures:
                 raise HostFailure("expectation_failed", "; ".join(failures))
             undoable = all(entry.get("undoable") for entry, _ in checked)
+            if not undoable and checked[0][0].get("worker"):
+                deferred = _Deferred(command_id, digest, checked[0][0], checked[0][1])
+                if defer_worker:
+                    return deferred
+                return self._finish_worker(deferred, self._call_worker(deferred, lambda fn: fn()))
             result = self._run(checked, summary) if undoable else self._run_side_effect(checked[0])
-        self._remember(command_id, result)
+        self._remember(command_id, digest, result)
         return result
 
+    def _call_worker(self, deferred, main):
+        try:
+            value = self.app.handler(deferred.entry["execution"]["handler"])(_main=main, **deferred.args)
+            return {"op": deferred.entry["name"], "result": _json_safe(value)}
+        except Exception as error:  # noqa: BLE001
+            return {"op": deferred.entry["name"], "error": bounded_message(error)}
+
+    def _finish_worker(self, deferred, item):
+        output = self._state()
+        if "error" in item:
+            output.update(status="failed", failed_operation=0, op=item["op"], message=item["error"], restored=False,
+                          undoable=False)
+        else:
+            output.update(status="applied", undoable=False, side_effect=deferred.entry.get("sideEffect", ""),
+                          verified=True, results=[item])
+        self._remember(deferred.command_id, deferred.digest, output)
+        return output
+
+    def _run_worker(self, deferred):
+        item = self._call_worker(deferred, self.app.on_main)
+        return self.app.on_main(lambda: self._finish_worker(deferred, item))
+
+    def _restore(self, before, summary):
+        """Model B: push a failure step, then undo once, which returns to the barrier."""
+        try:
+            self.app.undo_push("OpenCode: failed %s" % summary)
+            self.app.undo()
+            return self.app.fingerprint() == before
+        except Exception:  # noqa: BLE001
+            return False
+
     def _run(self, checked, summary):
-        """Rollback model B: barrier step, mutations, one named step; on failure a failure step and one undo."""
+        """Rollback model B: barrier step, mutations, one named step; any failure after the barrier is rolled back."""
         step = "OpenCode: %s" % summary
         before = self.app.fingerprint()
         self.app.undo_push("OpenCode: before %s" % summary)
         results = []
-        for index, (entry, args) in enumerate(checked):
-            try:
+        index = 0
+        try:
+            for index, (entry, args) in enumerate(checked):
                 value = self.app.handler(entry["execution"]["handler"])(**args)
                 results.append({"op": entry["name"], "result": _json_safe(value)})
-            except Exception as error:  # noqa: BLE001 - every failure is rolled back
-                self.app.undo_push("OpenCode: failed %s" % summary)
-                restored = False
-                try:
-                    self.app.undo()
-                    restored = self.app.fingerprint() == before
-                except Exception:  # noqa: BLE001
-                    restored = False
-                if not restored:
-                    self.quarantined = True
-                self.app.bump_revision()
-                output = self._state()
-                output.update(
-                    status="failed",
-                    failed_operation=index,
-                    op=entry["name"],
-                    message=bounded_message(error),
-                    restored=restored,
-                )
-                return output
-        self.app.undo_push(step)
-        self.app.flush()
+            index = len(checked)
+            self.app.undo_push(step)
+            self.app.flush()
+        except Exception as error:  # noqa: BLE001 - every failure after the barrier is rolled back
+            restored = self._restore(before, summary)
+            if not restored:
+                self.quarantined = True
+            self.app.bump_revision()
+            output = self._state()
+            output.update(
+                status="failed",
+                failed_operation=min(index, len(checked) - 1),
+                op=checked[min(index, len(checked) - 1)][0]["name"],
+                message=bounded_message(error),
+                restored=restored,
+            )
+            return output
         self.app.bump_revision()
         output = self._state()
         output.update(status="applied", undo_step=step, verified=self._verify(results), results=results)
@@ -310,13 +366,13 @@ class HostCore(object):
         entry, args = checked
         try:
             value = self.app.handler(entry["execution"]["handler"])(**args)
+            self.app.flush()
         except Exception as error:  # noqa: BLE001
             self.app.bump_revision()
             output = self._state()
             output.update(status="failed", failed_operation=0, op=entry["name"], message=bounded_message(error),
                           restored=False, undoable=False)
             return output
-        self.app.flush()
         self.app.bump_revision()
         output = self._state()
         output.update(
@@ -350,7 +406,7 @@ class HostCore(object):
                 with contextlib.redirect_stdout(capture):
                     exec(compile(code, "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
                 self.app.flush()
-            except Exception as exc:  # noqa: BLE001
+            except BaseException as exc:  # noqa: BLE001 - SystemExit from supplied code must not quit Blender
                 error = bounded_message("%s: %s" % (type(exc).__name__, exc))
             self.app.bump_revision()
         stdout = capture.getvalue()

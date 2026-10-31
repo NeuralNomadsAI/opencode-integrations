@@ -24,9 +24,12 @@ from .node_utils import serialize_node_tree
 from .scene import new_primitive_object
 
 
+HTTP_TIMEOUT = 10
+
+
 def _http_get_json(url, headers=None):
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -121,6 +124,7 @@ def _fetch_blenderkit_asset_data(
     free_only=False,
     geometry_nodes_only=False,
     animated=False,
+    headers=None,
 ):
     search_query = _build_blenderkit_query(
         query=query,
@@ -137,7 +141,7 @@ def _fetch_blenderkit_asset_data(
         + "&dict_parameters=1"
         + f"&page_size={int(page_size)}&page={int(page)}"
     )
-    data = _http_get_json(url, headers=_get_blenderkit_api_headers())
+    data = _http_get_json(url, headers=_get_blenderkit_api_headers() if headers is None else headers)
     results = data.get("results", [])
     return data, results
 
@@ -254,8 +258,12 @@ def search_blenderkit_assets(
     free_only=False,
     geometry_nodes_only=False,
     animated=False,
+    _main=None,
 ):
-    """Search BlenderKit assets using its public search API and local auth headers when available."""
+    """Search BlenderKit assets using its public search API and local auth headers when available.
+
+    Runs off Blender's main thread; `_main` reads the add-on's preferences on it."""
+    headers = (_main or (lambda fn: fn()))(_get_blenderkit_api_headers)
     data, results = _fetch_blenderkit_asset_data(
         query=query,
         asset_type=asset_type,
@@ -264,6 +272,7 @@ def search_blenderkit_assets(
         free_only=free_only,
         geometry_nodes_only=geometry_nodes_only,
         animated=animated,
+        headers=headers,
     )
     return {
         "query": query,
@@ -352,8 +361,9 @@ def get_blenderkit_import_status(asset_base_id=None, asset_id=None):
     }
 
 
-def search_sketchfab_models(query=None, page_size=12, page=1, downloadable=True, animated=None):
-    """Search Sketchfab's public API for downloadable models."""
+def search_sketchfab_models(query=None, page_size=12, page=1, downloadable=True, animated=None, _main=None):
+    """Search Sketchfab's public API for downloadable models (off Blender's main thread)."""
+    del _main
     params = {
         "type": "models",
         "q": query or "",

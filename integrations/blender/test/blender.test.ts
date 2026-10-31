@@ -34,7 +34,7 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       assert.ok(line, run.output().slice(-3000))
       const result = JSON.parse(line.slice("RESULT ".length)) as HostResult
       assert.deepEqual(result.failed, [])
-      assert.equal(result.passed.length, 15)
+      assert.equal(result.passed.length, 19)
       assert.equal(Object.keys(result.coverage).length, 79)
     } finally {
       iso.cleanup()

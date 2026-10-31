@@ -14,5 +14,5 @@ blender_version_min = "5.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
-network = "Loopback connection with the OpenCode service on this computer"
+network = "The OpenCode service on this computer (loopback); the BlenderKit and Sketchfab web APIs when you ask OpenCode to search or import from them"
 files = "Reads the OpenCode service registration and the files named by OpenCode operations"

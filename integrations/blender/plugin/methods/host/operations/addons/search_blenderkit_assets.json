@@ -6,6 +6,7 @@
   "risk": "write",
   "undoable": false,
   "network": true,
+  "worker": true,
   "sideEffect": "Queries the BlenderKit web API.",
   "legacy": "search_blenderkit_assets",
   "args": {

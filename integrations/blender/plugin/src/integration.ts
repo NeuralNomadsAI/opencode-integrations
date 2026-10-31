@@ -46,7 +46,8 @@ export const PERMISSIONS = {
 } as const
 
 const HINTS: Record<string, string> = {
-  stale_handle: "Another document is open in Blender: call blender_context again.",
+  stale_handle:
+    "The script handle is not the open document's: call blender_context for the current one. If this conversation is no longer attached (opening another file in Blender ends the attachment), attach it again with blender_hosts and blender_attach.",
   stale_revision: "The document changed since your last read: call blender_context and use its revision.",
   expectation_failed: "An expect clause does not hold: nothing was changed.",
   mode_conflict: "Blender is not in Object mode: ask the user to leave Edit or Sculpt mode.",
@@ -55,7 +56,10 @@ const HINTS: Record<string, string> = {
     "OpenCode Link stopped accepting changes after a failed restoration: the user must check the scene and press Reset OpenCode Link.",
   method_disabled: "Code execution is disabled.",
   unreachable: "The attached Blender is unreachable: it may have closed or stopped offering the session.",
-  timeout: "Blender did not answer in time.",
+  timeout:
+    "Blender did not answer in time; the change may still complete. Call blender_context, then retry with the same command_id if it did not: a replayed command_id applies nothing twice.",
+  cancelled:
+    "The request was cancelled; a change may still complete in Blender. Call blender_context, then retry with the same command_id if it did not.",
 }
 
 export type BlenderDeps = {
@@ -202,7 +206,10 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   const executeCode = async (args: Record<string, unknown>, context: ToolContext) => {
     if (!codeCapable()) throw new HostError("method_disabled", "Code execution is disabled.")
     const code = String(args.code ?? "")
-    binding(context)
+    // The attached host itself must list the method: nothing is asked when it would be refused.
+    if (!binding(context).methods.includes("execute_code")) {
+      throw new HostError("method_disabled", "Code execution is disabled in the attached Blender.")
+    }
     await assert(context, PERMISSIONS.executeCode, ["*"], { code: code.slice(0, 2000) })
     return await callHost(context, "execute_code", { script_handle: args.script_handle, code, code_execution: true })
   }

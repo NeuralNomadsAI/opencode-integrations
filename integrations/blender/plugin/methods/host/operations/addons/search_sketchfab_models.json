@@ -6,6 +6,7 @@
   "risk": "write",
   "undoable": false,
   "network": true,
+  "worker": true,
   "sideEffect": "Queries the Sketchfab web API.",
   "legacy": "search_sketchfab_models",
   "args": {

@@ -98,7 +98,8 @@ def _offer_changed(prefs, _context):
 
 
 def _service_changed(prefs, _context):
-    # A new target takes effect on the next consent.
+    # A new target or a new code-execution choice needs a new handshake: offer the session afresh
+    # (new token), which also detaches the conversations bound to the previous offer.
     if _session is not None and _session.listener is not None and prefs.offer_session:
         _session.stop()
         _session.start(prefs)
@@ -133,6 +134,7 @@ class OpenCodeLinkPreferences(bpy.types.AddonPreferences):
             "is also on; every run still asks for permission"
         ),
         default=False,
+        update=_service_changed,
     )
 
     def draw(self, context):
@@ -197,6 +199,12 @@ def _on_change(*_args):
 
 
 @persistent
+def _on_save(*_args):
+    if _session is not None:
+        _session.app.saved()
+
+
+@persistent
 def _on_load(*_args):
     if _session is not None:
         _session.app.loaded()
@@ -208,6 +216,7 @@ _HANDLERS = (
     ("undo_post", _on_change),
     ("redo_post", _on_change),
     ("load_post", _on_load),
+    ("save_post", _on_save),
 )
 _CLASSES = (OpenCodeLinkPreferences, OPENCODE_OT_link_reset, VIEW3D_PT_opencode_link)
 

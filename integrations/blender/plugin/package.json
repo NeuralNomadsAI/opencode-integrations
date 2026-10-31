@@ -29,6 +29,7 @@
     "data",
     "host",
     "README.md",
+    "NOTICE.md",
     "LICENSE"
   ],
   "scripts": {
@@ -61,7 +62,7 @@
       "range": "^0.1.0",
       "appVersions": ">=5.2",
       "payload": "host/blender/opencode_link-0.1.0.zip",
-      "sha256": "468a1c9af65d7f8893701d2b29bd369841f2f7570e8546db65c869493bdcffb5"
+      "sha256": "633510e6084dfc1a1af0561978121362ca712ce5e0adbba846be043b74299e89"
     }
   }
 }

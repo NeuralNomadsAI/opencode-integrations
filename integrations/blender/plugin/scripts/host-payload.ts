@@ -34,7 +34,17 @@ function lf(bytes: Buffer): Buffer {
 }
 
 // Fields of a host manifest the add-on needs to validate and run it.
-const HOST_FIELDS = ["name", "description", "undoable", "network", "sideEffect", "capture", "args", "additionalArgs"]
+const HOST_FIELDS = [
+  "name",
+  "description",
+  "undoable",
+  "network",
+  "worker",
+  "sideEffect",
+  "capture",
+  "args",
+  "additionalArgs",
+]
 
 export function catalogBytes(): Buffer {
   const manifests = walk(join(pluginRoot, "methods", "host"))

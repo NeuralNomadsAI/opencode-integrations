@@ -152,7 +152,7 @@ def listener_is_loopback_ephemeral_and_authenticated():
             check(reply and reply["ok"] is False and reply["error"]["code"] == "unauthorized", "refused without the token")
         reply = request(listener.port, dict(base, token=listener.token))["reply"]
         check(reply["ok"] is True and reply["id"] == "t" and reply["result"]["protocol"] == 1, "hello with the token")
-        check("token" not in json.dumps(reply["result"]) or listener.token not in json.dumps(reply), "no token in hello")
+        check(listener.token not in json.dumps(reply), "no token in hello")
     finally:
         listener.close()
     box = request(listener.port, {"id": "t", "token": "x", "method": "hello"}, timeout=1.0)
@@ -425,9 +425,84 @@ def every_read_and_operation_is_exercised():
 # -- captures, the code gate, consent ------------------------------------------------------------
 @test
 def capture_results_carry_image_data():
-    # Background Blender has no screen: the capture helper is exercised on a rendered image instead.
+    # Background Blender has no screen: the encoder of captures runs on a generated PNG instead.
     captures = importlib.import_module(MODULE + ".handlers.captures")
     check("background" in str(_raises(lambda: captures.find_area("VIEW_3D"))), "no capture without the interface")
+    path = os.path.join(SCRATCH, "capture.png")
+    image = bpy.data.images.new("CaptureSource", 64, 32)
+    image.filepath_raw = path
+    image.file_format = "PNG"
+    image.save()
+    bpy.data.images.remove(image)
+    encoded = captures.encode_png(path, 16)
+    data = __import__("base64").b64decode(encoded["image"]["data"])
+    check(encoded["image"]["mime"] == "image/png" and data[:4] == b"\x89PNG", "PNG image data")
+    check((encoded["width"], encoded["height"]) == (16, 8), "scaled to max_size")
+
+
+@test
+def network_searches_run_off_the_main_thread():
+    addons_module = importlib.import_module(MODULE + ".handlers.addons")
+    original = addons_module._http_get_json
+    threads = []
+
+    def fake(url, headers=None):
+        threads.append(threading.current_thread() is threading.main_thread())
+        return {"results": [{"name": "Chair", "uid": "u2"}]}
+
+    addons_module._http_get_json = fake
+    try:
+        params = dict(state(), command_id="worker-1", operations=[op("addons.search_sketchfab_models", query="chair")])
+        result = {}
+        thread = threading.Thread(target=lambda: result.update(core.handle("apply", params)))
+        thread.start()
+        while thread.is_alive():
+            addon.pump(0.05)
+        check(result.get("status") == "applied", "search applied: %s" % result.get("message"))
+        check(threads == [False], "the network call ran off the main thread")
+        check(core._apply(params).get("replayed") is True, "a worker result is remembered")
+    finally:
+        addons_module._http_get_json = original
+
+
+@test
+def a_command_id_names_one_change():
+    params = dict(state(), command_id="digest-1", operations=[op("scene.create_object", primitive="EMPTY", name="Digest")])
+    check(core._apply(params)["status"] == "applied", "first apply")
+    other = dict(params, if_revision=app.revision(), operations=[op("scene.delete_object", name="Digest")])
+    check(code_of(lambda: core._apply(other)) == "invalid_args", "another change under the same command_id is refused")
+    check("Digest" in objects(), "nothing applied")
+
+
+@test
+def a_failure_after_the_operations_is_rolled_back_too():
+    user_step("UserFlush")
+    before = objects()
+    original = app.undo_push
+
+    def push(message):
+        if message == "OpenCode: late failure":
+            raise RuntimeError("no window for the undo step")
+        original(message)
+
+    app.undo_push = push
+    try:
+        result = apply([op("scene.create_object", primitive="EMPTY", name="Late")], summary="late failure")
+    finally:
+        app.undo_push = original
+    check(result["status"] == "failed" and result["restored"] is True, "reported and restored: %s" % result)
+    check(objects() == before, "the change is gone")
+    check(not core.quarantined, "no quarantine after a successful restoration")
+
+
+@test
+def supplied_code_cannot_quit_blender():
+    prefs.allow_code_execution = True
+    try:
+        result = core.handle("execute_code", {"script_handle": app.script_handle(), "code": "raise SystemExit(3)", "code_execution": True})
+        check(result["status"] == "failed" and "SystemExit" in result["message"], "SystemExit caught")
+    finally:
+        prefs.allow_code_execution = False
 
 
 def _raises(fn):

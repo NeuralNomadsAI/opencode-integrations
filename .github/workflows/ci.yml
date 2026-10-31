@@ -40,6 +40,7 @@ jobs:
   blender:
     name: Blender host tests (Blender ${{ matrix.blender }}, background)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         include:

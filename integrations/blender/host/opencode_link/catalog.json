@@ -550,6 +550,7 @@
       "description": "Search BlenderKit assets using its public search API and local auth headers when available.",
       "undoable": false,
       "network": true,
+      "worker": true,
       "sideEffect": "Queries the BlenderKit web API.",
       "args": {
         "query": {
@@ -589,6 +590,7 @@
       "description": "Search Sketchfab's public API for downloadable models.",
       "undoable": false,
       "network": true,
+      "worker": true,
       "sideEffect": "Queries the Sketchfab web API.",
       "args": {
         "query": {

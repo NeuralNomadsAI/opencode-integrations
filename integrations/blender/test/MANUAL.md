@@ -38,7 +38,7 @@ The same steps without questions: a startup script ticks the consent, and the dr
 
 ## Quarantine
 
-A failed restoration cannot be provoked from the interface; the background host tests cover it (`a_failed_restoration_quarantines_the_host`). To see the interface state, run `blender_apply` against a scene while a modal operator blocks undo, or trust the background test: the sidebar shows "Quarantined" and **Reset OpenCode Link** clears it.
+A failed restoration cannot be provoked from the interface: a modal operator only makes the add-on answer `busy`. The background host test `a_failed_restoration_quarantines_the_host` covers it by making the undo fail. In the interface, the quarantine shows as "Quarantined" in the sidebar, and **Reset OpenCode Link** clears it.
 
 ## Last recorded result
 

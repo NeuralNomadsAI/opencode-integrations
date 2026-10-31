@@ -71,6 +71,8 @@ class BlenderApp(object):
         self._handle = new_script_handle()
         self._main = threading.main_thread()
         self.background = bool(bpy.app.background)
+        # Read on the main thread only; the advertiser thread reads this copy.
+        self._document = self._read_document()
 
     # -- identity and state ---------------------------------------------------------------------
     def app_version(self):
@@ -82,9 +84,21 @@ class BlenderApp(object):
     def revision(self):
         return self._revision
 
-    def document(self):
-        path = bpy.data.filepath
+    @staticmethod
+    def _read_document():
+        # bpy.data is restricted while add-ons register.
+        path = getattr(bpy.data, "filepath", "")
         return os.path.basename(path) if path else None
+
+    def document(self):
+        # Refreshed on the main thread; other threads (the advertiser) read the last copy.
+        if threading.current_thread() is self._main:
+            self._document = self._read_document()
+        return self._document
+
+    def saved(self):
+        """save_post handler: the document's file name may have changed."""
+        self._document = self._read_document()
 
     def mode(self):
         return bpy.context.mode or "OBJECT"
@@ -103,6 +117,7 @@ class BlenderApp(object):
     def loaded(self):
         """A new document: new handle, new revision."""
         self._handle = new_script_handle()
+        self._document = self._read_document()
         self._revision += 1
 
     @contextlib.contextmanager

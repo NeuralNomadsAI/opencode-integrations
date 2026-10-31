@@ -30,10 +30,18 @@ def capture_area(area, max_size, fit_all=False):
     # A private folder: the capture never lands in the shared temporary folder.
     folder = tempfile.mkdtemp(prefix="opencode-link-")
     path = os.path.join(folder, "capture.png")
-    image = None
     try:
         with bpy.context.temp_override(area=area):
             bpy.ops.screen.screenshot_area(filepath=path)
+        return encode_png(path, max_size)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def encode_png(path, max_size):
+    """A PNG file scaled to max_size pixels at most, as image data for an attachment."""
+    image = None
+    try:
         image = bpy.data.images.load(path)
         width, height = image.size
         limit = max(16, int(max_size))
@@ -47,5 +55,4 @@ def capture_area(area, max_size, fit_all=False):
     finally:
         if image is not None:
             bpy.data.images.remove(image)
-        shutil.rmtree(folder, ignore_errors=True)
     return {"width": width, "height": height, "image": {"mime": "image/png", "data": data}}

@@ -36,6 +36,7 @@ Open the **Integrations** extension: it lists OpenCode for Blender, shows whethe
 
 - **Discovery and consent.** While "Offer this session to OpenCode" is ticked, the add-on listens on `127.0.0.1` on a random port with a random 256-bit token kept in memory, and offers the session to every OpenCode service registered for your user (or to one, see the add-on setting _OpenCode service_). Offers last 15 seconds and are renewed every 5 seconds; unticking the setting withdraws them and closes the listener.
 - **Tools.** `blender_context` reads the document (script handle, revision, mode, and named reads); `blender_apply` applies up to 50 operations with the exact revision and a new `command_id`, after checking its `expect` clauses; `blender_catalog` lists the 30 reads and 49 operations; `blender_docs` searches the Blender API reference and manual (no Blender needed); `blender_audit` summarizes a `.blend` file with a separate background Blender; `blender_status`, `blender_hosts`, `blender_attach`, `blender_detach`, `blender_install_host`.
+- **Attachment and documents.** Opening another file in Blender gives it a new script handle: the offer is replaced and the conversation is detached, so attach it again (`blender_hosts`, `blender_attach`).
 - **Undo.** Each apply is **one** undo step named "OpenCode: …". A failed apply is rolled back to the step before it; when the rollback itself fails, the add-on quarantines itself and refuses changes until you press **Reset OpenCode Link**.
 - **Images.** Viewport, node editor and shader editor captures come back as image attachments. They need the Blender interface.
 - **Skills.** `blender-scene`, `blender-geometry-nodes`, `blender-shader-editor`, `blender-asset-browser`, `blender-animation`, `blender-shot-manager`, `blender-docs`, `blender-audit`. A skill of yours with the same name wins.
@@ -76,7 +77,8 @@ All are "ask" unless your OpenCode permission rules say otherwise.
 - The rollback undoes once to a barrier step pushed before the apply. It is fragile: it needs a window context, invalidates Python references, and you can act during the call; hence the quarantine on failure.
 - Edit mode has its own undo stack: changes outside Object mode are refused (`mode_conflict`).
 - A new step clears the redo stack, as usual. Repeated applies consume Blender's undo limit (32 steps by default), and each memfile step costs in proportion to the scene.
-- Timers do not run during a modal operator or a blocking render: the add-on answers `busy` after 10 seconds instead of waiting.
+- Timers do not run during a modal operator or a blocking render: the add-on answers `busy` after 10 seconds instead of waiting. A request that times out on the OpenCode side may still complete in Blender: read the context, then retry with the same `command_id`, which never applies twice.
+- BlenderKit and Sketchfab searches run off Blender's main thread (10-second limit); imports from them start inside those add-ons, which finish them asynchronously.
 
 ## Earlier installation
 
@@ -97,6 +99,6 @@ Tests live in [`../test`](../test): `BLENDER_TEST_BIN` runs the host tests in a 
 
 ## Licence and trademarks
 
-The plugin is MIT. The embedded **OpenCode Link** add-on is GPL-3.0-or-later, like Blender add-ons; the bundled documentation keeps its own licence ([`data/blender_docs/SOURCE.json`](data/blender_docs/SOURCE.json)).
+The plugin is MIT. The embedded **OpenCode Link** add-on is GPL-3.0-or-later, like Blender add-ons, with its licence text in the archive; the bundled documentation keeps its own licence ([`data/blender_docs/SOURCE.json`](data/blender_docs/SOURCE.json)). See [`NOTICE.md`](NOTICE.md).
 
 Blender is a trademark of the Blender Foundation. This project is not affiliated with, endorsed by or sponsored by the Blender Foundation or OpenCode.
