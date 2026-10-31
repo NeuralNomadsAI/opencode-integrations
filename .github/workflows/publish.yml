@@ -1,0 +1,101 @@
+name: Publish an integration to npm
+
+# Started by hand only. The publish job waits for the protected `npm-publish`
+# environment, so nothing reaches npm without a maintainer's approval.
+on:
+  workflow_dispatch:
+    inputs:
+      integration:
+        description: Integration ID (the <app> of @neuralnomads/opencode-<app>)
+        required: true
+        type: string
+      dist-tag:
+        description: npm dist-tag
+        required: true
+        type: choice
+        default: next
+        options: [next, latest]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ inputs.integration }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify ${{ inputs.integration }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - id: package
+        name: Resolve the package
+        env:
+          INTEGRATION: ${{ inputs.integration }}
+        run: |
+          [[ "$INTEGRATION" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || { echo "::error::invalid integration ID"; exit 1; }
+          test -f "integrations/$INTEGRATION/plugin/package.json" || { echo "::error::no package for $INTEGRATION"; exit 1; }
+          echo "version=$(node -p "require('./integrations/$INTEGRATION/plugin/package.json').version")" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:markers
+      - run: npm run build
+      - name: Full trace scan
+        env:
+          TRACE_SCAN_FINGERPRINTS: ${{ secrets.TRACE_SCAN_FINGERPRINTS }}
+        run: node scripts/trace-scan.ts --tree --packs --history --require-fingerprints
+
+  publish:
+    name: Publish ${{ inputs.integration }}@${{ needs.verify.outputs.version }}
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      # Trusted publishing (OIDC): no npm token exists; provenance is attached.
+      - name: Publish
+        env:
+          INTEGRATION: ${{ inputs.integration }}
+          DIST_TAG: ${{ inputs.dist-tag }}
+        run: npm publish --workspace "integrations/$INTEGRATION/plugin" --provenance --access public --tag "$DIST_TAG"
+      - id: payload
+        name: Locate the host payload
+        env:
+          INTEGRATION: ${{ inputs.integration }}
+        run: |
+          payload=$(node -p "require('./integrations/$INTEGRATION/plugin/package.json').opencodeIntegration.host?.payload ?? ''")
+          echo "path=${payload:+integrations/$INTEGRATION/plugin/$payload}" >> "$GITHUB_OUTPUT"
+      - if: steps.payload.outputs.path != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.payload.outputs.path }}
+      - name: Create the integration release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.integration }}-v${{ needs.verify.outputs.version }}
+          PAYLOAD: ${{ steps.payload.outputs.path }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes --latest=false ${PAYLOAD:+"$PAYLOAD"}

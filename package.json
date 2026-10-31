@@ -1,0 +1,28 @@
+{
+  "name": "opencode-integrations",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "workspaces": [
+    "packages/*",
+    "integrations/*/plugin"
+  ],
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts",
+    "build": "npm run build --workspaces --if-present",
+    "test": "node --test \"packages/*/test/**/*.test.ts\" \"scripts/test/**/*.test.ts\"",
+    "check:markers": "node packages/conformance/src/cli.ts",
+    "scan": "node scripts/trace-scan.ts --tree --packs",
+    "scan:history": "node scripts/trace-scan.ts --history"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

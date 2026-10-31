@@ -1,0 +1,14 @@
+{
+  "name": "@neuralnomads/integration-conformance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repository conformance checks for OpenCode integrations: markers, catalog, packaging.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  }
+}

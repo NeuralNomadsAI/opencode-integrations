@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:markers
+      - run: npm run build
+
+  trace-scan:
+    name: Trace scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Fork pull requests get no secrets: their scan is partial (every pattern but the Entra GUIDs).
+      - name: Scan tree, archives, npm pack tarballs and history
+        env:
+          TRACE_SCAN_FINGERPRINTS: ${{ secrets.TRACE_SCAN_FINGERPRINTS }}
+        run: |
+          if [ -z "$TRACE_SCAN_FINGERPRINTS" ]; then
+            echo "::warning title=Partial trace scan::TRACE_SCAN_FINGERPRINTS is not available; known Entra GUIDs were not checked."
+          fi
+          node scripts/trace-scan.ts --tree --packs --history

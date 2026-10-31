@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.tgz
+.trace-scan/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.DS_Store
