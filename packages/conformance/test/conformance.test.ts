@@ -10,6 +10,7 @@ import {
   CATALOG_MAX_BYTES,
   checkCatalogBytes,
   checkRepository,
+  hostPartLicense,
   validateCatalogSchema,
   validateMarkerSchema,
 } from "../src/index.ts"
@@ -76,7 +77,60 @@ function catalogEntry(id: string, overrides: Record<string, unknown> = {}) {
   }
 }
 
-type Fixture = { packages?: Record<string, unknown>; catalog?: unknown; files?: Record<string, string> }
+// A ZIP archive of stored entries.
+function zip(entries: Record<string, string>) {
+  const locals: Buffer[] = []
+  const centrals: Buffer[] = []
+  let offset = 0
+  for (const [name, text] of Object.entries(entries)) {
+    const data = Buffer.from(text)
+    const nameBytes = Buffer.from(name)
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt32LE(data.length, 18)
+    local.writeUInt32LE(data.length, 22)
+    local.writeUInt16LE(nameBytes.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt32LE(data.length, 20)
+    central.writeUInt32LE(data.length, 24)
+    central.writeUInt16LE(nameBytes.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(local, nameBytes, data)
+    centrals.push(central, nameBytes)
+    offset += 30 + nameBytes.length + data.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(Object.keys(entries).length, 8)
+  end.writeUInt16LE(Object.keys(entries).length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  return Buffer.concat([...locals, directory, end])
+}
+
+const GPL3_TEXT = "                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n"
+const gplPart = (overrides: Record<string, string> = {}) =>
+  zip({
+    LICENSE: GPL3_TEXT,
+    "__init__.py": "# SPDX-License-Identifier: GPL-3.0-or-later\n",
+    "blender_manifest.toml": 'license = ["SPDX:GPL-3.0-or-later"]\n',
+    ...overrides,
+  })
+
+// A package embedding the given payload, its marker digest matching.
+function withPayload(id: string, payload: Buffer, overrides: Record<string, unknown> = {}) {
+  const host = { ...marker(id).host, sha256: createHash("sha256").update(payload).digest("hex") }
+  return packageJson(id, { opencodeIntegration: marker(id, { host }), ...overrides })
+}
+
+type Fixture = {
+  packages?: Record<string, unknown>
+  payloads?: Record<string, Buffer>
+  catalog?: unknown
+  files?: Record<string, string>
+}
 
 function repository(fixture: Fixture = {}) {
   const root = mkdtempSync(join(tmpdir(), "conformance-"))
@@ -89,7 +143,7 @@ function repository(fixture: Fixture = {}) {
   write("catalog.json", JSON.stringify(fixture.catalog ?? { schemaVersion: 1, integrations: [] }))
   for (const [dir, json] of Object.entries(fixture.packages ?? {})) {
     write(`integrations/${dir}/plugin/package.json`, JSON.stringify(json))
-    write(`integrations/${dir}/plugin/host/${dir}/part-0.1.0.zip`, payloadBytes)
+    write(`integrations/${dir}/plugin/host/${dir}/part-0.1.0.zip`, fixture.payloads?.[dir] ?? payloadBytes)
   }
   for (const [file, content] of Object.entries(fixture.files ?? {})) write(file, content)
   execFileSync("git", ["init", "-q"], { cwd: root })
@@ -98,6 +152,12 @@ function repository(fixture: Fixture = {}) {
 
 function errorsOf(fixture: Fixture) {
   return checkRepository(repository(fixture)).errors.join("\n")
+}
+
+function licenseErrorsOf(fixture: Fixture) {
+  return checkRepository(repository(fixture))
+    .errors.filter((error) => error.includes('"license"'))
+    .join("\n")
 }
 
 describe("repository conformance", () => {
@@ -145,6 +205,61 @@ describe("repository conformance", () => {
       errorsOf({ packages: { demo: packageJson("demo", { opencodeIntegration: wrong }) } }),
       /sha256 does not match/,
     )
+  })
+
+  it("requires MIT AND GPL-3.0-or-later exactly when the embedded host part is GPL-3.0-or-later", () => {
+    const gpl = "MIT AND GPL-3.0-or-later"
+    const payload = gplPart()
+    assert.equal(hostPartLicense(payload), "GPL-3.0-or-later")
+    assert.equal(
+      licenseErrorsOf({
+        packages: { demo: withPayload("demo", payload, { license: gpl }) },
+        payloads: { demo: payload },
+      }),
+      "",
+    )
+    assert.match(
+      licenseErrorsOf({ packages: { demo: withPayload("demo", payload) }, payloads: { demo: payload } }),
+      /"license" must be "MIT AND GPL-3.0-or-later": the embedded host part is GPL-3.0-or-later/,
+    )
+    for (const license of ["GPL-3.0-or-later AND MIT", "MIT OR GPL-3.0-or-later", "(MIT AND GPL-3.0-or-later)"]) {
+      assert.match(
+        licenseErrorsOf({ packages: { demo: withPayload("demo", payload, { license }) }, payloads: { demo: payload } }),
+        /"license" must be "MIT AND GPL-3.0-or-later"/,
+        license,
+      )
+    }
+  })
+
+  it("keeps requiring MIT when no GPL-3.0-or-later host part is embedded", () => {
+    const gpl = "MIT AND GPL-3.0-or-later"
+    const mustBeMit = /"license" must be "MIT" \(only a package embedding/
+    // A host payload that is no archive, and a package without a host part.
+    assert.match(licenseErrorsOf({ packages: { demo: packageJson("demo", { license: gpl }) } }), mustBeMit)
+    const { host: _, ...api } = marker("demo", { family: "api" })
+    assert.match(
+      licenseErrorsOf({ packages: { demo: packageJson("demo", { license: gpl, opencodeIntegration: api }) } }),
+      mustBeMit,
+    )
+    // Archives that do not establish GPL-3.0-or-later.
+    const notGpl = {
+      "no LICENSE": zip({ "__init__.py": "# SPDX-License-Identifier: GPL-3.0-or-later\n" }),
+      "GPL-2 text": gplPart({ LICENSE: "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n" }),
+      "no SPDX declaration": zip({ LICENSE: GPL3_TEXT, "__init__.py": "\n" }),
+      "GPL-3.0-only": gplPart({ "__init__.py": "# SPDX-License-Identifier: GPL-3.0-only\n" }),
+      "a second licence": gplPart({ "vendor.py": "# SPDX-License-Identifier: Apache-2.0\n" }),
+      "BSD part": zip({ LICENSE: "BSD 3-Clause License\n", "a.py": "# SPDX-License-Identifier: BSD-3-Clause\n" }),
+    }
+    for (const [label, payload] of Object.entries(notGpl)) {
+      assert.equal(hostPartLicense(payload), null, label)
+      const errors = (license?: string) =>
+        licenseErrorsOf({
+          packages: { demo: withPayload("demo", payload, license ? { license } : {}) },
+          payloads: { demo: payload },
+        })
+      assert.equal(errors(), "", label)
+      assert.match(errors(gpl), mustBeMit, label)
+    }
   })
 
   it("fails two integrations sharing a plugin or rpc ID", () => {

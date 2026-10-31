@@ -7,7 +7,7 @@ Reusable conformance checks of the OpenCode integrations specification, **draft 
 - every `integrations/<app>/plugin/package.json` has a marker valid against `spec/schemas/marker.schema.json`, whose `id` is the `<app>` of `@neuralnomads/opencode-<app>` and whose `plugin` and `rpc` are `neuralnomads.<app>`;
 - the host payload of a `native` marker exists and matches its `sha256`, and `host.range` contains the package version (the embedded host part's version);
 - no two integrations share a plugin or RPC ID;
-- packaging: semver version, ESM, MIT, `files`, the `opencode-integration` keyword, the optional `@opencode/plugin` peer `^2.2.0 || ^0.0.0-dev`, the `2.2.5` dev pin, no SDK or `effect` runtime dependency, no install script;
+- packaging: semver version, ESM, the licence `MIT`, or exactly `MIT AND GPL-3.0-or-later` when the embedded host payload is GPL-3.0-or-later (its root `LICENSE` is the GPL version 3 text and its only SPDX declaration is `GPL-3.0-or-later`), `files`, the `opencode-integration` keyword, the optional `@opencode/plugin` peer `^2.2.0 || ^0.0.0-dev`, the `2.2.5` dev pin, no SDK or `effect` runtime dependency, no install script;
 - method manifests (`methods/**.json`): at most one `dangerous` method, named `<app>_execute_code` with risk `destructive`, and no other method named like code execution;
 - skills are named `<app>-<topic>` and start with a front-matter header (`name`, `description`);
 - CNF-1: the tests under `integrations/<app>/` of a `native` integration import `checkHostListener`, `checkCodeExecutionGate` and `runSentinelScenario` from the conformance package, by name or through a namespace import that uses them (comments do not count);
