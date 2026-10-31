@@ -1,0 +1,32 @@
+{
+  "name": "shader.add_shader_node_group_socket",
+  "domain": "shader",
+  "description": "Add an interface socket to a shader node group.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "add_shader_node_group_socket",
+  "args": {
+    "group_name": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "in_out": {
+      "type": "string",
+      "default": "INPUT"
+    },
+    "socket_type": {
+      "type": "string",
+      "default": "NodeSocketFloat"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.add_shader_node_group_socket"
+  }
+}

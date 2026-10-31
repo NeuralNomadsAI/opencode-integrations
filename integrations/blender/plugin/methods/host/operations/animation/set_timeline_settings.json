@@ -1,0 +1,28 @@
+{
+  "name": "animation.set_timeline_settings",
+  "domain": "animation",
+  "description": "Set timeline range and playback FPS.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_timeline_settings",
+  "args": {
+    "frame_start": {
+      "type": "integer"
+    },
+    "frame_end": {
+      "type": "integer"
+    },
+    "frame_current": {
+      "type": "integer"
+    },
+    "fps": {
+      "type": "integer"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "animation.set_timeline_settings"
+  }
+}

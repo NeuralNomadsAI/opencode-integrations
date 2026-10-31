@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "opencode_link"
+version = "0.1.0"
+name = "OpenCode Link"
+tagline = "Lets OpenCode work on this Blender session"
+maintainer = "NeuralNomads"
+type = "add-on"
+website = "https://github.com/NeuralNomadsAI/opencode-integrations"
+tags = ["Pipeline", "System"]
+
+blender_version_min = "5.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+network = "The OpenCode service on this computer (loopback); the BlenderKit and Sketchfab web APIs when you ask OpenCode to search or import from them"
+files = "Reads the OpenCode service registration and the files named by OpenCode operations"

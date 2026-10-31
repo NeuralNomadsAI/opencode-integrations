@@ -1,0 +1,19 @@
+{
+  "name": "shot_manager.get_shot_details",
+  "domain": "shot_manager",
+  "description": "Get detailed info about a specific shot.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_shot_details",
+  "args": {
+    "shot_name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shot_manager.get_shot_details"
+  }
+}

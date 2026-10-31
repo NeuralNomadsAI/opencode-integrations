@@ -1,0 +1,21 @@
+{
+  "name": "scene.delete_object",
+  "domain": "scene",
+  "description": "Delete one object by exact Blender name.",
+  "kind": "host-operation",
+  "risk": "destructive",
+  "undoable": true,
+  "legacy": "delete_object",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact Blender object name to remove."
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "scene.delete_object"
+  }
+}

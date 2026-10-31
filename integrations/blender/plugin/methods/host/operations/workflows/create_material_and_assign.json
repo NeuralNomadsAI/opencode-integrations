@@ -1,0 +1,90 @@
+{
+  "name": "workflows.create_material_and_assign",
+  "domain": "workflows",
+  "description": "Create a templated material, optionally assign it to an object, and optionally mark it as an asset.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_material_and_assign",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Material name to create."
+    },
+    "template_name": {
+      "type": "string",
+      "description": "High-level shader template identifier.",
+      "default": "principled_pbr"
+    },
+    "object_name": {
+      "type": "string",
+      "description": "Optional target object name for immediate assignment."
+    },
+    "slot_index": {
+      "type": "integer",
+      "description": "Optional material slot index for assignment.",
+      "default": 0
+    },
+    "mark_as_asset": {
+      "type": "boolean",
+      "description": "Whether to mark the created material as an asset after creation.",
+      "default": false
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional asset description used when mark_as_asset is true."
+    },
+    "author": {
+      "type": "string",
+      "description": "Optional asset author used when mark_as_asset is true."
+    },
+    "tags": {
+      "type": "array",
+      "description": "Optional asset tags used when mark_as_asset is true.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "base_color": {
+      "type": "array",
+      "description": "Optional RGBA color override as [r, g, b, a].",
+      "items": {
+        "type": "number"
+      }
+    },
+    "roughness": {
+      "type": "number",
+      "description": "Optional roughness override in the 0-1 range."
+    },
+    "metallic": {
+      "type": "number",
+      "description": "Optional metallic override in the 0-1 range."
+    },
+    "transmission": {
+      "type": "number",
+      "description": "Optional transmission override in the 0-1 range."
+    },
+    "emission_color": {
+      "type": "array",
+      "description": "Optional emission color override as [r, g, b, a].",
+      "items": {
+        "type": "number"
+      }
+    },
+    "emission_strength": {
+      "type": "number",
+      "description": "Optional emission strength override."
+    },
+    "alpha": {
+      "type": "number",
+      "description": "Optional alpha override in the 0-1 range."
+    }
+  },
+  "additionalArgs": true,
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "workflows.create_material_and_assign"
+  }
+}

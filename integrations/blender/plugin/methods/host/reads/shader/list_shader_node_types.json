@@ -1,0 +1,18 @@
+{
+  "name": "shader.list_shader_node_types",
+  "domain": "shader",
+  "description": "List available shader node types. Optionally filter by keyword.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_shader_node_types",
+  "args": {
+    "filter": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shader.list_shader_node_types"
+  }
+}

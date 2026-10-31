@@ -1,0 +1,26 @@
+{
+  "name": "shader.create_material",
+  "domain": "shader",
+  "description": "Create a new material, optionally with nodes enabled.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_material",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact material name to create."
+    },
+    "use_nodes": {
+      "type": "boolean",
+      "description": "Whether the material should use a shader node tree.",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.create_material"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "assets.list_blend_file_assets",
+  "domain": "assets",
+  "description": "Inspect a .blend library file and list its importable datablocks.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_blend_file_assets",
+  "args": {
+    "filepath": {
+      "type": "string",
+      "required": true
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "asset_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "assets.list_blend_file_assets"
+  }
+}

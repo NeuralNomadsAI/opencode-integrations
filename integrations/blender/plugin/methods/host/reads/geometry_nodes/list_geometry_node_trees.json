@@ -1,0 +1,14 @@
+{
+  "name": "geometry_nodes.list_geometry_node_trees",
+  "domain": "geometry_nodes",
+  "description": "List all geometry node trees in the file.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_geometry_node_trees",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "geometry_nodes.list_geometry_node_trees"
+  }
+}

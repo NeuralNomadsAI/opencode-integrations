@@ -1,0 +1,17 @@
+{
+  "name": "blender_attach",
+  "domain": "tools",
+  "description": "Attach an offered Blender session (an offerID from blender_hosts) to this conversation, so that blender_context and blender_apply act on its document. Asks permission.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {
+    "offerID": {
+      "type": "string",
+      "required": true,
+      "description": "From blender_hosts."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

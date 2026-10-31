@@ -1,0 +1,36 @@
+{
+  "name": "geometry_nodes.disconnect_geometry_nodes",
+  "domain": "geometry_nodes",
+  "description": "Remove a specific link between two nodes.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "disconnect_geometry_nodes",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "from_node": {
+      "type": "string",
+      "required": true
+    },
+    "from_socket": {
+      "type": "string",
+      "required": true
+    },
+    "to_node": {
+      "type": "string",
+      "required": true
+    },
+    "to_socket": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.disconnect_geometry_nodes"
+  }
+}

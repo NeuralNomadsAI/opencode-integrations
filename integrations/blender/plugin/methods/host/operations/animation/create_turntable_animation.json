@@ -1,0 +1,40 @@
+{
+  "name": "animation.create_turntable_animation",
+  "domain": "animation",
+  "description": "Create a simple turntable rotation animation on an object.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_turntable_animation",
+  "args": {
+    "object_name": {
+      "type": "string",
+      "required": true
+    },
+    "frame_start": {
+      "type": "integer",
+      "default": 1
+    },
+    "frame_end": {
+      "type": "integer",
+      "default": 72
+    },
+    "turns": {
+      "type": "number",
+      "default": 1.0
+    },
+    "axis": {
+      "type": "string",
+      "default": "Z"
+    },
+    "interpolation": {
+      "type": "string",
+      "default": "LINEAR"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "animation.create_turntable_animation"
+  }
+}

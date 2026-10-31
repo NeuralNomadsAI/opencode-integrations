@@ -1,0 +1,32 @@
+{
+  "name": "geometry_nodes.add_node_tree_socket",
+  "domain": "geometry_nodes",
+  "description": "Add an interface socket (exposed input or output) to a GN tree.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "add_node_tree_socket",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "in_out": {
+      "type": "string",
+      "default": "INPUT"
+    },
+    "socket_type": {
+      "type": "string",
+      "default": "NodeSocketFloat"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.add_node_tree_socket"
+  }
+}

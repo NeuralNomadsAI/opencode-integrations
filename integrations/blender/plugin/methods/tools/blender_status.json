@@ -1,0 +1,11 @@
+{
+  "name": "blender_status",
+  "domain": "tools",
+  "description": "Report the integration state: add-on installed and compatible, offered sessions, attached conversations, earlier installation found.",
+  "kind": "hostless",
+  "risk": "read",
+  "args": {},
+  "execution": {
+    "strategy": "plugin"
+  }
+}

@@ -26,11 +26,14 @@ export function buildToolInput(args: Record<string, MethodArgManifest> = {}): Js
   }
 }
 
+// Text, or content parts: attachments such as images travel as { type: "file", uri, mime }.
+export type ToolContent = { type: "text"; text: string } | { type: "file"; uri: string; mime: string; name?: string }
+
 export type ManifestExecutor = (
   manifest: MethodManifest,
   args: Record<string, unknown>,
   context: ToolContext,
-) => Promise<string>
+) => Promise<string | ToolContent[]>
 
 // Tool names in manifests carry the namespace prefix (`<app>_`); the editor
 // adds the namespace back, so effective tool IDs equal manifest names.

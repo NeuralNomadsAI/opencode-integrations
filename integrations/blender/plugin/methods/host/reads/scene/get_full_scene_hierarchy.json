@@ -1,0 +1,14 @@
+{
+  "name": "scene.get_full_scene_hierarchy",
+  "domain": "scene",
+  "description": "Get the full collection/object hierarchy tree.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_full_scene_hierarchy",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_full_scene_hierarchy"
+  }
+}

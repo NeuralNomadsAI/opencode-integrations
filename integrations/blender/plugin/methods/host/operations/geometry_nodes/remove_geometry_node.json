@@ -1,0 +1,24 @@
+{
+  "name": "geometry_nodes.remove_geometry_node",
+  "domain": "geometry_nodes",
+  "description": "Remove a node from a GN tree.",
+  "kind": "host-operation",
+  "risk": "destructive",
+  "undoable": true,
+  "legacy": "remove_geometry_node",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "node_name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.remove_geometry_node"
+  }
+}

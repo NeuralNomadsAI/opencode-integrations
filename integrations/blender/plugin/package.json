@@ -1,0 +1,68 @@
+{
+  "name": "@neuralnomads/opencode-blender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenCode for Blender: lets OpenCode inspect and edit an open Blender scene through an authenticated local host.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "blender"
+  ],
+  "homepage": "https://github.com/NeuralNomadsAI/opencode-integrations/tree/main/integrations/blender/plugin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NeuralNomadsAI/opencode-integrations.git",
+    "directory": "integrations/blender/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "methods",
+    "skills",
+    "data",
+    "host",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:host": "node scripts/build-host.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "blender",
+    "displayName": "OpenCode for Blender",
+    "family": "native",
+    "plugin": "neuralnomads.blender",
+    "rpc": "neuralnomads.blender",
+    "host": {
+      "app": "blender",
+      "protocol": 1,
+      "range": "^0.1.0",
+      "appVersions": ">=5.2",
+      "payload": "host/blender/opencode_link-0.1.0.zip",
+      "sha256": "244ef39b4fb3d7bf9ce89633044846d13aa22dcd6a7a7c0c8b7a1e9147812152"
+    }
+  }
+}

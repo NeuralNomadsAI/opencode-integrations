@@ -1,0 +1,21 @@
+{
+  "name": "scene.get_viewport_screenshot",
+  "domain": "scene",
+  "description": "Capture the 3D viewport; the image comes back as an attachment (interface only).",
+  "kind": "host-read",
+  "risk": "read",
+  "capture": true,
+  "legacy": "get_viewport_screenshot",
+  "args": {
+    "max_size": {
+      "type": "integer",
+      "description": "Optional maximum image dimension in pixels.",
+      "default": 800
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_viewport_screenshot"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "origin": "https://projects.blender.org/lab/blender_mcp.git",
+  "ref": "main",
+  "commit": "98b0e49d98321d321c7e631389200f513f765d59",
+  "updated": "2026-05-06",
+  "licence": "GPL-3.0-or-later (the blender_mcp repository); the Blender manual text is CC-BY-SA-4.0",
+  "version": "Blender Python API reference and user manual as packaged by blender_mcp at the commit above",
+  "changes": [
+    "manual/render/shader_nodes/utilities/script.rst: the Windows shader folder is written %APPDATA% instead of a user-profile path"
+  ],
+  "paths": [
+    { "source": "mcp/blmcp/data/api", "target": "api" },
+    { "source": "mcp/blmcp/data/manual", "target": "manual" }
+  ]
+}

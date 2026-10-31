@@ -1,0 +1,26 @@
+{
+  "name": "blender_audit",
+  "domain": "tools",
+  "description": "Summarize a .blend file without opening it in your session: path_info (file only), or datablocks, missing_files, linked_libraries (launch a separate Blender in background mode; asks permission).",
+  "kind": "hostless",
+  "risk": "read",
+  "args": {
+    "action": {
+      "type": "string",
+      "required": true,
+      "enum": ["path_info", "datablocks", "missing_files", "linked_libraries"]
+    },
+    "blend_file": {
+      "type": "string",
+      "required": true,
+      "description": "Path to a .blend file."
+    },
+    "timeout_seconds": {
+      "type": "number",
+      "description": "Blender process limit, default 120."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

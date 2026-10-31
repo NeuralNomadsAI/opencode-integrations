@@ -197,10 +197,24 @@ const OPAQUE_INPUT: Schema = { type: "object" }
 
 export const NATIVE_METHODS = ["status", "installHost", "hosts", "attachHost", "detachHost", "advertise", "withdraw"]
 
+// OpenCode 2.2.5 compiles registered JSON Schemas without `pattern` support and fails the call
+// ("Patterns may block validation and are disabled"), so the registered copies drop `pattern`.
+// Inputs that matter are validated by the plugin itself (advertise, withdraw, offer and session
+// IDs through the registry), outputs are produced in strict form, and readers validate them.
+function withoutPatterns(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutPatterns)
+  if (typeof value !== "object" || value === null) return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, item]) => !(key === "pattern" && typeof item === "string"))
+      .map(([key, item]) => [key, withoutPatterns(item)]),
+  )
+}
+
 // Portable RPC definition for `ctx.rpc.register`; `status` only for vendor-mcp and api.
 export function rpcDefinition(rpcID: string, family: IntegrationFamily) {
   const schemas: Record<string, Schema> = RPC_SCHEMAS
-  const schema = (name: string): Schema => structuredClone(schemas[name] ?? OPAQUE_INPUT)
+  const schema = (name: string): Schema => withoutPatterns(schemas[name] ?? OPAQUE_INPUT) as Schema
   const io = (method: string, input?: Schema) => ({
     input: input ? structuredClone(input) : schema(`${method}.input`),
     output: schema(`${method}.output`),

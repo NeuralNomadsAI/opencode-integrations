@@ -1,0 +1,32 @@
+{
+  "name": "geometry_nodes.set_node_input",
+  "domain": "geometry_nodes",
+  "description": "Set a default value on a node input socket.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_node_input",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "node_name": {
+      "type": "string",
+      "required": true
+    },
+    "input_name": {
+      "type": "string",
+      "required": true
+    },
+    "value": {
+      "type": "any",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.set_node_input"
+  }
+}

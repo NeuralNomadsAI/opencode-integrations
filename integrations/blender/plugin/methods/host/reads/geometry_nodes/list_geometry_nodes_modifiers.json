@@ -1,0 +1,18 @@
+{
+  "name": "geometry_nodes.list_geometry_nodes_modifiers",
+  "domain": "geometry_nodes",
+  "description": "List Geometry Nodes modifiers in the scene or on one object.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_geometry_nodes_modifiers",
+  "args": {
+    "object_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "geometry_nodes.list_geometry_nodes_modifiers"
+  }
+}

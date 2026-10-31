@@ -1,0 +1,23 @@
+{
+  "name": "assets.get_asset_info",
+  "domain": "assets",
+  "description": "Get detailed asset metadata for a local data-block.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_asset_info",
+  "args": {
+    "asset_type": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "assets.get_asset_info"
+  }
+}

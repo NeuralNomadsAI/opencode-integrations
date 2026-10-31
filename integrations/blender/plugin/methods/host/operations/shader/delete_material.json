@@ -1,0 +1,21 @@
+{
+  "name": "shader.delete_material",
+  "domain": "shader",
+  "description": "Delete one material by exact Blender name.",
+  "kind": "host-operation",
+  "risk": "destructive",
+  "undoable": true,
+  "legacy": "delete_material",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact Blender material name to remove."
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.delete_material"
+  }
+}

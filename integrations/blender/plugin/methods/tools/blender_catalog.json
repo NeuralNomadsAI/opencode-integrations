@@ -1,0 +1,21 @@
+{
+  "name": "blender_catalog",
+  "domain": "tools",
+  "description": "List the reads and operations Blender offers, with their arguments. Filter by domain (scene, shader, geometry_nodes, animation, assets, shot_manager, addons, workflows) or kind.",
+  "kind": "hostless",
+  "risk": "read",
+  "args": {
+    "domain": {
+      "type": "string",
+      "description": "One domain only."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["read", "operation"],
+      "description": "Reads or operations only."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "shader.convert_vrscene_file",
+  "domain": "shader",
+  "description": "Convert one .vrscene file into Blender materials, with optional custom mapping-group support for triplanar and UV randomizer equivalents.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "sideEffect": "Reads external .vrscene and texture files in bulk.",
+  "legacy": "convert_vrscene_file",
+  "args": {
+    "filepath": {
+      "type": "string",
+      "required": true,
+      "description": "Absolute path to the .vrscene file to convert."
+    },
+    "mapping_group_name": {
+      "type": "string",
+      "description": "Optional shader node group used as the custom triplanar/randomizer mapping equivalent."
+    },
+    "group_socket_map": {
+      "type": "object",
+      "description": "Optional semantic-to-socket-name mapping override for the custom mapping group interface."
+    },
+    "replace_existing": {
+      "type": "boolean",
+      "description": "Whether to overwrite Blender materials that already exist with the same names.",
+      "default": false
+    },
+    "use_fake_user": {
+      "type": "boolean",
+      "description": "Whether converted materials should keep a fake user so they survive file cleanup.",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "materials.convert_vrscene_file"
+  }
+}

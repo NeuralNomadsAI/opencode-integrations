@@ -1,0 +1,24 @@
+{
+  "name": "blender_context",
+  "domain": "tools",
+  "description": "Read the Blender session attached to this conversation. Returns script_handle, revision, document and mode, plus the result of each named read (at most 20 per call). Captures come back as image attachments. Read names and arguments: blender_catalog, or the blender-* skills.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "reads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "{ name: '<read name>', args: { ... } }"
+      },
+      "description": "Named reads; omit to read the state only."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "context"
+  },
+  "requires": {
+    "hostMethods": ["context"]
+  }
+}

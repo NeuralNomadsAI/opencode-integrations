@@ -13,9 +13,9 @@
   "scripts": {
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts",
+    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts && tsc -p integrations/blender/plugin",
     "build": "npm run build --workspaces --if-present",
-    "test": "node --test \"packages/*/test/**/*.test.ts\" \"scripts/test/**/*.test.ts\"",
+    "test": "node --test \"packages/*/test/**/*.test.ts\" \"scripts/test/**/*.test.ts\" \"integrations/*/test/**/*.test.ts\"",
     "check:markers": "node packages/conformance/src/cli.ts",
     "scan": "node scripts/trace-scan.ts --tree --packs",
     "scan:history": "node scripts/trace-scan.ts --history"

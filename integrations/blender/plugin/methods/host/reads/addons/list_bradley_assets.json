@@ -1,0 +1,26 @@
+{
+  "name": "addons.list_bradley_assets",
+  "domain": "addons",
+  "description": "List Bradley preset assets available in the local preset library.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_bradley_assets",
+  "args": {
+    "filter_text": {
+      "type": "string"
+    },
+    "asset_kind": {
+      "type": "string",
+      "default": "ALL"
+    },
+    "limit": {
+      "type": "integer",
+      "default": 100
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "addons.list_bradley_assets"
+  }
+}

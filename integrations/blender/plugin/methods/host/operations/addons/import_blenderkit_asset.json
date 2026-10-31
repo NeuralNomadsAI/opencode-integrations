@@ -1,0 +1,63 @@
+{
+  "name": "addons.import_blenderkit_asset",
+  "domain": "addons",
+  "description": "Start importing a BlenderKit asset through the installed addon.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "network": true,
+  "sideEffect": "Downloads from BlenderKit; the import finishes asynchronously.",
+  "legacy": "import_blenderkit_asset",
+  "args": {
+    "asset_base_id": {
+      "type": "string"
+    },
+    "asset_id": {
+      "type": "string"
+    },
+    "query": {
+      "type": "string"
+    },
+    "asset_type": {
+      "type": "string"
+    },
+    "target_object": {
+      "type": "string"
+    },
+    "material_target_slot": {
+      "type": "integer",
+      "default": 0
+    },
+    "resolution": {
+      "type": "string",
+      "default": "blend"
+    },
+    "model_location": {
+      "type": "array"
+    },
+    "model_rotation": {
+      "type": "array"
+    },
+    "target_collection": {
+      "type": "string",
+      "default": ""
+    },
+    "nodegroup_mode": {
+      "type": "string",
+      "default": ""
+    },
+    "node_x": {
+      "type": "integer",
+      "default": 0
+    },
+    "node_y": {
+      "type": "integer",
+      "default": 0
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.import_blenderkit_asset"
+  }
+}

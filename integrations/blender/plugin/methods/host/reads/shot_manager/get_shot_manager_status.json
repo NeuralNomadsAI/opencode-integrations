@@ -1,0 +1,14 @@
+{
+  "name": "shot_manager.get_shot_manager_status",
+  "domain": "shot_manager",
+  "description": "Report whether the Shot Manager extension is active in this scene.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_shot_manager_status",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shot_manager.get_shot_manager_status"
+  }
+}

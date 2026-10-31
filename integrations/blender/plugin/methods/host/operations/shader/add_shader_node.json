@@ -1,0 +1,32 @@
+{
+  "name": "shader.add_shader_node",
+  "domain": "shader",
+  "description": "Add a node to a material or shader node group.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "add_shader_node",
+  "args": {
+    "node_type": {
+      "type": "string",
+      "required": true
+    },
+    "material_name": {
+      "type": "string"
+    },
+    "group_name": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "location": {
+      "type": "array"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.add_shader_node"
+  }
+}

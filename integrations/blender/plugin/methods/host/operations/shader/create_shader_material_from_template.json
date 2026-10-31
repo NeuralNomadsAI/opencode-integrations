@@ -1,0 +1,45 @@
+{
+  "name": "shader.create_shader_material_from_template",
+  "domain": "shader",
+  "description": "Create a new material from a small high-level shader template.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_shader_material_from_template",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "template_name": {
+      "type": "string",
+      "default": "principled_pbr"
+    },
+    "base_color": {
+      "type": "array"
+    },
+    "roughness": {
+      "type": "number"
+    },
+    "metallic": {
+      "type": "number"
+    },
+    "transmission": {
+      "type": "number"
+    },
+    "emission_color": {
+      "type": "array"
+    },
+    "emission_strength": {
+      "type": "number"
+    },
+    "alpha": {
+      "type": "number"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.create_shader_material_from_template"
+  }
+}

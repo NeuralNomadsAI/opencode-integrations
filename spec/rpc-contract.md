@@ -63,4 +63,4 @@ hosts_changed {}
 
 ## 4. Reference implementation
 
-`packages/integration-kit` provides `rpcDefinition(rpc, family)` (the wire schemas, equal to `rpc.schema.json`), `createIntegrationRpc(...)` (handlers, `status` assembly, bounded `installHost` details, event relay) and the offer registry of [`host-handshake.md`](host-handshake.md).
+`packages/integration-kit` provides `rpcDefinition(rpc, family)` (the wire schemas of `rpc.schema.json`, registered without their `pattern` keywords because OpenCode 2.2.5 refuses to compile a registered schema that has one; the plugin validates `advertise` and `withdraw` itself, its outputs follow the strict form and readers validate them), `createIntegrationRpc(...)` (handlers, `status` assembly, bounded `installHost` details, event relay) and the offer registry of [`host-handshake.md`](host-handshake.md).

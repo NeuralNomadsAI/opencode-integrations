@@ -1,0 +1,27 @@
+{
+  "name": "geometry_nodes.attach_geometry_node_tree",
+  "domain": "geometry_nodes",
+  "description": "Attach an existing Geometry Nodes tree to an object.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "attach_geometry_node_tree",
+  "args": {
+    "object_name": {
+      "type": "string",
+      "required": true
+    },
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "modifier_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.attach_geometry_node_tree"
+  }
+}

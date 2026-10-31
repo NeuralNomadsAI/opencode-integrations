@@ -39,8 +39,14 @@ export type OfferRegistryOptions = {
 
 export type OfferChange = "hosts" | "status"
 
-// What tools need to reach the attached host; never leaves the plugin.
-export type HostBinding = { endpoint: HostEndpoint; scriptHandle: string; offerID: string }
+// What tools need to reach the attached host; never leaves the plugin. `methods` is its hello's method table.
+export type HostBinding = { endpoint: HostEndpoint; scriptHandle: string; offerID: string; methods: string[] }
+
+// The schemas registered with OpenCode carry no `pattern` (see rpcDefinition): the registry checks IDs itself.
+const OFFER_ID = /^[A-Za-z0-9_-]{8,64}$/
+const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
+// The contract bounds attachedSessions to 10000.
+export const MAX_SESSIONS = 10_000
 
 export type OfferRegistry = {
   advertise(input: unknown): Promise<{ outcome: AdvertiseOutcome }>
@@ -216,6 +222,8 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     },
 
     attach(offerID, sessionID) {
+      if (typeof sessionID !== "string" || !SESSION_ID.test(sessionID)) return { outcome: "refused" }
+      if (typeof offerID !== "string" || !OFFER_ID.test(offerID)) return { outcome: "gone" }
       sweep()
       const record = [...offers.values()].find((candidate) => candidate.offerID === offerID)
       if (!record) return { outcome: "gone" }
@@ -223,13 +231,14 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       const bound = sessions.get(sessionID)
       if (bound === offerID) return { outcome: "attached" }
       if (bound !== undefined) return { outcome: "busy" }
+      if (sessions.size >= MAX_SESSIONS) return { outcome: "refused" }
       sessions.set(sessionID, offerID)
       emit("status")
       return { outcome: "attached" }
     },
 
     detach(sessionID) {
-      if (!sessions.delete(sessionID)) return { outcome: "none" }
+      if (typeof sessionID !== "string" || !sessions.delete(sessionID)) return { outcome: "none" }
       emit("status")
       return { outcome: "detached" }
     },
@@ -239,7 +248,12 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       const offerID = sessions.get(sessionID)
       const record = [...offers.values()].find((candidate) => candidate.offerID === offerID)
       return record
-        ? { endpoint: { ...record.endpoint }, scriptHandle: record.scriptHandle, offerID: record.offerID }
+        ? {
+            endpoint: { ...record.endpoint },
+            scriptHandle: record.scriptHandle,
+            offerID: record.offerID,
+            methods: [...record.hello.capabilities.methods],
+          }
         : null
     },
 
@@ -249,6 +263,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
         compatibility: record.compatibility,
         partVersion: record.hello.host_version,
         appVersion: record.appVersion,
+        methods: [...record.hello.capabilities.methods],
       }))
     },
 

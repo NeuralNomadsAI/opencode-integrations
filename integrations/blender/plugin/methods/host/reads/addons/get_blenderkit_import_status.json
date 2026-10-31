@@ -1,0 +1,21 @@
+{
+  "name": "addons.get_blenderkit_import_status",
+  "domain": "addons",
+  "description": "Check whether a BlenderKit asset is already present in the current file.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_blenderkit_import_status",
+  "args": {
+    "asset_base_id": {
+      "type": "string"
+    },
+    "asset_id": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "addons.get_blenderkit_import_status"
+  }
+}

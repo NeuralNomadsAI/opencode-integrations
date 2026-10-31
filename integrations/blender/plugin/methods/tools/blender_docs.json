@@ -1,0 +1,37 @@
+{
+  "name": "blender_docs",
+  "domain": "tools",
+  "description": "Search the Blender Python API reference (search_api, get_api) or the Blender manual (search_manual). Works without Blender.",
+  "kind": "hostless",
+  "risk": "read",
+  "args": {
+    "action": {
+      "type": "string",
+      "required": true,
+      "enum": ["search_api", "search_manual", "get_api"]
+    },
+    "query": {
+      "type": "string",
+      "description": "Text to search (search_api, search_manual)."
+    },
+    "identifier": {
+      "type": "string",
+      "description": "API page, for example bpy.types.Object (get_api)."
+    },
+    "max_results": {
+      "type": "integer",
+      "description": "At most 100, default 20."
+    },
+    "context_lines": {
+      "type": "integer",
+      "description": "Lines around each match, at most 8, default 1."
+    },
+    "max_chars": {
+      "type": "integer",
+      "description": "Page length limit for get_api, default 32768."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "blender_hosts",
+  "domain": "tools",
+  "description": "List the Blender sessions offered to OpenCode on this computer (Blender: OpenCode Link, 'Offer this session to OpenCode'). Asks permission.",
+  "kind": "hostless",
+  "risk": "read",
+  "args": {},
+  "execution": {
+    "strategy": "plugin"
+  }
+}

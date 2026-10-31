@@ -1,0 +1,42 @@
+{
+  "name": "scene.transform_object",
+  "domain": "scene",
+  "description": "Update an object's location, Euler rotation, and or scale.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "transform_object",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact Blender object name."
+    },
+    "location": {
+      "type": "array",
+      "description": "Optional world-space location as [x, y, z].",
+      "items": {
+        "type": "number"
+      }
+    },
+    "rotation": {
+      "type": "array",
+      "description": "Optional Euler rotation in radians as [x, y, z].",
+      "items": {
+        "type": "number"
+      }
+    },
+    "scale": {
+      "type": "array",
+      "description": "Optional scale factors as [x, y, z].",
+      "items": {
+        "type": "number"
+      }
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "scene.transform_object"
+  }
+}

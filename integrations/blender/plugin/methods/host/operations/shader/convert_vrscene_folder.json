@@ -1,0 +1,44 @@
+{
+  "name": "shader.convert_vrscene_folder",
+  "domain": "shader",
+  "description": "Batch-convert every .vrscene file in a folder and optionally export the generated materials to a .blend library.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "sideEffect": "Reads a folder of .vrscene files and can write a .blend library.",
+  "legacy": "convert_vrscene_folder",
+  "args": {
+    "folder_path": {
+      "type": "string",
+      "required": true,
+      "description": "Absolute path to a folder containing .vrscene files."
+    },
+    "output_blend_path": {
+      "type": "string",
+      "description": "Optional output .blend library path for the generated materials."
+    },
+    "mapping_group_name": {
+      "type": "string",
+      "description": "Optional shader node group used as the custom triplanar/randomizer mapping equivalent."
+    },
+    "group_socket_map": {
+      "type": "object",
+      "description": "Optional semantic-to-socket-name mapping override for the custom mapping group interface."
+    },
+    "replace_existing": {
+      "type": "boolean",
+      "description": "Whether to overwrite Blender materials that already exist with the same names.",
+      "default": false
+    },
+    "use_fake_user": {
+      "type": "boolean",
+      "description": "Whether converted materials should keep a fake user so they survive file cleanup.",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "materials.convert_vrscene_folder"
+  }
+}

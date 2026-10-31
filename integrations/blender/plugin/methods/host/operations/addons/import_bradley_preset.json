@@ -1,0 +1,52 @@
+{
+  "name": "addons.import_bradley_preset",
+  "domain": "addons",
+  "description": "Import a Bradley node group or material and optionally apply it.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "import_bradley_preset",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "asset_kind": {
+      "type": "string",
+      "default": "NODE_GROUP"
+    },
+    "target_object": {
+      "type": "string"
+    },
+    "material_name": {
+      "type": "string"
+    },
+    "material_target_slot": {
+      "type": "integer",
+      "default": 0
+    },
+    "nodegroup_mode": {
+      "type": "string",
+      "default": "MODIFIER"
+    },
+    "node_x": {
+      "type": "integer",
+      "default": 0
+    },
+    "node_y": {
+      "type": "integer",
+      "default": 0
+    },
+    "model_location": {
+      "type": "array"
+    },
+    "model_rotation": {
+      "type": "array"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.import_bradley_preset"
+  }
+}

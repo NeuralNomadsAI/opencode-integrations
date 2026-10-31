@@ -1,0 +1,20 @@
+{
+  "name": "scene.get_object_info",
+  "domain": "scene",
+  "description": "Read detailed information for one Blender object.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_object_info",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact Blender object name."
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_object_info"
+  }
+}

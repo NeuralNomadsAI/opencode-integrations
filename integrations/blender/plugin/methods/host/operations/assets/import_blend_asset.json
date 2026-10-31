@@ -1,0 +1,39 @@
+{
+  "name": "assets.import_blend_asset",
+  "domain": "assets",
+  "description": "Import one datablock from a .blend library file into the current session.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "import_blend_asset",
+  "args": {
+    "filepath": {
+      "type": "string",
+      "required": true
+    },
+    "asset_type": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "link": {
+      "type": "boolean",
+      "default": false
+    },
+    "link_to_scene": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "assets.import_blend_asset"
+  }
+}

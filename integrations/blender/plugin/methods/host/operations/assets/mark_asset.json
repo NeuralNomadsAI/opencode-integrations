@@ -1,0 +1,40 @@
+{
+  "name": "assets.mark_asset",
+  "domain": "assets",
+  "description": "Mark a local data-block as an asset and update its metadata.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "mark_asset",
+  "args": {
+    "asset_type": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array"
+    },
+    "catalog_id": {
+      "type": "string"
+    },
+    "generate_preview": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "assets.mark_asset"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "name": "workflows.scatter_library_asset_on_surface",
+  "domain": "workflows",
+  "description": "Import an object or collection from a .blend library and scatter it on a surface.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "scatter_library_asset_on_surface",
+  "args": {
+    "surface_object_name": {
+      "type": "string",
+      "required": true
+    },
+    "filepath": {
+      "type": "string",
+      "required": true
+    },
+    "asset_name": {
+      "type": "string",
+      "required": true
+    },
+    "asset_type": {
+      "type": "string",
+      "default": "OBJECT"
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "tree_name": {
+      "type": "string"
+    },
+    "density": {
+      "type": "integer",
+      "default": 100
+    },
+    "instance_scale": {
+      "type": "array"
+    },
+    "align_to_normal": {
+      "type": "boolean",
+      "default": true
+    },
+    "random_rotation": {
+      "type": "boolean",
+      "default": true
+    },
+    "random_scale_range": {
+      "type": "array"
+    },
+    "use_realize_instances": {
+      "type": "boolean",
+      "default": false
+    },
+    "keep_input_geometry": {
+      "type": "boolean",
+      "default": true
+    },
+    "link": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "workflows.scatter_library_asset_on_surface"
+  }
+}

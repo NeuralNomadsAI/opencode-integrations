@@ -1,0 +1,34 @@
+{
+  "name": "shader.set_shader_node_input",
+  "domain": "shader",
+  "description": "Set the default value of a shader node input.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_shader_node_input",
+  "args": {
+    "node_name": {
+      "type": "string",
+      "required": true
+    },
+    "input_name": {
+      "type": "string",
+      "required": true
+    },
+    "value": {
+      "type": "any",
+      "required": true
+    },
+    "material_name": {
+      "type": "string"
+    },
+    "group_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.set_shader_node_input"
+  }
+}

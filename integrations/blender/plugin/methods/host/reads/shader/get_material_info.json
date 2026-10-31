@@ -1,0 +1,19 @@
+{
+  "name": "shader.get_material_info",
+  "domain": "shader",
+  "description": "Get detailed information about a material and its shader graph.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_material_info",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shader.get_material_info"
+  }
+}

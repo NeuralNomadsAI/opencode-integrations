@@ -1,0 +1,25 @@
+{
+  "name": "assets.list_current_file_assets",
+  "domain": "assets",
+  "description": "List assets from the current .blend file.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_current_file_assets",
+  "args": {
+    "asset_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "include_unmarked": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "assets.list_current_file_assets"
+  }
+}

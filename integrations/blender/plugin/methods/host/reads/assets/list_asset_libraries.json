@@ -1,0 +1,14 @@
+{
+  "name": "assets.list_asset_libraries",
+  "domain": "assets",
+  "description": "List configured asset libraries from Blender preferences.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_asset_libraries",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "assets.list_asset_libraries"
+  }
+}
