@@ -1,0 +1,25 @@
+{
+  "name": "addons.import_sketchfab_model",
+  "domain": "addons",
+  "description": "Start importing a Sketchfab model through the installed addon.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "network": true,
+  "sideEffect": "Downloads from Sketchfab; the import finishes asynchronously.",
+  "legacy": "import_sketchfab_model",
+  "args": {
+    "uid": {
+      "type": "string",
+      "required": true
+    },
+    "model_url": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.import_sketchfab_model"
+  }
+}

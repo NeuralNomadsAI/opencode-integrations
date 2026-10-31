@@ -1,0 +1,14 @@
+{
+  "name": "shot_manager.get_shot_list",
+  "domain": "shot_manager",
+  "description": "Get all shots with basic info.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_shot_list",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shot_manager.get_shot_list"
+  }
+}

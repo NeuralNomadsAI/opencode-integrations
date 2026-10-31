@@ -1,0 +1,39 @@
+{
+  "name": "workflows.apply_library_material_to_object",
+  "domain": "workflows",
+  "description": "Import a material from a .blend library and assign it to an object.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "apply_library_material_to_object",
+  "args": {
+    "object_name": {
+      "type": "string",
+      "required": true
+    },
+    "filepath": {
+      "type": "string",
+      "required": true
+    },
+    "material_name": {
+      "type": "string",
+      "required": true
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "slot_index": {
+      "type": "integer",
+      "default": 0
+    },
+    "link": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "workflows.apply_library_material_to_object"
+  }
+}

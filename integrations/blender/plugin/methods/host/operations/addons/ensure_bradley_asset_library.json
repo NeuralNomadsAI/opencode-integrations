@@ -1,0 +1,16 @@
+{
+  "name": "addons.ensure_bradley_asset_library",
+  "domain": "addons",
+  "description": "Ensure the Bradley asset library path is registered in Blender preferences.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "sideEffect": "Changes the Blender preferences (asset libraries).",
+  "legacy": "ensure_bradley_asset_library",
+  "args": {},
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.ensure_bradley_asset_library"
+  }
+}

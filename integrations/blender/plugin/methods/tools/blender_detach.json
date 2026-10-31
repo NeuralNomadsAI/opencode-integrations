@@ -1,0 +1,11 @@
+{
+  "name": "blender_detach",
+  "domain": "tools",
+  "description": "Detach the Blender session from this conversation.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {},
+  "execution": {
+    "strategy": "plugin"
+  }
+}

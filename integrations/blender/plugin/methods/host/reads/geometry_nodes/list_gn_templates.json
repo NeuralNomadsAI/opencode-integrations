@@ -1,0 +1,14 @@
+{
+  "name": "geometry_nodes.list_gn_templates",
+  "domain": "geometry_nodes",
+  "description": "List available Geometry Nodes templates with descriptions and parameters.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_gn_templates",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "geometry_nodes.list_gn_templates"
+  }
+}

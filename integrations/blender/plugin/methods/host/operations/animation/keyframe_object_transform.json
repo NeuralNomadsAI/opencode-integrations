@@ -1,0 +1,36 @@
+{
+  "name": "animation.keyframe_object_transform",
+  "domain": "animation",
+  "description": "Set transform values and insert keyframes on an object.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "keyframe_object_transform",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "frame": {
+      "type": "integer",
+      "required": true
+    },
+    "location": {
+      "type": "array"
+    },
+    "rotation": {
+      "type": "array"
+    },
+    "scale": {
+      "type": "array"
+    },
+    "interpolation": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "animation.keyframe_object_transform"
+  }
+}

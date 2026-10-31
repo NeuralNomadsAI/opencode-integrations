@@ -1,0 +1,28 @@
+{
+  "name": "geometry_nodes.set_geometry_node_location",
+  "domain": "geometry_nodes",
+  "description": "Move a node to a new [x, y] editor position.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_geometry_node_location",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "node_name": {
+      "type": "string",
+      "required": true
+    },
+    "location": {
+      "type": "array",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.set_geometry_node_location"
+  }
+}

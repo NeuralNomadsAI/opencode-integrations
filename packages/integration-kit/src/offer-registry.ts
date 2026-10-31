@@ -249,6 +249,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
         compatibility: record.compatibility,
         partVersion: record.hello.host_version,
         appVersion: record.appVersion,
+        methods: [...record.hello.capabilities.methods],
       }))
     },
 

@@ -1,0 +1,27 @@
+{
+  "name": "blender_execute_code",
+  "domain": "tools",
+  "description": "DANGEROUS: run Python code in the attached Blender. Present only when both the add-on preference 'Allow code execution' and the plugin option allowCodeExecution are on; every run asks permission. Prefer blender_apply operations.",
+  "kind": "host-backed",
+  "risk": "destructive",
+  "dangerous": true,
+  "args": {
+    "script_handle": {
+      "type": "string",
+      "required": true,
+      "description": "From blender_context."
+    },
+    "code": {
+      "type": "string",
+      "required": true,
+      "description": "Python code; print() output is returned."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "execute_code"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

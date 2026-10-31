@@ -15,6 +15,14 @@ The specification (`spec/`) is normative; in short:
 5. **Named permissions** for sensitive actions: launching executables, installing the application part, attaching a session, network access from a host method.
 6. **Supply chain.** npm publication through GitHub Actions trusted publishing (OIDC) with provenance, after a manual approval; attested host archives; no npm install scripts.
 
+## Dangerous methods
+
+| Integration          | Method                                                           | Enabled when                                                                                                                       | Asked through                                                                |
+| -------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| OpenCode for Blender | `blender_execute_code`: runs Python code in the attached Blender | the OpenCode Link preference **Allow code execution** and the plugin option `allowCodeExecution` are both on (both off by default) | the `blender_execute_code` permission, on every call; a refusal runs nothing |
+
+Supplied code runs with Blender's rights and owns its undo steps: OpenCode Link neither groups nor rolls them back.
+
 ## Residual risks
 
 - **Daemon password read by an application add-on.** A headless `native` add-on (Blender) reads the OpenCode service registration, password included, with the user's rights, to advertise its session. That grants the add-on code full access to the OpenCode service of the same user.

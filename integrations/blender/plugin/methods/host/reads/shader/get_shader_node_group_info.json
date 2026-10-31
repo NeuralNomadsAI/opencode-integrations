@@ -1,0 +1,19 @@
+{
+  "name": "shader.get_shader_node_group_info",
+  "domain": "shader",
+  "description": "Get detailed info for a shader node group.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_shader_node_group_info",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shader.get_shader_node_group_info"
+  }
+}

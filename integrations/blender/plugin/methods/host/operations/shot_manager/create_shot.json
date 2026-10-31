@@ -1,0 +1,28 @@
+{
+  "name": "shot_manager.create_shot",
+  "domain": "shot_manager",
+  "description": "Create a new shot in Shot Manager.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_shot",
+  "args": {
+    "name": {
+      "type": "string"
+    },
+    "start_frame": {
+      "type": "integer"
+    },
+    "end_frame": {
+      "type": "integer"
+    },
+    "camera": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shot_manager.create_shot"
+  }
+}

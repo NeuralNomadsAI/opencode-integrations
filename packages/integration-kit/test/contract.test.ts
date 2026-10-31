@@ -113,6 +113,13 @@ describe("contract schemas", () => {
     assert.deepEqual(native.methods.advertise?.input, { type: "object" })
   })
 
+  it("registers the schemas without `pattern`, which OpenCode 2.2.5 refuses to compile", () => {
+    const native = rpcDefinition("neuralnomads.demo", "native")
+    assert.doesNotMatch(JSON.stringify(native), /"pattern"/)
+    assert.match(JSON.stringify(RPC_SCHEMAS), /"pattern"/, "the contract schemas keep their patterns")
+    assert.deepEqual(native.methods.status?.output.required, ["contract", "integration"])
+  })
+
   it("validates advertise and withdraw exactly like the JSON Schema", () => {
     const good = {
       host: "127.0.0.1",
@@ -299,7 +306,9 @@ describe("offer registry", () => {
     const [offer] = registry.hosts().offers
     assert.equal(offer?.document, undefined)
     assert.equal(offer?.appVersion, undefined)
-    assert.deepEqual(registry.liveHellos(), [{ compatibility: "ok", partVersion: "0.1.0", appVersion: undefined }])
+    assert.deepEqual(registry.liveHellos(), [
+      { compatibility: "ok", partVersion: "0.1.0", appVersion: undefined, methods: ["hello", "context", "apply"] },
+    ])
   })
 
   it("holds at most 16 offers and marks incompatible hosts", async () => {

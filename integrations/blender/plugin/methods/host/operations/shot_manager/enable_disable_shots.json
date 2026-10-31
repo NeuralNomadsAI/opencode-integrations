@@ -1,0 +1,27 @@
+{
+  "name": "shot_manager.enable_disable_shots",
+  "domain": "shot_manager",
+  "description": "Enable or disable multiple shots at once.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "enable_disable_shots",
+  "args": {
+    "shot_names": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "enabled": {
+      "type": "boolean",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shot_manager.enable_disable_shots"
+  }
+}

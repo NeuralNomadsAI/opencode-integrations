@@ -1,0 +1,30 @@
+{
+  "name": "geometry_nodes.add_geometry_node",
+  "domain": "geometry_nodes",
+  "description": "Add a node to a GN tree. Returns the created node info.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "add_geometry_node",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "node_type": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string"
+    },
+    "location": {
+      "type": "array"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.add_geometry_node"
+  }
+}

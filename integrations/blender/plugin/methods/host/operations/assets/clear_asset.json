@@ -1,0 +1,24 @@
+{
+  "name": "assets.clear_asset",
+  "domain": "assets",
+  "description": "Clear asset metadata from a local data-block.",
+  "kind": "host-operation",
+  "risk": "destructive",
+  "undoable": true,
+  "legacy": "clear_asset",
+  "args": {
+    "asset_type": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "assets.clear_asset"
+  }
+}

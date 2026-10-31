@@ -1,0 +1,45 @@
+{
+  "name": "addons.search_blenderkit_assets",
+  "domain": "addons",
+  "description": "Search BlenderKit assets using its public search API and local auth headers when available.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "network": true,
+  "sideEffect": "Queries the BlenderKit web API.",
+  "legacy": "search_blenderkit_assets",
+  "args": {
+    "query": {
+      "type": "string"
+    },
+    "asset_type": {
+      "type": "string",
+      "default": "model"
+    },
+    "page_size": {
+      "type": "integer",
+      "default": 10
+    },
+    "page": {
+      "type": "integer",
+      "default": 1
+    },
+    "free_only": {
+      "type": "boolean",
+      "default": false
+    },
+    "geometry_nodes_only": {
+      "type": "boolean",
+      "default": false
+    },
+    "animated": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.search_blenderkit_assets"
+  }
+}

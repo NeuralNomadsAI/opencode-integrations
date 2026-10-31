@@ -1,0 +1,28 @@
+{
+  "name": "geometry_nodes.rename_geometry_node",
+  "domain": "geometry_nodes",
+  "description": "Rename a node in a Geometry Nodes tree.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "rename_geometry_node",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "node_name": {
+      "type": "string",
+      "required": true
+    },
+    "new_name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.rename_geometry_node"
+  }
+}

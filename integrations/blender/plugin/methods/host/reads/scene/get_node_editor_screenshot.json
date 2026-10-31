@@ -1,0 +1,27 @@
+{
+  "name": "scene.get_node_editor_screenshot",
+  "domain": "scene",
+  "description": "Capture the node editor, optionally showing a given node tree.",
+  "kind": "host-read",
+  "risk": "read",
+  "capture": true,
+  "legacy": "get_node_editor_screenshot",
+  "args": {
+    "tree_name": {
+      "type": "string"
+    },
+    "max_size": {
+      "type": "integer",
+      "default": 1200
+    },
+    "fit_all": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_node_editor_screenshot"
+  }
+}

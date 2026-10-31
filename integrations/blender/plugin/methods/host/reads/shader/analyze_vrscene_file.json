@@ -1,0 +1,20 @@
+{
+  "name": "shader.analyze_vrscene_file",
+  "domain": "shader",
+  "description": "Inspect a .vrscene file and summarize convertible V-Ray material blocks, textures, triplanar usage, and randomizer usage.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "analyze_vrscene_file",
+  "args": {
+    "filepath": {
+      "type": "string",
+      "required": true,
+      "description": "Absolute path to the .vrscene file to inspect."
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "materials.analyze_vrscene_file"
+  }
+}

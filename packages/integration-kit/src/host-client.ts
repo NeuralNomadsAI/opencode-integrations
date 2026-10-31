@@ -4,6 +4,8 @@
 import { randomUUID } from "node:crypto"
 import net from "node:net"
 
+import { boundedDetail } from "./contract.ts"
+
 export const HOST_ADDRESS = "127.0.0.1"
 export const MAX_REQUEST_BYTES = 1024 * 1024
 export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -30,10 +32,13 @@ export const HOST_ERROR_CODES = [
 
 export class HostError extends Error {
   readonly code: string
-  constructor(code: string, message: string) {
+  // The host's own explanation of a refusal, as bounded display text; never the endpoint.
+  readonly detail: string | undefined
+  constructor(code: string, message: string, detail?: string) {
     super(message)
     this.name = "HostError"
     this.code = code
+    this.detail = detail
   }
 }
 
@@ -86,12 +91,18 @@ export async function requestHost(
       if (typeof envelope !== "object" || envelope === null || Array.isArray(envelope)) {
         return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       }
-      const response = envelope as { id?: unknown; ok?: unknown; result?: unknown; error?: { code?: unknown } }
+      const response = envelope as {
+        id?: unknown
+        ok?: unknown
+        result?: unknown
+        error?: { code?: unknown; message?: unknown }
+      }
       if (response.id !== id) return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       if (response.ok === false) {
         const raw = response.error?.code
         const code = typeof raw === "string" && HOST_ERROR_CODES.includes(raw) ? raw : "internal"
-        return finish(new HostError(code, `Host refused the request (${code}).`))
+        const detail = typeof response.error?.message === "string" ? boundedDetail(response.error.message) : undefined
+        return finish(new HostError(code, `Host refused the request (${code}).`, detail))
       }
       if (response.ok !== true || !("result" in response)) {
         return finish(new HostError("invalid_response", "Host returned an invalid envelope."))

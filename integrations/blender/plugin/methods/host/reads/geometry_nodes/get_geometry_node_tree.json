@@ -1,0 +1,19 @@
+{
+  "name": "geometry_nodes.get_geometry_node_tree",
+  "domain": "geometry_nodes",
+  "description": "Get full introspection of a geometry node tree.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_geometry_node_tree",
+  "args": {
+    "tree_name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "geometry_nodes.get_geometry_node_tree"
+  }
+}

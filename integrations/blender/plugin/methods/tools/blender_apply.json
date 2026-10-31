@@ -1,0 +1,52 @@
+{
+  "name": "blender_apply",
+  "domain": "tools",
+  "description": "Change the attached Blender document with up to 50 operations, applied atomically as one undo step named 'OpenCode: <summary>'. Needs the script_handle and the exact revision from blender_context, and a new command_id (replaying a command_id applies nothing). expect clauses are checked before anything runs. On failure the document is restored. Mutations run in Object mode only. Operations with side effects (render, downloads, file writes) must be alone in their apply and cannot be undone.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "script_handle": {
+      "type": "string",
+      "required": true,
+      "description": "From blender_context."
+    },
+    "if_revision": {
+      "type": "integer",
+      "required": true,
+      "description": "The revision the operations are based on."
+    },
+    "command_id": {
+      "type": "string",
+      "required": true,
+      "description": "A new unique ID for this change (letters, digits, . _ : -)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short name of the undo step."
+    },
+    "operations": {
+      "type": "array",
+      "required": true,
+      "items": {
+        "type": "object",
+        "description": "{ op: '<operation name>', args: { ... } }"
+      },
+      "description": "At most 50 operations."
+    },
+    "expect": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "description": "{ ref: 'object:Cube', predicate: 'exists' | 'absent' | 'equals', path?, value? }"
+      },
+      "description": "Preconditions checked before execution."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "apply"
+  },
+  "requires": {
+    "hostMethods": ["apply"]
+  }
+}

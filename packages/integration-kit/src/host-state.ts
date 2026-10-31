@@ -10,7 +10,13 @@ import { comparePartVersion, type HostCompatibility } from "./hello.ts"
 // Result of the read-only inspection of the application's add-on folder.
 export type HostInspection = { kind: "not-inspected" } | { kind: "not-found" } | { kind: "found"; version: string }
 
-export type LiveHello = { compatibility: HostCompatibility; partVersion: string; appVersion?: string }
+// `methods` is the hello's method table: a plugin offers a host-dependent tool only when a live host lists it.
+export type LiveHello = {
+  compatibility: HostCompatibility
+  partVersion: string
+  appVersion?: string
+  methods?: string[]
+}
 
 export type HostStateInput = {
   unsupported: boolean

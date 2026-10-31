@@ -1,0 +1,32 @@
+{
+  "name": "geometry_nodes.set_modifier_input",
+  "domain": "geometry_nodes",
+  "description": "Set an exposed input on a Geometry Nodes modifier.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_modifier_input",
+  "args": {
+    "object_name": {
+      "type": "string",
+      "required": true
+    },
+    "modifier_name": {
+      "type": "string",
+      "required": true
+    },
+    "input_name": {
+      "type": "string",
+      "required": true
+    },
+    "value": {
+      "type": "any",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.set_modifier_input"
+  }
+}

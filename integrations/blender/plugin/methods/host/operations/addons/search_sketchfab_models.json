@@ -1,0 +1,36 @@
+{
+  "name": "addons.search_sketchfab_models",
+  "domain": "addons",
+  "description": "Search Sketchfab's public API for downloadable models.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "network": true,
+  "sideEffect": "Queries the Sketchfab web API.",
+  "legacy": "search_sketchfab_models",
+  "args": {
+    "query": {
+      "type": "string"
+    },
+    "page_size": {
+      "type": "integer",
+      "default": 12
+    },
+    "page": {
+      "type": "integer",
+      "default": 1
+    },
+    "downloadable": {
+      "type": "boolean",
+      "default": true
+    },
+    "animated": {
+      "type": "boolean"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "addons.search_sketchfab_models"
+  }
+}

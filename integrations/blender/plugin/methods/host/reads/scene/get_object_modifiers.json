@@ -1,0 +1,19 @@
+{
+  "name": "scene.get_object_modifiers",
+  "domain": "scene",
+  "description": "Get detailed modifier info for an object.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_object_modifiers",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_object_modifiers"
+  }
+}

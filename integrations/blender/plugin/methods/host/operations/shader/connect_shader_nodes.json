@@ -1,0 +1,38 @@
+{
+  "name": "shader.connect_shader_nodes",
+  "domain": "shader",
+  "description": "Connect two shader nodes.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "connect_shader_nodes",
+  "args": {
+    "from_node": {
+      "type": "string",
+      "required": true
+    },
+    "from_socket": {
+      "type": "string",
+      "required": true
+    },
+    "to_node": {
+      "type": "string",
+      "required": true
+    },
+    "to_socket": {
+      "type": "string",
+      "required": true
+    },
+    "material_name": {
+      "type": "string"
+    },
+    "group_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shader.connect_shader_nodes"
+  }
+}

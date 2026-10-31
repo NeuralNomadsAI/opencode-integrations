@@ -1,0 +1,30 @@
+{
+  "name": "shader.get_shader_editor_screenshot",
+  "domain": "shader",
+  "description": "Capture the Shader Editor showing a material or a shader node group.",
+  "kind": "host-read",
+  "risk": "read",
+  "capture": true,
+  "legacy": "get_shader_editor_screenshot",
+  "args": {
+    "material_name": {
+      "type": "string"
+    },
+    "group_name": {
+      "type": "string"
+    },
+    "max_size": {
+      "type": "integer",
+      "default": 1200
+    },
+    "fit_all": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shader.get_shader_editor_screenshot"
+  }
+}

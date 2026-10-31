@@ -16,17 +16,25 @@ Integrations work in **every OpenCode client**: the terminal UI, the desktop app
 
 ## Integrations
 
-None is released yet. Blender is the pilot; Gaffer, Houdini, DaVinci Resolve and Microsoft 365 follow. The reviewed list lives in [`catalog.json`](catalog.json).
+None is released yet. The reviewed list lives in [`catalog.json`](catalog.json).
+
+| Integration                                                   | Family   | Status          |
+| ------------------------------------------------------------- | -------- | --------------- |
+| [OpenCode for Blender](integrations/blender/plugin/README.md) | `native` | preview (pilot) |
+
+Gaffer, Houdini, DaVinci Resolve and Microsoft 365 follow.
 
 ## Installation
 
-Any OpenCode client: add the package to the `plugin` list of your global OpenCode configuration (`~/.config/opencode/opencode.json`):
+Any OpenCode client: add the package to the `plugins` list of your global OpenCode configuration (`~/.config/opencode/opencode.json`):
 
 ```jsonc
 {
-  "plugin": ["@neuralnomads/opencode-<app>@^0.1"]
+  "plugins": ["@neuralnomads/opencode-<app>@^0.1"]
 }
 ```
+
+An entry with settings is an object: `{ "package": "@neuralnomads/opencode-<app>@^0.1", "options": { … } }`.
 
 OpenCode installs the package on its next start. Integrations of the `native` family are installed in the global configuration only.
 

@@ -37,6 +37,48 @@ jobs:
       - run: npm run build
       - run: npm run check:markers
 
+  blender:
+    name: Blender host tests (Blender ${{ matrix.blender }}, background)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - blender: 5.2.3
+            sha256: 78486c018b4443efe5e75ab54c290ed8c15abafd249b862c2c9ce2530a918eec
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Cache the pinned Blender
+        id: blender-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/blender-${{ matrix.blender }}
+          key: blender-${{ matrix.blender }}-${{ matrix.sha256 }}
+      - name: Download Blender ${{ matrix.blender }} and check its sha256
+        if: steps.blender-cache.outputs.cache-hit != 'true'
+        env:
+          VERSION: ${{ matrix.blender }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          archive="blender-${VERSION}-linux-x64.tar.xz"
+          curl --fail --location --silent --show-error -o "$RUNNER_TEMP/$archive" "https://download.blender.org/release/Blender${VERSION%.*}/$archive"
+          echo "$SHA256  $RUNNER_TEMP/$archive" | sha256sum --check
+          mkdir -p "$HOME/blender-${VERSION}"
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$HOME/blender-${VERSION}" --strip-components=1
+      - name: Libraries for background Blender
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+      - run: npm ci
+      - name: Host tests and conformance against the add-on in Blender
+        run: |
+          export BLENDER_TEST_BIN="$HOME/blender-${{ matrix.blender }}/blender"
+          "$BLENDER_TEST_BIN" --version
+          node --test integrations/blender/test/blender.test.ts integrations/blender/test/conformance.test.ts
+
   trace-scan:
     name: Trace scan
     runs-on: ubuntu-latest

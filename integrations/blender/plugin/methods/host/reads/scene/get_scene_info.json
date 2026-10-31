@@ -1,0 +1,14 @@
+{
+  "name": "scene.get_scene_info",
+  "domain": "scene",
+  "description": "Read the active scene summary including objects, camera, frame range, and render settings.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_scene_info",
+  "args": {},
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "scene.get_scene_info"
+  }
+}

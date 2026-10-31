@@ -1,0 +1,22 @@
+{
+  "name": "shader.list_materials",
+  "domain": "shader",
+  "description": "List materials in the current Blender file.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_materials",
+  "args": {
+    "filter_text": {
+      "type": "string"
+    },
+    "only_node_materials": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "shader.list_materials"
+  }
+}

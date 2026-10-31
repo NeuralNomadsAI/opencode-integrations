@@ -1,0 +1,21 @@
+{
+  "name": "scene.set_active_camera",
+  "domain": "scene",
+  "description": "Set the active render camera for the current scene.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_active_camera",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true,
+      "description": "Exact Blender camera object name."
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "scene.set_active_camera"
+  }
+}

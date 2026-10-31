@@ -1,0 +1,36 @@
+{
+  "name": "workflows.create_string_to_curves_object",
+  "domain": "workflows",
+  "description": "Create a mesh object whose Geometry Nodes modifier turns a string into filled curves.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_string_to_curves_object",
+  "args": {
+    "text": {
+      "type": "string",
+      "required": true
+    },
+    "object_name": {
+      "type": "string"
+    },
+    "tree_name": {
+      "type": "string"
+    },
+    "size": {
+      "type": "number",
+      "default": 1.0
+    },
+    "location": {
+      "type": "array"
+    },
+    "font_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "workflows.create_string_to_curves_object"
+  }
+}

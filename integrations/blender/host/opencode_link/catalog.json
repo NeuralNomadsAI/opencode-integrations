@@ -1,0 +1,1821 @@
+{
+  "reads": [
+    {
+      "name": "addons.get_addon_status",
+      "description": "Get a summary of supported addon statuses.",
+      "args": {
+        "addon_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "addons.get_addon_status"
+      }
+    },
+    {
+      "name": "addons.get_blenderkit_import_status",
+      "description": "Check whether a BlenderKit asset is already present in the current file.",
+      "args": {
+        "asset_base_id": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "addons.get_blenderkit_import_status"
+      }
+    },
+    {
+      "name": "addons.list_bradley_assets",
+      "description": "List Bradley preset assets available in the local preset library.",
+      "args": {
+        "filter_text": {
+          "type": "string"
+        },
+        "asset_kind": {
+          "type": "string",
+          "default": "ALL"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 100
+        }
+      },
+      "execution": {
+        "handler": "addons.list_bradley_assets"
+      }
+    },
+    {
+      "name": "animation.get_object_animation_info",
+      "description": "Return summary information about an object's animation channels.",
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "animation.get_object_animation_info"
+      }
+    },
+    {
+      "name": "assets.get_asset_info",
+      "description": "Get detailed asset metadata for a local data-block.",
+      "args": {
+        "asset_type": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "assets.get_asset_info"
+      }
+    },
+    {
+      "name": "assets.list_asset_libraries",
+      "description": "List configured asset libraries from Blender preferences.",
+      "args": {},
+      "execution": {
+        "handler": "assets.list_asset_libraries"
+      }
+    },
+    {
+      "name": "assets.list_blend_file_assets",
+      "description": "Inspect a .blend library file and list its importable datablocks.",
+      "args": {
+        "filepath": {
+          "type": "string",
+          "required": true
+        },
+        "library_name": {
+          "type": "string"
+        },
+        "asset_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "execution": {
+        "handler": "assets.list_blend_file_assets"
+      }
+    },
+    {
+      "name": "assets.list_current_file_assets",
+      "description": "List assets from the current .blend file.",
+      "args": {
+        "asset_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include_unmarked": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "execution": {
+        "handler": "assets.list_current_file_assets"
+      }
+    },
+    {
+      "name": "assets.list_library_blend_files",
+      "description": "List .blend files found inside configured asset libraries.",
+      "args": {
+        "library_name": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean",
+          "default": true
+        },
+        "limit": {
+          "type": "integer",
+          "default": 200
+        }
+      },
+      "execution": {
+        "handler": "assets.list_library_blend_files"
+      }
+    },
+    {
+      "name": "geometry_nodes.get_geometry_node_tree",
+      "description": "Get full introspection of a geometry node tree.",
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.get_geometry_node_tree"
+      }
+    },
+    {
+      "name": "geometry_nodes.list_available_node_types",
+      "description": "List available geometry node types. Optionally filter by keyword.",
+      "args": {
+        "filter": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.list_available_node_types"
+      }
+    },
+    {
+      "name": "geometry_nodes.list_geometry_node_trees",
+      "description": "List all geometry node trees in the file.",
+      "args": {},
+      "execution": {
+        "handler": "geometry_nodes.list_geometry_node_trees"
+      }
+    },
+    {
+      "name": "geometry_nodes.list_geometry_nodes_modifiers",
+      "description": "List Geometry Nodes modifiers in the scene or on one object.",
+      "args": {
+        "object_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.list_geometry_nodes_modifiers"
+      }
+    },
+    {
+      "name": "geometry_nodes.list_gn_templates",
+      "description": "List available Geometry Nodes templates with descriptions and parameters.",
+      "args": {},
+      "execution": {
+        "handler": "geometry_nodes.list_gn_templates"
+      }
+    },
+    {
+      "name": "scene.get_full_scene_hierarchy",
+      "description": "Get the full collection/object hierarchy tree.",
+      "args": {},
+      "execution": {
+        "handler": "scene.get_full_scene_hierarchy"
+      }
+    },
+    {
+      "name": "scene.get_node_editor_screenshot",
+      "description": "Capture the node editor, optionally showing a given node tree.",
+      "capture": true,
+      "args": {
+        "tree_name": {
+          "type": "string"
+        },
+        "max_size": {
+          "type": "integer",
+          "default": 1200
+        },
+        "fit_all": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "scene.get_node_editor_screenshot"
+      }
+    },
+    {
+      "name": "scene.get_object_info",
+      "description": "Read detailed information for one Blender object.",
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact Blender object name."
+        }
+      },
+      "execution": {
+        "handler": "scene.get_object_info"
+      }
+    },
+    {
+      "name": "scene.get_object_modifiers",
+      "description": "Get detailed modifier info for an object.",
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "scene.get_object_modifiers"
+      }
+    },
+    {
+      "name": "scene.get_scene_info",
+      "description": "Read the active scene summary including objects, camera, frame range, and render settings.",
+      "args": {},
+      "execution": {
+        "handler": "scene.get_scene_info"
+      }
+    },
+    {
+      "name": "scene.get_viewport_screenshot",
+      "description": "Capture the 3D viewport; the image comes back as an attachment (interface only).",
+      "capture": true,
+      "args": {
+        "max_size": {
+          "type": "integer",
+          "description": "Optional maximum image dimension in pixels.",
+          "default": 800
+        }
+      },
+      "execution": {
+        "handler": "scene.get_viewport_screenshot"
+      }
+    },
+    {
+      "name": "shader.analyze_vrscene_file",
+      "description": "Inspect a .vrscene file and summarize convertible V-Ray material blocks, textures, triplanar usage, and randomizer usage.",
+      "args": {
+        "filepath": {
+          "type": "string",
+          "required": true,
+          "description": "Absolute path to the .vrscene file to inspect."
+        }
+      },
+      "execution": {
+        "handler": "materials.analyze_vrscene_file"
+      }
+    },
+    {
+      "name": "shader.get_material_info",
+      "description": "Get detailed information about a material and its shader graph.",
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "shader.get_material_info"
+      }
+    },
+    {
+      "name": "shader.get_shader_editor_screenshot",
+      "description": "Capture the Shader Editor showing a material or a shader node group.",
+      "capture": true,
+      "args": {
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        },
+        "max_size": {
+          "type": "integer",
+          "default": 1200
+        },
+        "fit_all": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "shader.get_shader_editor_screenshot"
+      }
+    },
+    {
+      "name": "shader.get_shader_node_group_info",
+      "description": "Get detailed info for a shader node group.",
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "shader.get_shader_node_group_info"
+      }
+    },
+    {
+      "name": "shader.list_materials",
+      "description": "List materials in the current Blender file.",
+      "args": {
+        "filter_text": {
+          "type": "string"
+        },
+        "only_node_materials": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "execution": {
+        "handler": "shader.list_materials"
+      }
+    },
+    {
+      "name": "shader.list_shader_node_groups",
+      "description": "List shader node groups in the current file.",
+      "args": {
+        "filter_text": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.list_shader_node_groups"
+      }
+    },
+    {
+      "name": "shader.list_shader_node_types",
+      "description": "List available shader node types. Optionally filter by keyword.",
+      "args": {
+        "filter": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.list_shader_node_types"
+      }
+    },
+    {
+      "name": "shot_manager.get_shot_details",
+      "description": "Get detailed info about a specific shot.",
+      "args": {
+        "shot_name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "shot_manager.get_shot_details"
+      }
+    },
+    {
+      "name": "shot_manager.get_shot_list",
+      "description": "Get all shots with basic info.",
+      "args": {},
+      "execution": {
+        "handler": "shot_manager.get_shot_list"
+      }
+    },
+    {
+      "name": "shot_manager.get_shot_manager_status",
+      "description": "Report whether the Shot Manager extension is active in this scene.",
+      "args": {},
+      "execution": {
+        "handler": "shot_manager.get_shot_manager_status"
+      }
+    }
+  ],
+  "operations": [
+    {
+      "name": "addons.ensure_bradley_asset_library",
+      "description": "Ensure the Bradley asset library path is registered in Blender preferences.",
+      "undoable": false,
+      "sideEffect": "Changes the Blender preferences (asset libraries).",
+      "args": {},
+      "execution": {
+        "handler": "addons.ensure_bradley_asset_library"
+      }
+    },
+    {
+      "name": "addons.import_blenderkit_asset",
+      "description": "Start importing a BlenderKit asset through the installed addon.",
+      "undoable": false,
+      "network": true,
+      "sideEffect": "Downloads from BlenderKit; the import finishes asynchronously.",
+      "args": {
+        "asset_base_id": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "asset_type": {
+          "type": "string"
+        },
+        "target_object": {
+          "type": "string"
+        },
+        "material_target_slot": {
+          "type": "integer",
+          "default": 0
+        },
+        "resolution": {
+          "type": "string",
+          "default": "blend"
+        },
+        "model_location": {
+          "type": "array"
+        },
+        "model_rotation": {
+          "type": "array"
+        },
+        "target_collection": {
+          "type": "string",
+          "default": ""
+        },
+        "nodegroup_mode": {
+          "type": "string",
+          "default": ""
+        },
+        "node_x": {
+          "type": "integer",
+          "default": 0
+        },
+        "node_y": {
+          "type": "integer",
+          "default": 0
+        }
+      },
+      "execution": {
+        "handler": "addons.import_blenderkit_asset"
+      }
+    },
+    {
+      "name": "addons.import_bradley_preset",
+      "description": "Import a Bradley node group or material and optionally apply it.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "asset_kind": {
+          "type": "string",
+          "default": "NODE_GROUP"
+        },
+        "target_object": {
+          "type": "string"
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "material_target_slot": {
+          "type": "integer",
+          "default": 0
+        },
+        "nodegroup_mode": {
+          "type": "string",
+          "default": "MODIFIER"
+        },
+        "node_x": {
+          "type": "integer",
+          "default": 0
+        },
+        "node_y": {
+          "type": "integer",
+          "default": 0
+        },
+        "model_location": {
+          "type": "array"
+        },
+        "model_rotation": {
+          "type": "array"
+        }
+      },
+      "execution": {
+        "handler": "addons.import_bradley_preset"
+      }
+    },
+    {
+      "name": "addons.import_sketchfab_model",
+      "description": "Start importing a Sketchfab model through the installed addon.",
+      "undoable": false,
+      "network": true,
+      "sideEffect": "Downloads from Sketchfab; the import finishes asynchronously.",
+      "args": {
+        "uid": {
+          "type": "string",
+          "required": true
+        },
+        "model_url": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "addons.import_sketchfab_model"
+      }
+    },
+    {
+      "name": "addons.search_blenderkit_assets",
+      "description": "Search BlenderKit assets using its public search API and local auth headers when available.",
+      "undoable": false,
+      "network": true,
+      "sideEffect": "Queries the BlenderKit web API.",
+      "args": {
+        "query": {
+          "type": "string"
+        },
+        "asset_type": {
+          "type": "string",
+          "default": "model"
+        },
+        "page_size": {
+          "type": "integer",
+          "default": 10
+        },
+        "page": {
+          "type": "integer",
+          "default": 1
+        },
+        "free_only": {
+          "type": "boolean",
+          "default": false
+        },
+        "geometry_nodes_only": {
+          "type": "boolean",
+          "default": false
+        },
+        "animated": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "execution": {
+        "handler": "addons.search_blenderkit_assets"
+      }
+    },
+    {
+      "name": "addons.search_sketchfab_models",
+      "description": "Search Sketchfab's public API for downloadable models.",
+      "undoable": false,
+      "network": true,
+      "sideEffect": "Queries the Sketchfab web API.",
+      "args": {
+        "query": {
+          "type": "string"
+        },
+        "page_size": {
+          "type": "integer",
+          "default": 12
+        },
+        "page": {
+          "type": "integer",
+          "default": 1
+        },
+        "downloadable": {
+          "type": "boolean",
+          "default": true
+        },
+        "animated": {
+          "type": "boolean"
+        }
+      },
+      "execution": {
+        "handler": "addons.search_sketchfab_models"
+      }
+    },
+    {
+      "name": "animation.create_turntable_animation",
+      "description": "Create a simple turntable rotation animation on an object.",
+      "undoable": true,
+      "args": {
+        "object_name": {
+          "type": "string",
+          "required": true
+        },
+        "frame_start": {
+          "type": "integer",
+          "default": 1
+        },
+        "frame_end": {
+          "type": "integer",
+          "default": 72
+        },
+        "turns": {
+          "type": "number",
+          "default": 1
+        },
+        "axis": {
+          "type": "string",
+          "default": "Z"
+        },
+        "interpolation": {
+          "type": "string",
+          "default": "LINEAR"
+        }
+      },
+      "execution": {
+        "handler": "animation.create_turntable_animation"
+      }
+    },
+    {
+      "name": "animation.keyframe_object_transform",
+      "description": "Set transform values and insert keyframes on an object.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "frame": {
+          "type": "integer",
+          "required": true
+        },
+        "location": {
+          "type": "array"
+        },
+        "rotation": {
+          "type": "array"
+        },
+        "scale": {
+          "type": "array"
+        },
+        "interpolation": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "animation.keyframe_object_transform"
+      }
+    },
+    {
+      "name": "animation.set_timeline_settings",
+      "description": "Set timeline range and playback FPS.",
+      "undoable": true,
+      "args": {
+        "frame_start": {
+          "type": "integer"
+        },
+        "frame_end": {
+          "type": "integer"
+        },
+        "frame_current": {
+          "type": "integer"
+        },
+        "fps": {
+          "type": "integer"
+        }
+      },
+      "execution": {
+        "handler": "animation.set_timeline_settings"
+      }
+    },
+    {
+      "name": "assets.clear_asset",
+      "description": "Clear asset metadata from a local data-block.",
+      "undoable": true,
+      "args": {
+        "asset_type": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "assets.clear_asset"
+      }
+    },
+    {
+      "name": "assets.import_blend_asset",
+      "description": "Import one datablock from a .blend library file into the current session.",
+      "undoable": true,
+      "args": {
+        "filepath": {
+          "type": "string",
+          "required": true
+        },
+        "asset_type": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "library_name": {
+          "type": "string"
+        },
+        "link": {
+          "type": "boolean",
+          "default": false
+        },
+        "link_to_scene": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "assets.import_blend_asset"
+      }
+    },
+    {
+      "name": "assets.mark_asset",
+      "description": "Mark a local data-block as an asset and update its metadata.",
+      "undoable": true,
+      "args": {
+        "asset_type": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "catalog_id": {
+          "type": "string"
+        },
+        "generate_preview": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "assets.mark_asset"
+      }
+    },
+    {
+      "name": "geometry_nodes.add_geometry_node",
+      "description": "Add a node to a GN tree. Returns the created node info.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "node_type": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "location": {
+          "type": "array"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.add_geometry_node"
+      }
+    },
+    {
+      "name": "geometry_nodes.add_node_tree_socket",
+      "description": "Add an interface socket (exposed input or output) to a GN tree.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "in_out": {
+          "type": "string",
+          "default": "INPUT"
+        },
+        "socket_type": {
+          "type": "string",
+          "default": "NodeSocketFloat"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.add_node_tree_socket"
+      }
+    },
+    {
+      "name": "geometry_nodes.attach_geometry_node_tree",
+      "description": "Attach an existing Geometry Nodes tree to an object.",
+      "undoable": true,
+      "args": {
+        "object_name": {
+          "type": "string",
+          "required": true
+        },
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "modifier_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.attach_geometry_node_tree"
+      }
+    },
+    {
+      "name": "geometry_nodes.connect_geometry_nodes",
+      "description": "Connect two nodes in a GN tree.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "from_node": {
+          "type": "string",
+          "required": true
+        },
+        "from_socket": {
+          "type": "string",
+          "required": true
+        },
+        "to_node": {
+          "type": "string",
+          "required": true
+        },
+        "to_socket": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.connect_geometry_nodes"
+      }
+    },
+    {
+      "name": "geometry_nodes.create_geometry_node_tree",
+      "description": "Create a new GN tree. Optionally assign to an object as a modifier.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "object_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.create_geometry_node_tree"
+      }
+    },
+    {
+      "name": "geometry_nodes.create_gn_from_template",
+      "description": "Create a complete Geometry Nodes setup from a template.",
+      "undoable": true,
+      "args": {
+        "template_name": {
+          "type": "string",
+          "required": true
+        },
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "object_name": {
+          "type": "string"
+        }
+      },
+      "additionalArgs": true,
+      "execution": {
+        "handler": "geometry_nodes.create_gn_from_template"
+      }
+    },
+    {
+      "name": "geometry_nodes.disconnect_geometry_nodes",
+      "description": "Remove a specific link between two nodes.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "from_node": {
+          "type": "string",
+          "required": true
+        },
+        "from_socket": {
+          "type": "string",
+          "required": true
+        },
+        "to_node": {
+          "type": "string",
+          "required": true
+        },
+        "to_socket": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.disconnect_geometry_nodes"
+      }
+    },
+    {
+      "name": "geometry_nodes.remove_geometry_node",
+      "description": "Remove a node from a GN tree.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "node_name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.remove_geometry_node"
+      }
+    },
+    {
+      "name": "geometry_nodes.rename_geometry_node",
+      "description": "Rename a node in a Geometry Nodes tree.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "node_name": {
+          "type": "string",
+          "required": true
+        },
+        "new_name": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.rename_geometry_node"
+      }
+    },
+    {
+      "name": "geometry_nodes.set_geometry_node_location",
+      "description": "Move a node to a new [x, y] editor position.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "node_name": {
+          "type": "string",
+          "required": true
+        },
+        "location": {
+          "type": "array",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.set_geometry_node_location"
+      }
+    },
+    {
+      "name": "geometry_nodes.set_modifier_input",
+      "description": "Set an exposed input on a Geometry Nodes modifier.",
+      "undoable": true,
+      "args": {
+        "object_name": {
+          "type": "string",
+          "required": true
+        },
+        "modifier_name": {
+          "type": "string",
+          "required": true
+        },
+        "input_name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.set_modifier_input"
+      }
+    },
+    {
+      "name": "geometry_nodes.set_node_input",
+      "description": "Set a default value on a node input socket.",
+      "undoable": true,
+      "args": {
+        "tree_name": {
+          "type": "string",
+          "required": true
+        },
+        "node_name": {
+          "type": "string",
+          "required": true
+        },
+        "input_name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "geometry_nodes.set_node_input"
+      }
+    },
+    {
+      "name": "scene.create_object",
+      "description": "Create a primitive, camera, light, or empty in the active scene.",
+      "undoable": true,
+      "args": {
+        "primitive": {
+          "type": "string",
+          "description": "Primitive type to create.",
+          "default": "CUBE",
+          "enum": [
+            "CUBE",
+            "SPHERE",
+            "CYLINDER",
+            "CONE",
+            "PLANE",
+            "CIRCLE",
+            "GRID",
+            "EMPTY",
+            "CAMERA",
+            "LIGHT"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional explicit object name. Blender still applies collision suffixes when needed."
+        },
+        "location": {
+          "type": "array",
+          "description": "Optional world-space location as [x, y, z].",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "execution": {
+        "handler": "scene.create_object"
+      }
+    },
+    {
+      "name": "scene.delete_object",
+      "description": "Delete one object by exact Blender name.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact Blender object name to remove."
+        }
+      },
+      "execution": {
+        "handler": "scene.delete_object"
+      }
+    },
+    {
+      "name": "scene.set_active_camera",
+      "description": "Set the active render camera for the current scene.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact Blender camera object name."
+        }
+      },
+      "execution": {
+        "handler": "scene.set_active_camera"
+      }
+    },
+    {
+      "name": "scene.transform_object",
+      "description": "Update an object's location, Euler rotation, and or scale.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact Blender object name."
+        },
+        "location": {
+          "type": "array",
+          "description": "Optional world-space location as [x, y, z].",
+          "items": {
+            "type": "number"
+          }
+        },
+        "rotation": {
+          "type": "array",
+          "description": "Optional Euler rotation in radians as [x, y, z].",
+          "items": {
+            "type": "number"
+          }
+        },
+        "scale": {
+          "type": "array",
+          "description": "Optional scale factors as [x, y, z].",
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "execution": {
+        "handler": "scene.transform_object"
+      }
+    },
+    {
+      "name": "shader.add_shader_node",
+      "description": "Add a node to a material or shader node group.",
+      "undoable": true,
+      "args": {
+        "node_type": {
+          "type": "string",
+          "required": true
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "location": {
+          "type": "array"
+        }
+      },
+      "execution": {
+        "handler": "shader.add_shader_node"
+      }
+    },
+    {
+      "name": "shader.add_shader_node_group_socket",
+      "description": "Add an interface socket to a shader node group.",
+      "undoable": true,
+      "args": {
+        "group_name": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "in_out": {
+          "type": "string",
+          "default": "INPUT"
+        },
+        "socket_type": {
+          "type": "string",
+          "default": "NodeSocketFloat"
+        }
+      },
+      "execution": {
+        "handler": "shader.add_shader_node_group_socket"
+      }
+    },
+    {
+      "name": "shader.assign_material",
+      "description": "Assign an existing material to an object material slot.",
+      "undoable": true,
+      "args": {
+        "object_name": {
+          "type": "string",
+          "required": true,
+          "description": "Target object name."
+        },
+        "material_name": {
+          "type": "string",
+          "required": true,
+          "description": "Material name to assign."
+        },
+        "slot_index": {
+          "type": "integer",
+          "description": "Material slot index to fill or overwrite.",
+          "default": 0
+        }
+      },
+      "execution": {
+        "handler": "shader.assign_material"
+      }
+    },
+    {
+      "name": "shader.connect_shader_nodes",
+      "description": "Connect two shader nodes.",
+      "undoable": true,
+      "args": {
+        "from_node": {
+          "type": "string",
+          "required": true
+        },
+        "from_socket": {
+          "type": "string",
+          "required": true
+        },
+        "to_node": {
+          "type": "string",
+          "required": true
+        },
+        "to_socket": {
+          "type": "string",
+          "required": true
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.connect_shader_nodes"
+      }
+    },
+    {
+      "name": "shader.convert_vrscene_file",
+      "description": "Convert one .vrscene file into Blender materials, with optional custom mapping-group support for triplanar and UV randomizer equivalents.",
+      "undoable": false,
+      "sideEffect": "Reads external .vrscene and texture files in bulk.",
+      "args": {
+        "filepath": {
+          "type": "string",
+          "required": true,
+          "description": "Absolute path to the .vrscene file to convert."
+        },
+        "mapping_group_name": {
+          "type": "string",
+          "description": "Optional shader node group used as the custom triplanar/randomizer mapping equivalent."
+        },
+        "group_socket_map": {
+          "type": "object",
+          "description": "Optional semantic-to-socket-name mapping override for the custom mapping group interface."
+        },
+        "replace_existing": {
+          "type": "boolean",
+          "description": "Whether to overwrite Blender materials that already exist with the same names.",
+          "default": false
+        },
+        "use_fake_user": {
+          "type": "boolean",
+          "description": "Whether converted materials should keep a fake user so they survive file cleanup.",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "materials.convert_vrscene_file"
+      }
+    },
+    {
+      "name": "shader.convert_vrscene_folder",
+      "description": "Batch-convert every .vrscene file in a folder and optionally export the generated materials to a .blend library.",
+      "undoable": false,
+      "sideEffect": "Reads a folder of .vrscene files and can write a .blend library.",
+      "args": {
+        "folder_path": {
+          "type": "string",
+          "required": true,
+          "description": "Absolute path to a folder containing .vrscene files."
+        },
+        "output_blend_path": {
+          "type": "string",
+          "description": "Optional output .blend library path for the generated materials."
+        },
+        "mapping_group_name": {
+          "type": "string",
+          "description": "Optional shader node group used as the custom triplanar/randomizer mapping equivalent."
+        },
+        "group_socket_map": {
+          "type": "object",
+          "description": "Optional semantic-to-socket-name mapping override for the custom mapping group interface."
+        },
+        "replace_existing": {
+          "type": "boolean",
+          "description": "Whether to overwrite Blender materials that already exist with the same names.",
+          "default": false
+        },
+        "use_fake_user": {
+          "type": "boolean",
+          "description": "Whether converted materials should keep a fake user so they survive file cleanup.",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "materials.convert_vrscene_folder"
+      }
+    },
+    {
+      "name": "shader.create_material",
+      "description": "Create a new material, optionally with nodes enabled.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact material name to create."
+        },
+        "use_nodes": {
+          "type": "boolean",
+          "description": "Whether the material should use a shader node tree.",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "shader.create_material"
+      }
+    },
+    {
+      "name": "shader.create_shader_material_from_template",
+      "description": "Create a new material from a small high-level shader template.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "template_name": {
+          "type": "string",
+          "default": "principled_pbr"
+        },
+        "base_color": {
+          "type": "array"
+        },
+        "roughness": {
+          "type": "number"
+        },
+        "metallic": {
+          "type": "number"
+        },
+        "transmission": {
+          "type": "number"
+        },
+        "emission_color": {
+          "type": "array"
+        },
+        "emission_strength": {
+          "type": "number"
+        },
+        "alpha": {
+          "type": "number"
+        }
+      },
+      "execution": {
+        "handler": "shader.create_shader_material_from_template"
+      }
+    },
+    {
+      "name": "shader.delete_material",
+      "description": "Delete one material by exact Blender name.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact Blender material name to remove."
+        }
+      },
+      "execution": {
+        "handler": "shader.delete_material"
+      }
+    },
+    {
+      "name": "shader.disconnect_shader_nodes",
+      "description": "Disconnect two shader nodes.",
+      "undoable": true,
+      "args": {
+        "from_node": {
+          "type": "string",
+          "required": true
+        },
+        "from_socket": {
+          "type": "string",
+          "required": true
+        },
+        "to_node": {
+          "type": "string",
+          "required": true
+        },
+        "to_socket": {
+          "type": "string",
+          "required": true
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.disconnect_shader_nodes"
+      }
+    },
+    {
+      "name": "shader.remove_shader_node",
+      "description": "Remove a node from a material or shader node group.",
+      "undoable": true,
+      "args": {
+        "node_name": {
+          "type": "string",
+          "required": true
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.remove_shader_node"
+      }
+    },
+    {
+      "name": "shader.set_shader_node_input",
+      "description": "Set the default value of a shader node input.",
+      "undoable": true,
+      "args": {
+        "node_name": {
+          "type": "string",
+          "required": true
+        },
+        "input_name": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "any",
+          "required": true
+        },
+        "material_name": {
+          "type": "string"
+        },
+        "group_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shader.set_shader_node_input"
+      }
+    },
+    {
+      "name": "shot_manager.create_shot",
+      "description": "Create a new shot in Shot Manager.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string"
+        },
+        "start_frame": {
+          "type": "integer"
+        },
+        "end_frame": {
+          "type": "integer"
+        },
+        "camera": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "shot_manager.create_shot"
+      }
+    },
+    {
+      "name": "shot_manager.enable_disable_shots",
+      "description": "Enable or disable multiple shots at once.",
+      "undoable": true,
+      "args": {
+        "shot_names": {
+          "type": "array",
+          "required": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabled": {
+          "type": "boolean",
+          "required": true
+        }
+      },
+      "execution": {
+        "handler": "shot_manager.enable_disable_shots"
+      }
+    },
+    {
+      "name": "shot_manager.launch_batch_render",
+      "description": "Launch a batch render of all enabled shots.",
+      "undoable": false,
+      "sideEffect": "Starts a Shot Manager batch render that writes image files.",
+      "args": {},
+      "execution": {
+        "handler": "shot_manager.launch_batch_render"
+      }
+    },
+    {
+      "name": "shot_manager.modify_shot",
+      "description": "Modify an existing shot's properties.",
+      "undoable": true,
+      "args": {
+        "shot_name": {
+          "type": "string",
+          "required": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "start_frame": {
+          "type": "integer"
+        },
+        "end_frame": {
+          "type": "integer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "still_mode": {
+          "type": "boolean"
+        }
+      },
+      "execution": {
+        "handler": "shot_manager.modify_shot"
+      }
+    },
+    {
+      "name": "shot_manager.set_shot_manager_render_path",
+      "description": "Set the Shot Manager alternative root output path.",
+      "undoable": true,
+      "args": {
+        "path": {
+          "type": "string",
+          "required": true
+        },
+        "redirect": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "execution": {
+        "handler": "shot_manager.set_shot_manager_render_path"
+      }
+    },
+    {
+      "name": "workflows.apply_library_material_to_object",
+      "description": "Import a material from a .blend library and assign it to an object.",
+      "undoable": true,
+      "args": {
+        "object_name": {
+          "type": "string",
+          "required": true
+        },
+        "filepath": {
+          "type": "string",
+          "required": true
+        },
+        "material_name": {
+          "type": "string",
+          "required": true
+        },
+        "library_name": {
+          "type": "string"
+        },
+        "slot_index": {
+          "type": "integer",
+          "default": 0
+        },
+        "link": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "execution": {
+        "handler": "workflows.apply_library_material_to_object"
+      }
+    },
+    {
+      "name": "workflows.create_material_and_assign",
+      "description": "Create a templated material, optionally assign it to an object, and optionally mark it as an asset.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Material name to create."
+        },
+        "template_name": {
+          "type": "string",
+          "description": "High-level shader template identifier.",
+          "default": "principled_pbr"
+        },
+        "object_name": {
+          "type": "string",
+          "description": "Optional target object name for immediate assignment."
+        },
+        "slot_index": {
+          "type": "integer",
+          "description": "Optional material slot index for assignment.",
+          "default": 0
+        },
+        "mark_as_asset": {
+          "type": "boolean",
+          "description": "Whether to mark the created material as an asset after creation.",
+          "default": false
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional asset description used when mark_as_asset is true."
+        },
+        "author": {
+          "type": "string",
+          "description": "Optional asset author used when mark_as_asset is true."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Optional asset tags used when mark_as_asset is true.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "base_color": {
+          "type": "array",
+          "description": "Optional RGBA color override as [r, g, b, a].",
+          "items": {
+            "type": "number"
+          }
+        },
+        "roughness": {
+          "type": "number",
+          "description": "Optional roughness override in the 0-1 range."
+        },
+        "metallic": {
+          "type": "number",
+          "description": "Optional metallic override in the 0-1 range."
+        },
+        "transmission": {
+          "type": "number",
+          "description": "Optional transmission override in the 0-1 range."
+        },
+        "emission_color": {
+          "type": "array",
+          "description": "Optional emission color override as [r, g, b, a].",
+          "items": {
+            "type": "number"
+          }
+        },
+        "emission_strength": {
+          "type": "number",
+          "description": "Optional emission strength override."
+        },
+        "alpha": {
+          "type": "number",
+          "description": "Optional alpha override in the 0-1 range."
+        }
+      },
+      "additionalArgs": true,
+      "execution": {
+        "handler": "workflows.create_material_and_assign"
+      }
+    },
+    {
+      "name": "workflows.create_string_to_curves_object",
+      "description": "Create a mesh object whose Geometry Nodes modifier turns a string into filled curves.",
+      "undoable": true,
+      "args": {
+        "text": {
+          "type": "string",
+          "required": true
+        },
+        "object_name": {
+          "type": "string"
+        },
+        "tree_name": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number",
+          "default": 1
+        },
+        "location": {
+          "type": "array"
+        },
+        "font_name": {
+          "type": "string"
+        }
+      },
+      "execution": {
+        "handler": "workflows.create_string_to_curves_object"
+      }
+    },
+    {
+      "name": "workflows.scatter_library_asset_on_surface",
+      "description": "Import an object or collection from a .blend library and scatter it on a surface.",
+      "undoable": true,
+      "args": {
+        "surface_object_name": {
+          "type": "string",
+          "required": true
+        },
+        "filepath": {
+          "type": "string",
+          "required": true
+        },
+        "asset_name": {
+          "type": "string",
+          "required": true
+        },
+        "asset_type": {
+          "type": "string",
+          "default": "OBJECT"
+        },
+        "library_name": {
+          "type": "string"
+        },
+        "tree_name": {
+          "type": "string"
+        },
+        "density": {
+          "type": "integer",
+          "default": 100
+        },
+        "instance_scale": {
+          "type": "array"
+        },
+        "align_to_normal": {
+          "type": "boolean",
+          "default": true
+        },
+        "random_rotation": {
+          "type": "boolean",
+          "default": true
+        },
+        "random_scale_range": {
+          "type": "array"
+        },
+        "use_realize_instances": {
+          "type": "boolean",
+          "default": false
+        },
+        "keep_input_geometry": {
+          "type": "boolean",
+          "default": true
+        },
+        "link": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "execution": {
+        "handler": "workflows.scatter_library_asset_on_surface"
+      }
+    }
+  ]
+}

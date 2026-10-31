@@ -1,0 +1,24 @@
+{
+  "name": "shot_manager.set_shot_manager_render_path",
+  "domain": "shot_manager",
+  "description": "Set the Shot Manager alternative root output path.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "set_shot_manager_render_path",
+  "args": {
+    "path": {
+      "type": "string",
+      "required": true
+    },
+    "redirect": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shot_manager.set_shot_manager_render_path"
+  }
+}

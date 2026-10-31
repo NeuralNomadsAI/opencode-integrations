@@ -1,0 +1,35 @@
+{
+  "name": "shot_manager.modify_shot",
+  "domain": "shot_manager",
+  "description": "Modify an existing shot's properties.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "modify_shot",
+  "args": {
+    "shot_name": {
+      "type": "string",
+      "required": true
+    },
+    "name": {
+      "type": "string"
+    },
+    "start_frame": {
+      "type": "integer"
+    },
+    "end_frame": {
+      "type": "integer"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "still_mode": {
+      "type": "boolean"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shot_manager.modify_shot"
+  }
+}

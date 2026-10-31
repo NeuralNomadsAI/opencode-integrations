@@ -1,0 +1,11 @@
+{
+  "name": "blender_install_host",
+  "domain": "tools",
+  "description": "Install or update the OpenCode Link add-on in Blender 5.2 or later on the computer that runs OpenCode. Asks permission.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {},
+  "execution": {
+    "strategy": "plugin"
+  }
+}

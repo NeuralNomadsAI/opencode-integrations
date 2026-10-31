@@ -1,0 +1,23 @@
+{
+  "name": "geometry_nodes.create_geometry_node_tree",
+  "domain": "geometry_nodes",
+  "description": "Create a new GN tree. Optionally assign to an object as a modifier.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_geometry_node_tree",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "object_name": {
+      "type": "string"
+    }
+  },
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.create_geometry_node_tree"
+  }
+}

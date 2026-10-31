@@ -1,0 +1,16 @@
+{
+  "name": "shot_manager.launch_batch_render",
+  "domain": "shot_manager",
+  "description": "Launch a batch render of all enabled shots.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": false,
+  "sideEffect": "Starts a Shot Manager batch render that writes image files.",
+  "legacy": "launch_batch_render",
+  "args": {},
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "shot_manager.launch_batch_render"
+  }
+}

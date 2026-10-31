@@ -1,0 +1,19 @@
+{
+  "name": "animation.get_object_animation_info",
+  "domain": "animation",
+  "description": "Return summary information about an object's animation channels.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "get_object_animation_info",
+  "args": {
+    "name": {
+      "type": "string",
+      "required": true
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "animation.get_object_animation_info"
+  }
+}

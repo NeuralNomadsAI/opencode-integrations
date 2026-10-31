@@ -1,0 +1,26 @@
+{
+  "name": "assets.list_library_blend_files",
+  "domain": "assets",
+  "description": "List .blend files found inside configured asset libraries.",
+  "kind": "host-read",
+  "risk": "read",
+  "legacy": "list_library_blend_files",
+  "args": {
+    "library_name": {
+      "type": "string"
+    },
+    "recursive": {
+      "type": "boolean",
+      "default": true
+    },
+    "limit": {
+      "type": "integer",
+      "default": 200
+    }
+  },
+  "execution": {
+    "strategy": "host_read",
+    "method": "context",
+    "handler": "assets.list_library_blend_files"
+  }
+}

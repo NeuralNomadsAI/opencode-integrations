@@ -1,0 +1,28 @@
+{
+  "name": "geometry_nodes.create_gn_from_template",
+  "domain": "geometry_nodes",
+  "description": "Create a complete Geometry Nodes setup from a template.",
+  "kind": "host-operation",
+  "risk": "write",
+  "undoable": true,
+  "legacy": "create_gn_from_template",
+  "args": {
+    "template_name": {
+      "type": "string",
+      "required": true
+    },
+    "tree_name": {
+      "type": "string",
+      "required": true
+    },
+    "object_name": {
+      "type": "string"
+    }
+  },
+  "additionalArgs": true,
+  "execution": {
+    "strategy": "host_operation",
+    "method": "apply",
+    "handler": "geometry_nodes.create_gn_from_template"
+  }
+}
