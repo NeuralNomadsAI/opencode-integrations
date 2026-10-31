@@ -47,7 +47,7 @@ Open **Status → Plugins**, choose **Add**, and enter the package name; or use 
 
 ## Development
 
-Node.js 22.18 or later runs the TypeScript sources directly.
+Node.js 22.18 or later runs the TypeScript sources directly. The tests of the reference Python discovery client need Python 3 (`python3`, or `python` on Windows; set `PYTHON` to choose another interpreter).
 
 ```sh
 npm ci

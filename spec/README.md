@@ -1,12 +1,15 @@
-# Specification of OpenCode integrations (draft 0.x)
+# Specification of OpenCode integrations (draft 0.1)
 
-The specification defines what an OpenCode integration is: its three families (`native`, `vendor-mcp`, `api`), the package contents, the static marker, the RPC status contract, the host handshake, undo levels, security rules and naming. It stays a draft (`spec: 0`) until each family has shipped an integration, then freezes as 1.0 (`spec: 1`).
+The specification defines what an OpenCode integration is: its three families (`native`, `vendor-mcp`, `api`), the package contents, the static marker, the RPC status contract, the application part and its handshake, attachment, undo levels, security rules, naming and versioning. It stays a draft (`spec: 0`) until each family has shipped an integration, then freezes as 1.0 (`spec: 1`). This is draft **0.1**.
 
-| File                          | Content                                            |
-| ----------------------------- | -------------------------------------------------- |
-| `schemas/marker.schema.json`  | The `opencodeIntegration` marker of `package.json` |
-| `schemas/catalog.schema.json` | The reviewed `catalog.json`                        |
+| File                                     | Content                                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| [`integrations.md`](integrations.md)     | Definition, families, package content, marker, security, naming, versioning, conformance map    |
+| [`rpc-contract.md`](rpc-contract.md)     | RPC status contract 1: `status` and the native methods and events                               |
+| [`host-handshake.md`](host-handshake.md) | Application part: delivery, `hello`, host state, authentication, advertisement, discovery, undo |
+| `schemas/marker.schema.json`             | The `opencodeIntegration` marker of `package.json`                                              |
+| `schemas/catalog.schema.json`            | The reviewed `catalog.json`                                                                     |
+| `schemas/rpc.schema.json`                | Inputs, outputs and events of the RPC status contract                                           |
+| `schemas/host.schema.json`               | Host wire protocol 1 and the `hello` result                                                     |
 
-`packages/conformance` validates every integration package and the catalog against these schemas, and adds the rules JSON Schema cannot express: the ID derived from the package name, the host payload digest, unique plugin and RPC IDs across the repository, unique catalog entries, the 256 KiB catalog cap and the catalog's equality with the markers.
-
-The normative text (`integrations.md`, `rpc-contract.md`, `host-handshake.md`) and the RPC schemas are written in draft 0.1.
+Every requirement has an identifier (`FAM-1`, `PKG-5`, `RPC-6`, `HST-11`…). `packages/conformance` implements the automated checks; `integrations.md` §10 maps each requirement to its check. `packages/integration-kit` is the reference implementation of the plugin side, and `packages/integration-kit/python/opencode_service.py` the reference discovery client of headless hosts.

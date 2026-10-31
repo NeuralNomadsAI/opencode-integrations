@@ -3,7 +3,11 @@ import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join, posix, relative, sep } from "node:path"
 
+import semver from "semver"
+
 import { type CatalogEntry, checkCatalogBytes } from "./catalog.ts"
+import { checkDangerousManifests, type ManifestLike } from "./code-execution.ts"
+import { checkPluginLoad } from "./load.ts"
 import { formatSchemaErrors, validateMarkerSchema } from "./schemas.ts"
 
 // Peer range of the OpenCode plugin SDK, declared optional: the OpenCode
@@ -27,6 +31,9 @@ type Marker = {
 
 type PackageJson = {
   name?: string
+  version?: string
+  exports?: unknown
+  main?: string
   type?: string
   license?: string
   files?: string[]
@@ -128,6 +135,28 @@ function checkSkills(pkg: IntegrationPackage, label: string, errors: string[]) {
   }
 }
 
+// Method manifests under methods/**.json; unreadable files are reported as such.
+function readManifests(dir: string): ManifestLike[] {
+  const root = join(dir, "methods")
+  if (!existsSync(root)) return []
+  const manifests: ManifestLike[] = []
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile() && entry.name.endsWith(".json")) {
+        try {
+          manifests.push(readJson<ManifestLike>(full))
+        } catch {
+          manifests.push({ name: `unreadable manifest ${relative(dir, full)}`, dangerous: false })
+        }
+      }
+    }
+  }
+  walk(root)
+  return manifests
+}
+
 function checkPackage(pkg: IntegrationPackage, errors: string[]) {
   const json = pkg.packageJson
   const label = json.name ?? relative(process.cwd(), pkg.dir)
@@ -156,6 +185,15 @@ function checkPackage(pkg: IntegrationPackage, errors: string[]) {
       if (digest !== marker.host.sha256) errors.push(`${label}: host payload sha256 does not match the marker`)
     }
   }
+
+  if (!json.version || semver.valid(json.version) !== json.version) {
+    errors.push(`${label}: "version" must be a semver version`)
+  } else if (marker?.host && !semver.satisfies(json.version, marker.host.range)) {
+    // The embedded host part has the package's version.
+    errors.push(`${label}: host.range "${marker.host.range}" must contain the embedded host part ${json.version}`)
+  }
+  if (marker)
+    errors.push(...checkDangerousManifests(marker.id, readManifests(pkg.dir)).map((error) => `${label}: ${error}`))
 
   if (json.type !== "module") errors.push(`${label}: "type" must be "module"`)
   if (json.license !== "MIT") errors.push(`${label}: "license" must be "MIT"`)
@@ -246,4 +284,14 @@ export function checkRepository(root: string): RepositoryReport {
     integrations: packages.map((pkg) => pkg.packageJson.name ?? pkg.dir),
     errors,
   }
+}
+
+// Loads every integration package whose marker conforms (built entries required).
+export async function checkRepositoryLoads(root: string): Promise<string[]> {
+  const errors: string[] = []
+  for (const pkg of findIntegrationPackages(root)) {
+    if (!pkg.marker) continue
+    errors.push(...(await checkPluginLoad(pkg)).errors)
+  }
+  return errors
 }

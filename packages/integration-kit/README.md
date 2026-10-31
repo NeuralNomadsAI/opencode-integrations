@@ -2,17 +2,26 @@
 
 Shared core of the integration plugins. Each plugin bundles it into its build, so two integrations loaded in the same OpenCode daemon cannot diverge. It is not published to npm.
 
-| Module                       | Role                                                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`                   | Method manifest types (`methods/**.json`)                                                                                                    |
-| `method-registry.ts`         | Loads the manifests of a plugin, sorted by name                                                                                              |
-| `manifest-args.ts`           | Validates and normalizes tool arguments against a manifest                                                                                   |
-| `plugin-tools.ts`            | Builds OpenCode V2 tools (`@opencode/plugin` 2.2) from manifests and registers them under the integration's namespace, honoring cancellation |
-| `coherence-check.ts`         | Checks manifests, handlers and the tools mentioned by skills against each other                                                              |
-| `marker.ts`                  | Marker types, the draft specification integer and ID helpers                                                                                 |
-| `validators.ts`, `output.ts` | Small JSON helpers                                                                                                                           |
+| Module                       | Role                                                                                                                                                                                                                                          |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`                   | Method manifest types (`methods/**.json`)                                                                                                                                                                                                     |
+| `method-registry.ts`         | Loads the manifests of a plugin, sorted by name                                                                                                                                                                                               |
+| `manifest-args.ts`           | Validates and normalizes tool arguments against a manifest                                                                                                                                                                                    |
+| `plugin-tools.ts`            | Builds OpenCode V2 tools (`@opencode/plugin` 2.2) from manifests and registers them under the integration's namespace, honoring cancellation                                                                                                  |
+| `coherence-check.ts`         | Checks manifests, handlers and the tools mentioned by skills against each other                                                                                                                                                               |
+| `marker.ts`                  | Marker types, the draft specification integer and ID helpers                                                                                                                                                                                  |
+| `contract.ts`                | RPC status contract 1: constants (lease, bounds), types, wire schemas equal to `spec/schemas/rpc.schema.json`, `advertise`/`withdraw` input validation, display bounds                                                                        |
+| `integration-rpc.ts`         | `createIntegrationRpc`: handlers for `ctx.rpc.register`, `status` assembly, bounded `installHost`, payload-free event relay and lease sweeping                                                                                                |
+| `offer-registry.ts`          | Offer registry with injectable clock and hello transport; `sharedOfferRegistry` keeps it on `globalThis[Symbol.for("neuralnomads.<app>.offers")]`                                                                                             |
+| `host-client.ts`             | Loopback client of host wire protocol 1 (127.0.0.1 only, bounded, cancellable; errors never carry the endpoint)                                                                                                                               |
+| `hello.ts`                   | `hello` validation, canonical JSON and capability hash, compatibility with the marker's `host` block                                                                                                                                          |
+| `host-state.ts`              | Normative derivation of `status.host.state`, WSL detection                                                                                                                                                                                    |
+| `validators.ts`, `output.ts` | Small JSON helpers                                                                                                                                                                                                                            |
+| `python/opencode_service.py` | Reference discovery client of headless hosts (standard library only): service registrations, the `global.config` Location with the `OPENCODE_CONFIG_DIR` fallback setting, `service-<name>` targeting, capability hash. Host parts vendor it. |
 
-The RPC status contract, the loopback host client, the offer registry and skill loading join the kit with draft 0.1 of the specification and the Blender pilot.
+Skill loading joins the kit with the Blender pilot.
+
+The tests of the Python client run the system Python (`python3`, or `python` on Windows; `PYTHON` overrides it) against fake OpenCode services; every path comes from the test's own HOME and XDG folders.
 
 ## Origin of the modules
 
