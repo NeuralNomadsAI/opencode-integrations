@@ -341,8 +341,9 @@ class HostCore(object):
                 value = self.app.handler(entry["execution"]["handler"])(**args)
                 results.append({"op": entry["name"], "result": _json_safe(value)})
             index = len(checked)
-            self.app.undo_push(step)
+            # Evaluate before the named step: a failure here still undoes back to the barrier.
             self.app.flush()
+            self.app.undo_push(step)
         except Exception as error:  # noqa: BLE001 - every failure after the barrier is rolled back
             restored = self._restore(before, summary)
             if not restored:

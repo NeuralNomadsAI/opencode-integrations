@@ -52,7 +52,7 @@ Open the **Integrations** extension: it lists OpenCode for Blender, shows whethe
 | `requestTimeoutMs`    | `NEURALNOMADS_BLENDER_REQUEST_TIMEOUT_MS`   | `30000`                                                   | Limit of one request to Blender                                              |
 | `allowCodeExecution`  | `NEURALNOMADS_BLENDER_ALLOW_CODE_EXECUTION` | `false`                                                   | See [Code execution](#code-execution)                                        |
 
-Add-on settings: **Offer this session to OpenCode** (off at every start), **OpenCode service** (empty: every service found; else the name of one, the `<name>` of `service-<name>.json`, or `latest`, `dev`, `beta`, `next` for the shared registration), **OpenCode configuration folder** (only for a service started with `OPENCODE_CONFIG_DIR`: its global configuration folder; the add-on tries the default folder first), **Allow code execution** (off).
+Add-on settings (changing **OpenCode service**, **OpenCode configuration folder** or **Allow code execution** while the session is offered offers it afresh, which detaches the attached conversations: attach them again): **Offer this session to OpenCode** (off at every start), **OpenCode service** (empty: every service found; else the name of one, the `<name>` of `service-<name>.json`, or `latest`, `dev`, `beta`, `next` for the shared registration), **OpenCode configuration folder** (only for a service started with `OPENCODE_CONFIG_DIR`: its global configuration folder; the add-on tries the default folder first), **Allow code execution** (off).
 
 ## Permissions
 
