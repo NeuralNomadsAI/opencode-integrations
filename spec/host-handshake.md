@@ -28,7 +28,7 @@ Normative part of [`integrations.md`](integrations.md) for the `native` family; 
 
 ### 2.2 Derivation of `status.host.state`
 
-- **HST-4** **WSL**: the state MUST be `unsupported` when the daemon runs on Linux with `/proc/version` containing `microsoft` or with `WSL_DISTRO_NAME` set, unless an offer was already validated by hello (mirrored networking). `installHost` then answers `refused`, because it would target the Linux application.
+- **HST-4** **WSL**: the state MUST be `unsupported` when the daemon runs on Linux with `/proc/version` containing `microsoft` or with `WSL_DISTRO_NAME` set, unless an offer was already validated by hello (mirrored networking). `installHost` MUST always answer `refused` under WSL, including with a validated offer, because installation would target the Linux application. The validated offer remains available for status and attachment.
 - **HST-5** The plugin MUST apply these rules **in this order**:
   1. `unsupported`: the WSL condition of HST-4, or a platform the integration does not support.
   2. `ok`, `outdated` or `incompatible`: **only** from a live hello, the hello of an offer validated and renewed within the last 15 seconds (HST-13). With several offers, the least favourable wins (`incompatible` > `outdated` > `ok`).

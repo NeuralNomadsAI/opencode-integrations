@@ -85,7 +85,7 @@ export function createIntegrationRpc(options: IntegrationRpcOptions) {
   }
 
   const installHost = async (): Promise<InstallHostOutput> => {
-    if (nativeUnsupported()) return { outcome: "refused", detail: WSL_DETAIL }
+    if (wsl()) return { outcome: "refused", detail: WSL_DETAIL }
     if (!options.installHost) return { outcome: "refused" }
     let result: InstallHostOutput
     try {
