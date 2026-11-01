@@ -16,6 +16,7 @@ import {
 import { deriveHostState, type HostInspection, hostUnsupported, isWslDaemon } from "./host-state.ts"
 import { type IntegrationMarker, SPEC_VERSION } from "./marker.ts"
 import type { OfferRegistry } from "./offer-registry.ts"
+import { createSessionBindings, type NativeSessionReader } from "./session-bindings.ts"
 
 export type IntegrationRpcOptions = {
   marker: IntegrationMarker
@@ -23,6 +24,7 @@ export type IntegrationRpcOptions = {
   version: string
   // native: the shared offer registry.
   registry?: OfferRegistry
+  nativeSession?: NativeSessionReader
   // native: read-only inspection of the application's add-on folder.
   inspectHost?: () => Promise<HostInspection>
   // native: installs the embedded host part; called only by installHost.
@@ -45,6 +47,7 @@ export function createIntegrationRpc(options: IntegrationRpcOptions) {
   if (native && (!options.registry || !marker.host))
     throw new Error("A native integration needs a host and a registry.")
   const registry = options.registry
+  const bindings = registry ? createSessionBindings(registry, options.nativeSession) : undefined
   const wsl = options.wsl ?? (() => isWslDaemon())
 
   const nativeUnsupported = () => hostUnsupported({ wsl: wsl(), validatedOffer: (registry?.counts().offers ?? 0) > 0 })
@@ -97,15 +100,19 @@ export function createIntegrationRpc(options: IntegrationRpcOptions) {
     return detail === undefined ? { outcome: result.outcome } : { outcome: result.outcome, detail }
   }
 
-  const handlers: Record<string, (input: unknown) => Promise<unknown>> = { status: () => status() }
-  if (native && registry) {
+  const handlers: Record<string, (input: unknown, context?: { signal?: AbortSignal }) => Promise<unknown>> = {
+    status: () => status(),
+  }
+  if (native && registry && bindings) {
     handlers.installHost = () => installHost()
     handlers.hosts = async () => registry.hosts()
-    handlers.attachHost = async (input) => {
+    handlers.attachHost = async (input, context) => {
       const { offerID, sessionID } = input as { offerID: string; sessionID: string }
-      return registry.attach(offerID, sessionID)
+      return bindings.attach(offerID, sessionID, context?.signal)
     }
-    handlers.detachHost = async (input) => registry.detach((input as { sessionID: string }).sessionID)
+    handlers.detachHost = async (input, context) =>
+      bindings.detach((input as { sessionID: string }).sessionID, context?.signal)
+    handlers.bindingRead = (input, context) => bindings.read(input, context?.signal)
     handlers.advertise = (input) => registry.advertise(input)
     handlers.withdraw = async (input) => registry.withdraw(input)
   }
@@ -124,5 +131,5 @@ export function createIntegrationRpc(options: IntegrationRpcOptions) {
     }
   }
 
-  return { definition: rpcDefinition(marker.rpc, marker.family), handlers, status, connect }
+  return { definition: rpcDefinition(marker.rpc, marker.family), handlers, status, connect, bindings }
 }

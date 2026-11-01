@@ -3,7 +3,7 @@
 // no output nor any event contains one. Only hello, between the plugin and
 // its host, carries them. The fake host also puts its script handle in its
 // document label and its port in its application version, which a plugin
-// must not copy into `hosts` or `status`.
+// must not copy into `hosts`, `status` or exact-session `bindingRead` results.
 
 import { randomBytes } from "node:crypto"
 
@@ -101,11 +101,20 @@ export async function runSentinelScenario(
     const offerID = listed.offers?.[0]?.offerID
     if (!offerID) errors.push("hosts: the advertised offer is not listed")
     else {
+      const before = await step("bindingRead before attach", "bindingRead", { sessionID })
+      if (before.state !== "none") errors.push("bindingRead: expected none before attach")
       const attached = await step("attachHost", "attachHost", { offerID, sessionID })
       if (attached.outcome !== "attached") errors.push(`attachHost: expected attached, got ${String(attached.outcome)}`)
+      const read = await step("bindingRead attached", "bindingRead", { sessionID })
+      const binding = read.binding as { offerID?: unknown; label?: unknown } | undefined
+      if (read.state !== "attached" || binding?.offerID !== offerID || binding?.label !== announcement.label) {
+        errors.push("bindingRead: expected the exact attached offer and safe label")
+      }
     }
     await step("status", "status", {})
     await step("detachHost", "detachHost", { sessionID })
+    const after = await step("bindingRead after detach", "bindingRead", { sessionID })
+    if (after.state !== "none") errors.push("bindingRead: expected none after detach")
     const withdrawn = await step("withdraw", "withdraw", { offer_key: offerKey, token: host.endpoint.token })
     if (withdrawn.outcome !== "withdrawn") errors.push(`withdraw: expected withdrawn, got ${String(withdrawn.outcome)}`)
     await step("hosts after withdraw", "hosts", {})

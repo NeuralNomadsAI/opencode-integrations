@@ -27,7 +27,7 @@ npm run build && npm run scan
    | Display name                   | "OpenCode for <App>"                           | "OpenCode for Blender"           |
    | State directory                | `neuralnomads/opencode-<app>`                  |                                  |
    | Fallback environment variables | `NEURALNOMADS_<APP>_*`                         |                                  |
-   | Release tag                    | `<app>-v<semver>`                              | `blender-v0.1.0`                 |
+   | Release tag                    | `<app>-v<semver>`                              | `blender-v0.2.0`                 |
 
 3. Declare the static marker (`spec/schemas/marker.schema.json`) under `opencodeIntegration` in `package.json`, with `spec: 0` during the draft.
 4. Declare the SDK as an **optional** peer and pin it for development:

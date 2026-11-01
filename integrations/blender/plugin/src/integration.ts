@@ -23,6 +23,7 @@ import {
   type OfferRegistry,
   registerPluginTools,
   requestHost,
+  type SessionBindings,
   sharedOfferRegistry,
   type ToolContent,
   validateAndNormalizeArgs,
@@ -140,6 +141,10 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     marker,
     version: pkg.version,
     registry,
+    nativeSession: {
+      location: ctx.location,
+      get: ctx.session?.get ? (input) => ctx.session.get(input as Parameters<typeof ctx.session.get>[0]) : undefined,
+    },
     inspectHost: async () => inspectHost(extensions()),
     installHost: async () => {
       void legacy.refresh()
@@ -148,7 +153,7 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     wsl: deps.wsl,
     notices: async () => (legacy.found() ? ["legacy_install"] : []),
   })
-  const handlers: Record<string, (input: unknown) => Promise<unknown>> = {
+  const handlers: Record<string, (input: unknown, context?: { signal?: AbortSignal }) => Promise<unknown>> = {
     ...rpc.handlers,
     hosts: async (input: unknown) => {
       void legacy.refresh()
@@ -172,18 +177,23 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     } as Parameters<typeof ctx.permission.assert>[0])
   }
 
-  const binding = (context: ToolContext) => {
-    const bound = registry.binding(context.sessionID)
-    if (!bound) {
-      throw new Error(
-        "No Blender session is attached to this conversation. In Blender, turn on 'Offer this session to OpenCode' (OpenCode Link); then call blender_hosts and blender_attach, or attach it from CodeNomad.",
-      )
-    }
-    return bound
-  }
+  const bindings = rpc.bindings as SessionBindings
+  const binding = (context: ToolContext) => bindings.binding(context.sessionID, context.signal)
+  type BindingSnapshot = Awaited<ReturnType<typeof binding>>
 
-  const callHost = async (context: ToolContext, method: string, params: Record<string, unknown>) => {
-    const bound = binding(context)
+  const callHost = async (
+    context: ToolContext,
+    method: string,
+    params: Record<string, unknown>,
+    captured?: BindingSnapshot,
+  ) => {
+    const ticket = captured ?? (await binding(context))
+    if (captured && !(await bindings.verify(context.sessionID, ticket.authority, context.signal))) {
+      throw new Error("Application attachment changed during permission; retry the action.")
+    }
+    if (context.signal.aborted || !registry.current(ticket.authority))
+      throw new Error("Application attachment is unverifiable.")
+    const { bound } = ticket
     try {
       return await requestHost(
         bound.endpoint,
@@ -207,11 +217,17 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     if (!codeCapable()) throw new HostError("method_disabled", "Code execution is disabled.")
     const code = String(args.code ?? "")
     // The attached host itself must list the method: nothing is asked when it would be refused.
-    if (!binding(context).methods.includes("execute_code")) {
+    const captured = await binding(context)
+    if (!captured.bound.methods.includes("execute_code")) {
       throw new HostError("method_disabled", "Code execution is disabled in the attached Blender.")
     }
     await assert(context, PERMISSIONS.executeCode, ["*"], { code: code.slice(0, 2000) })
-    return await callHost(context, "execute_code", { script_handle: args.script_handle, code, code_execution: true })
+    return await callHost(
+      context,
+      "execute_code",
+      { script_handle: args.script_handle, code, code_execution: true },
+      captured,
+    )
   }
 
   const executors: Record<
@@ -247,16 +263,21 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         throw new Error("An operation with side effects must be the only operation of its apply.")
       }
       const network = checked.filter(({ manifest }) => manifest.network === true).map(({ op }) => op)
-      binding(context)
+      const captured = await binding(context)
       if (network.length > 0) await assert(context, PERMISSIONS.network, network)
-      const result = await callHost(context, "apply", {
-        script_handle: args.script_handle,
-        if_revision: args.if_revision,
-        command_id: args.command_id,
-        ...(typeof args.summary === "string" ? { summary: args.summary } : {}),
-        operations: checked.map(({ op, args: opArgs }) => ({ op, args: opArgs })),
-        expect: args.expect ?? [],
-      })
+      const result = await callHost(
+        context,
+        "apply",
+        {
+          script_handle: args.script_handle,
+          if_revision: args.if_revision,
+          command_id: args.command_id,
+          ...(typeof args.summary === "string" ? { summary: args.summary } : {}),
+          operations: checked.map(({ op, args: opArgs }) => ({ op, args: opArgs })),
+          expect: args.expect ?? [],
+        },
+        captured,
+      )
       return text(result)
     },
 
@@ -278,21 +299,31 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
 
     async blender_hosts(_args, context) {
+      const authority = await bindings.snapshot(context.sessionID, context.signal)
+      if (!authority) throw new Error("Session ownership is unverifiable.")
       await assert(context, PERMISSIONS.attach, ["*"])
+      if (!(await bindings.verify(context.sessionID, authority, context.signal)) || !registry.current(authority)) {
+        throw new Error("Session ownership or application offers changed during permission.")
+      }
       void legacy.refresh()
       return text(registry.hosts())
     },
 
     async blender_attach(args, context) {
       const offerID = String(args.offerID)
+      const authority = await bindings.snapshot(context.sessionID, context.signal)
+      if (!authority) return text({ outcome: "refused" })
       const offer = registry.hosts().offers.find((candidate) => candidate.offerID === offerID)
       if (!offer) return text({ outcome: "gone", hint: "No such offer: call blender_hosts again." })
       await assert(context, PERMISSIONS.attach, [offer.label], { label: offer.label })
+      if (!(await bindings.verify(context.sessionID, authority, context.signal)) || !registry.current(authority)) {
+        return text({ outcome: "refused" })
+      }
       return text(registry.attach(offerID, context.sessionID))
     },
 
     async blender_detach(_args, context) {
-      return text(registry.detach(context.sessionID))
+      return text(await bindings.detach(context.sessionID, context.signal))
     },
 
     async blender_status() {

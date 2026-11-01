@@ -6,6 +6,9 @@ export type {
   AdvertiseInput,
   AdvertiseOutcome,
   AttachOutcome,
+  BindingAuthority,
+  BindingReadInput,
+  BindingReadOutput,
   ConnectionState,
   ConnectionStatus,
   HostOffer,
@@ -17,6 +20,7 @@ export type {
   WithdrawOutcome,
 } from "./contract.ts"
 export {
+  BINDING_RPC_TIMEOUT_MS,
   boundedDetail,
   CONTRACT_VERSION,
   DETAIL_MAX,
@@ -30,6 +34,8 @@ export {
   OFFER_LEASE_MS,
   OFFER_RENEW_MS,
   parseAdvertiseInput,
+  parseBindingReadInput,
+  parseBindingReadOutput,
   parseWithdrawInput,
   RPC_SCHEMAS,
   rpcDefinition,
@@ -67,6 +73,8 @@ export { createOfferRegistry, MAX_SESSIONS, offerRegistryKey, sharedOfferRegistr
 export { errorToMessage, toJson } from "./output.ts"
 export type { ManifestExecutor, ToolContent } from "./plugin-tools.ts"
 export { buildPluginTools, buildToolInput, registerPluginTools } from "./plugin-tools.ts"
+export type { NativeSessionReader, SessionBindings } from "./session-bindings.ts"
+export { createSessionBindings } from "./session-bindings.ts"
 export type {
   JsonObject,
   MethodArgManifest,

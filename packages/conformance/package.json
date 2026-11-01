@@ -1,6 +1,6 @@
 {
   "name": "@neuralnomads/integration-conformance",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Repository conformance checks for OpenCode integrations: markers, catalog, packaging.",
   "license": "MIT",

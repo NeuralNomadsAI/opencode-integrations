@@ -4,7 +4,7 @@ OpenCode integrations connect [OpenCode](https://opencode.ai) to third-party app
 
 Integrations work in **every OpenCode client**: the terminal UI, the desktop app and [CodeNomad](https://github.com/NeuralNomadsAI/CodeNomad). CodeNomad gives the best experience (a catalog, per-integration status, one-click host install and attaching an open application to a conversation), but no integration depends on it.
 
-> **Status: draft 0.x.** The specification and the packages are previews. Nothing is published to npm yet.
+> **Status: draft 0.2 (`spec: 0`, RPC contract 1).** The specification and the packages are previews. Nothing is published to npm yet.
 
 ## Families
 
@@ -30,11 +30,11 @@ Any OpenCode client: add the package to the `plugins` list of your global OpenCo
 
 ```jsonc
 {
-  "plugins": ["@neuralnomads/opencode-<app>@^0.1"]
+  "plugins": ["@neuralnomads/opencode-<app>@^0.2"]
 }
 ```
 
-An entry with settings is an object: `{ "package": "@neuralnomads/opencode-<app>@^0.1", "options": { … } }`.
+An entry with settings is an object: `{ "package": "@neuralnomads/opencode-<app>@^0.2", "options": { … } }`.
 
 OpenCode installs the package on its next start. Integrations of the `native` family are installed in the global configuration only.
 

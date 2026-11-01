@@ -8,6 +8,8 @@ import { randomBytes, timingSafeEqual } from "node:crypto"
 import {
   type AdvertiseOutcome,
   type AttachOutcome,
+  type BindingAuthority,
+  type BindingReadOutput,
   HELLO_TIMEOUT_MS,
   type HostOffer,
   MAX_OFFERS,
@@ -35,6 +37,7 @@ export type OfferRegistryOptions = {
   now?: () => number
   hello?: HelloProbe
   newOfferID?: () => string
+  isCurrent?: () => boolean
 }
 
 export type OfferChange = "hosts" | "status"
@@ -49,6 +52,10 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
 export const MAX_SESSIONS = 10_000
 
 export type OfferRegistry = {
+  authority(): BindingAuthority | null
+  current(authority: BindingAuthority): boolean
+  read(sessionID: string): BindingReadOutput
+  retire(): void
   advertise(input: unknown): Promise<{ outcome: AdvertiseOutcome }>
   withdraw(input: unknown): { outcome: WithdrawOutcome }
   hosts(): { offers: HostOffer[] }
@@ -74,8 +81,31 @@ type OfferRecord = {
   compatibility: HostCompatibility
   expiresAt: number
 }
+type PendingAnnouncement = { key: string; token: string; cancelled: boolean }
 
 const defaultHello: HelloProbe = (endpoint) => requestHost(endpoint, "hello", {}, { timeoutMs: HELLO_TIMEOUT_MS })
+
+const opaqueGeneration = () => randomBytes(24).toString("base64url")
+const SERVICE_KEY = Symbol.for("neuralnomads.integrations.serviceGeneration")
+
+function serviceGeneration(): string {
+  const store = globalThis as unknown as Record<symbol, unknown>
+  const existing = store[SERVICE_KEY]
+  if (existing !== undefined && (typeof existing !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(existing))) {
+    throw new Error("Unverifiable integration service generation.")
+  }
+  if (existing !== undefined) return existing as string
+  const generation = opaqueGeneration()
+  store[SERVICE_KEY] = generation
+  return generation
+}
+
+// Rotate the instance before a safe integer could overflow.
+export function advanceBindingAuthority(authority: BindingAuthority): BindingAuthority {
+  return authority.revision === Number.MAX_SAFE_INTEGER
+    ? { ...authority, registryGeneration: opaqueGeneration(), revision: 0 }
+    : { ...authority, revision: authority.revision + 1 }
+}
 
 // Whether display text reveals the token, the offer key, the script handle or the port.
 function revealsSecret(text: string, input: { token: string; offer_key: string; script_handle: string; port: number }) {
@@ -97,9 +127,24 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
   const sessions = new Map<string, string>()
   const listeners = new Set<(change: OfferChange) => void>()
   const inFlight = new Map<string, Promise<unknown>>()
+  const announcements = new Set<PendingAnnouncement>()
+  let retired = false
+  let authority: BindingAuthority = {
+    serviceGeneration: serviceGeneration(),
+    registryGeneration: opaqueGeneration(),
+    revision: 0,
+  }
+  const active = () =>
+    !retired &&
+    (globalThis as unknown as Record<symbol, unknown>)[SERVICE_KEY] === authority.serviceGeneration &&
+    (options.isCurrent?.() ?? true)
 
   const emit = (...changes: OfferChange[]) => {
     for (const change of changes) for (const listener of listeners) listener(change)
+  }
+  const changed = (...changes: OfferChange[]) => {
+    authority = advanceBindingAuthority(authority)
+    emit(...changes)
   }
 
   const drop = (record: OfferRecord) => {
@@ -108,6 +153,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
   }
 
   const sweep = () => {
+    if (!active()) return
     const at = now()
     let changed = false
     for (const record of [...offers.values()]) {
@@ -116,7 +162,10 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
         changed = true
       }
     }
-    if (changed) emit("hosts", "status")
+    if (changed) {
+      authority = advanceBindingAuthority(authority)
+      emit("hosts", "status")
+    }
   }
 
   const verify = async (endpoint: HostEndpoint, scriptHandle: string): Promise<Hello | null> => {
@@ -131,10 +180,10 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     return hello
   }
 
-  const advertiseOnce = async (raw: unknown): Promise<{ outcome: AdvertiseOutcome }> => {
+  const advertiseOnce = async (raw: unknown, pending: PendingAnnouncement): Promise<{ outcome: AdvertiseOutcome }> => {
     const refused = { outcome: "refused" as const }
     const input = parseAdvertiseInput(raw)
-    if (!input || input.protocol !== options.expected.protocol) return refused
+    if (!active() || pending.cancelled || !input || input.protocol !== options.expected.protocol) return refused
     if (revealsSecret(input.label, input)) return refused
     sweep()
     const current = offers.get(input.offer_key)
@@ -147,7 +196,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       current.expiresAt = now() + OFFER_LEASE_MS
       if (current.label !== input.label) {
         current.label = input.label
-        emit("hosts")
+        changed("hosts", "status")
       }
       return { outcome: "renewed" }
     }
@@ -155,15 +204,18 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
 
     const endpoint = { host: input.host, port: input.port, token: input.token }
     const hello = await verify(endpoint, input.script_handle)
-    if (!hello) return refused
+    sweep()
+    if (!hello || !active() || pending.cancelled || offers.get(input.offer_key) !== current) return refused
     // A replacement (new token, port or document) takes effect only after its hello.
     const previous = offers.get(input.offer_key)
-    if (previous) drop(previous)
     if (!previous && offers.size >= MAX_OFFERS) return refused
     const document = documentLabel(hello)
     const appVersion = hello.app_version
+    const offerID = newOfferID()
+    if (!OFFER_ID.test(offerID) || [...offers.values()].some((record) => record.offerID === offerID)) return refused
+    if (previous) drop(previous)
     offers.set(input.offer_key, {
-      offerID: newOfferID(),
+      offerID,
       key: input.offer_key,
       endpoint,
       scriptHandle: input.script_handle,
@@ -174,39 +226,78 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       compatibility: evaluateHello(hello, options.expected),
       expiresAt: now() + OFFER_LEASE_MS,
     })
-    emit("hosts", "status")
+    changed("hosts", "status")
     return { outcome: "accepted" }
   }
 
   const registry: OfferRegistry = {
+    authority() {
+      sweep()
+      return active() ? { ...authority } : null
+    },
+    current(expected) {
+      const current = registry.authority()
+      return (
+        current !== null &&
+        current.serviceGeneration === expected.serviceGeneration &&
+        current.registryGeneration === expected.registryGeneration &&
+        current.revision === expected.revision
+      )
+    },
+    read(sessionID) {
+      const current = registry.authority()
+      if (!current || !SESSION_ID.test(sessionID)) return { state: "unknown" }
+      const offerID = sessions.get(sessionID)
+      const record = [...offers.values()].find((candidate) => candidate.offerID === offerID)
+      return record
+        ? { state: "attached", authority: current, binding: { offerID: record.offerID, label: record.label } }
+        : { state: "none", authority: current }
+    },
+    retire() {
+      if (retired) return
+      retired = true
+      offers.clear()
+      sessions.clear()
+      changed("hosts", "status")
+    },
     async advertise(raw) {
+      const input = parseAdvertiseInput(raw)
+      if (!input || !active()) return { outcome: "refused" }
       // Serialize announcements of one offer key; other keys run concurrently.
-      const key =
-        typeof (raw as { offer_key?: unknown })?.offer_key === "string" ? (raw as { offer_key: string }).offer_key : ""
+      const key = input.offer_key
+      const pending = { key, token: input.token, cancelled: false }
+      announcements.add(pending)
       const previous = inFlight.get(key) ?? Promise.resolve()
       const run = previous.then(
-        () => advertiseOnce(raw),
-        () => advertiseOnce(raw),
+        () => advertiseOnce(input, pending),
+        () => advertiseOnce(input, pending),
       )
       inFlight.set(key, run)
       try {
         return await run
       } finally {
+        announcements.delete(pending)
         if (inFlight.get(key) === run) inFlight.delete(key)
       }
     },
 
     withdraw(raw) {
+      if (!active()) return { outcome: "none" }
       const input = parseWithdrawInput(raw)
+      if (input)
+        for (const pending of announcements) {
+          if (pending.key === input.offer_key && sameToken(pending.token, input.token)) pending.cancelled = true
+        }
       const record = input ? offers.get(input.offer_key) : undefined
       if (!input || !record || !sameToken(record.endpoint.token, input.token)) return { outcome: "none" }
       drop(record)
-      emit("hosts", "status")
+      changed("hosts", "status")
       return { outcome: "withdrawn" }
     },
 
     hosts() {
       sweep()
+      if (!active()) return { offers: [] }
       return {
         offers: [...offers.values()].map((record) => {
           const offer: HostOffer = {
@@ -222,6 +313,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     },
 
     attach(offerID, sessionID) {
+      if (!active()) return { outcome: "refused" }
       if (typeof sessionID !== "string" || !SESSION_ID.test(sessionID)) return { outcome: "refused" }
       if (typeof offerID !== "string" || !OFFER_ID.test(offerID)) return { outcome: "gone" }
       sweep()
@@ -233,18 +325,20 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       if (bound !== undefined) return { outcome: "busy" }
       if (sessions.size >= MAX_SESSIONS) return { outcome: "refused" }
       sessions.set(sessionID, offerID)
-      emit("status")
+      changed("status")
       return { outcome: "attached" }
     },
 
     detach(sessionID) {
+      if (!active()) return { outcome: "none" }
       if (typeof sessionID !== "string" || !sessions.delete(sessionID)) return { outcome: "none" }
-      emit("status")
+      changed("status")
       return { outcome: "detached" }
     },
 
     binding(sessionID) {
       sweep()
+      if (!active()) return null
       const offerID = sessions.get(sessionID)
       const record = [...offers.values()].find((candidate) => candidate.offerID === offerID)
       return record
@@ -259,6 +353,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
 
     liveHellos() {
       sweep()
+      if (!active()) return []
       return [...offers.values()].map((record) => ({
         compatibility: record.compatibility,
         partVersion: record.hello.host_version,
@@ -269,6 +364,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
 
     counts() {
       sweep()
+      if (!active()) return { offers: 0, attachedSessions: 0 }
       return { offers: offers.size, attachedSessions: sessions.size }
     },
 
@@ -284,7 +380,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
 
 // Bumped when the registry's shape changes; a newer generation replaces an
 // older one, whose offers come back with the next renewal (OFFER_RENEW_MS).
-const REGISTRY_GENERATION = 1
+const REGISTRY_GENERATION = 2
 
 type RegistrySlot = { generation: number; registry: OfferRegistry }
 
@@ -298,7 +394,10 @@ export function sharedOfferRegistry(app: string, options: OfferRegistryOptions):
   const store = globalThis as unknown as Record<symbol, RegistrySlot | undefined>
   const slot = store[key]
   if (slot?.generation === REGISTRY_GENERATION) return slot.registry
-  const registry = createOfferRegistry(options)
+  // A captured legacy object must be explicitly retireable before replacement.
+  if (slot && typeof slot.registry.retire !== "function") throw new Error("Unverifiable integration registry.")
+  slot?.registry.retire()
+  const registry = createOfferRegistry({ ...options, isCurrent: () => store[key]?.registry === registry })
   store[key] = { generation: REGISTRY_GENERATION, registry }
   return registry
 }

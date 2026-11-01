@@ -1,6 +1,6 @@
 # conformance
 
-Reusable conformance checks of the OpenCode integrations specification, **draft 0.1** (`SPEC_DRAFT`). `node packages/conformance/src/cli.ts [root]` checks a repository, loads every built integration package and exits non-zero on any error; its summary names the validated draft.
+Reusable conformance checks of the OpenCode integrations specification, **draft 0.2** (`SPEC_DRAFT`). `node packages/conformance/src/cli.ts [root]` checks a repository, loads every built integration package and exits non-zero on any error; its summary names the validated draft.
 
 ## Repository checks (`checkRepository`)
 
@@ -26,3 +26,5 @@ Reusable conformance checks of the OpenCode integrations specification, **draft 
 | `startFakeHost(options)`              | Reference loopback host of wire protocol 1, for tests                                                                                                                                                                                                                                                                                                                                                                          |
 
 `rpcValidator(name, "reader" | "strict")` and `hostValidator(name)` expose the schema definitions to integration tests.
+
+`bindingRead` is required for native registration. Both reader and producer schemas require its closed result: current service/registry generations and a safe revision on `attached`/`none`, a safe `{ offerID, label }` binding only on `attached`, and optional authority on `unknown`. The kit tests compare its full local parsers with these schemas, including negative, boundary and Unicode cases. The sentinel scenario reads the exact session before and after attach/detach and checks those outputs for advertised secrets. Native ownership snapshots, post-wait synchronous checks, revision transitions, generation replacement and the concurrent native move/delete window require each integration's runtime tests and review (RPC-9 to RPC-13, HST-26 and HST-27).

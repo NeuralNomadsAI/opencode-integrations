@@ -15,6 +15,7 @@ import {
   checkPluginLoad,
   checkRepository,
   checkRpcOutput,
+  checkRpcRegistration,
   checkStatusOutput,
   type FakeHost,
   type MarkerIdentity,
@@ -58,7 +59,16 @@ function status(overrides: Record<string, unknown> = {}) {
 
 describe("RPC schemas", () => {
   it("define every method of the contract and its events", () => {
-    for (const method of ["status", "installHost", "hosts", "attachHost", "detachHost", "advertise", "withdraw"]) {
+    for (const method of [
+      "status",
+      "installHost",
+      "hosts",
+      "attachHost",
+      "detachHost",
+      "bindingRead",
+      "advertise",
+      "withdraw",
+    ]) {
       assert.ok(RPC_DEFINITIONS.includes(`${method}.input`), method)
       assert.ok(RPC_DEFINITIONS.includes(`${method}.output`), method)
     }
@@ -67,7 +77,7 @@ describe("RPC schemas", () => {
   })
 
   it("carry spec 0 during the draft and name the validated draft", () => {
-    assert.equal(SPEC_DRAFT, "0.1")
+    assert.equal(SPEC_DRAFT, "0.2")
     const integration = { id: "demo", version: "0.1.0", family: "native", spec: 1 }
     assert.equal(rpcValidator("status.output")(status({ integration })), false)
     assert.equal(rpcValidator("status.output")(status()), true)
@@ -77,6 +87,25 @@ describe("RPC schemas", () => {
     const extended = status({ future: true })
     assert.equal(rpcValidator("status.output")(extended), true)
     assert.equal(rpcValidator("status.output", "strict")(extended), false)
+  })
+
+  it("requires bindingRead for native registration and validates its closed outputs", () => {
+    const marker = { ...native, rpc: "neuralnomads.demo" }
+    const methods = ["status", "installHost", "hosts", "attachHost", "detachHost", "advertise", "withdraw"]
+    const registration = { id: marker.rpc, methods, events: ["status_changed", "hosts_changed"] }
+    assert.deepEqual(checkRpcRegistration(registration, marker), ["rpc: method bindingRead is not registered"])
+    assert.deepEqual(checkRpcRegistration({ ...registration, methods: [...methods, "bindingRead"] }, marker), [])
+    const authority = { serviceGeneration: "service_1", registryGeneration: "registry_1", revision: 0 }
+    for (const output of [
+      { state: "none", authority },
+      { state: "unknown" },
+      { state: "attached", authority, binding: { offerID: "offer_abcdefgh", label: "scene" } },
+    ]) {
+      assert.deepEqual(checkRpcOutput("bindingRead", output), [])
+      assert.notDeepEqual(checkRpcOutput("bindingRead", { ...output, sessionID: "ses_foreign" }), [])
+    }
+    assert.notDeepEqual(checkRpcOutput("bindingRead", { state: "none" }), [])
+    assert.notDeepEqual(checkRpcOutput("bindingRead", { state: "attached", authority }), [])
   })
 
   it("refuse paths and oversized labels in outputs", () => {
@@ -233,9 +262,11 @@ describe("code execution gate", () => {
 
 describe("sentinel scenario", () => {
   // A target that serves the contract but leaks what its host advertised.
-  function leakyTarget(leak: "hosts" | "event" | "hello") {
+  function leakyTarget(leak: "hosts" | "event" | "hello" | "binding") {
     const offers: Array<Record<string, unknown>> = []
     const events: Array<{ name: string; data: unknown }> = []
+    let bound = false
+    const authority = { serviceGeneration: "service_1", registryGeneration: "registry_1", revision: 0 }
     return {
       events,
       async call(method: string, input: unknown) {
@@ -265,9 +296,21 @@ describe("sentinel scenario", () => {
               }),
             }
           case "attachHost":
+            bound = true
+            authority.revision++
             return { outcome: "attached" }
           case "detachHost":
+            bound = false
+            authority.revision++
             return { outcome: "detached" }
+          case "bindingRead":
+            return bound
+              ? {
+                  state: "attached",
+                  authority: { ...authority },
+                  binding: { offerID: "offer_abcdefgh", label: leak === "binding" ? offers[0]?.key : "Sentinel scene" },
+                }
+              : { state: "none", authority: { ...authority } }
           case "withdraw":
             offers.length = 0
             return { outcome: "withdrawn" }
@@ -292,6 +335,12 @@ describe("sentinel scenario", () => {
   it("fails an event that carries a payload", async () => {
     const errors = (await runSentinelScenario(leakyTarget("event"))).errors.join("\n")
     assert.match(errors, /event hosts_changed: contains the script_handle/)
+  })
+
+  it("fails an exact-session binding label that contains an advertised secret", async () => {
+    const errors = (await runSentinelScenario(leakyTarget("binding"))).errors.join("\n")
+    assert.match(errors, /bindingRead attached: the output contains the offer_key/)
+    assert.match(errors, /expected the exact attached offer and safe label/)
   })
 })
 
@@ -424,11 +473,12 @@ export default {
     const nativeMarker = { ...apiMarker, family: "native" as const }
     const errors = (await checkPluginLoad({ ...pkg, marker: nativeMarker })).errors.join("\n")
     assert.match(errors, /method hosts is not registered/)
+    assert.match(errors, /method bindingRead is not registered/)
     assert.match(errors, /event hosts_changed is not declared/)
   })
 })
 
-describe("repository rules of draft 0.1", () => {
+describe("repository rules of draft 0.2", () => {
   function repository(files: Record<string, string>) {
     const root = tempDir("conformance-repo-")
     for (const [file, content] of Object.entries(files)) {
@@ -552,6 +602,6 @@ describe("repository rules of draft 0.1", () => {
     const output = execFileSync(process.execPath, [join(import.meta.dirname, "..", "src", "cli.ts"), root], {
       encoding: "utf8",
     })
-    assert.match(output, /conformance: ok \(draft 0.1, spec 0, 0 integration package\(s\), 0 error\(s\)\)/)
+    assert.match(output, /conformance: ok \(draft 0.2, spec 0, 0 integration package\(s\), 0 error\(s\)\)/)
   })
 })

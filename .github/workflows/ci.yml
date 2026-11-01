@@ -37,6 +37,28 @@ jobs:
       - run: npm run build
       - run: npm run check:markers
 
+  blender-native:
+    name: Blender binding contract (OpenCode 2.2.5, private service)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace @neuralnomads/opencode-blender
+      - name: Install the pinned native CLI outside the checkout
+        run: npm install --prefix "$RUNNER_TEMP/opencode-native" --no-save --package-lock=false @opencode/cli@2.2.5
+      - name: Exercise native sessions with an authenticated fake host
+        run: |
+          export OPENCODE_TEST_BIN="$(node -e 'const p = require("node:path"); const root = p.join(process.env.RUNNER_TEMP, "opencode-native/node_modules/@opencode/cli"); console.log(p.resolve(root, require(p.join(root, "package.json")).bin.opencode))')"
+          "$OPENCODE_TEST_BIN" --version
+          node --test integrations/blender/test/native-session-bindings.test.ts
+
   blender:
     name: Blender host tests (Blender ${{ matrix.blender }}, background)
     runs-on: ubuntu-latest

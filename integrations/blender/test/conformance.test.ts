@@ -15,7 +15,7 @@ import {
   type ManifestLike,
   runSentinelScenario,
 } from "../../../packages/conformance/src/index.ts"
-import { helloParams } from "../plugin/src/integration.ts"
+import { helloParams, readPackage } from "../plugin/src/integration.ts"
 import { HostError, requestHost } from "../plugin/src/kit.ts"
 import { readOptions } from "../plugin/src/options.ts"
 import { methodsDir } from "../plugin/src/paths.ts"
@@ -176,10 +176,13 @@ describe("conformance of the plugin's RPC handlers", () => {
   it("runSentinelScenario: no token, port, script handle or offer key in outputs or events", async () => {
     const plugin = await loadPlugin()
     try {
-      const report = await runSentinelScenario({
-        call: (method, input) => plugin.rpc(method, input),
-        events: plugin.events,
-      })
+      const report = await runSentinelScenario(
+        {
+          call: (method, input) => plugin.rpc(method, input),
+          events: plugin.events,
+        },
+        { sessionID: "ses_test", hostVersion: readPackage().version },
+      )
       assert.deepEqual(report.errors, [])
     } finally {
       await plugin.cleanup()

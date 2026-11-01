@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { it } from "node:test"
 
 import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { readPackage } from "../plugin/src/integration.ts"
 import { isWslDaemon } from "../plugin/src/kit.ts"
 import { announcement, clock, fixturePaths, loadPlugin } from "./helpers/plugin.ts"
 
@@ -52,7 +53,10 @@ for (const detection of ["environment", "kernel"] as const) {
       })
       t.after(() => loaded.cleanup())
       if (withOffer) {
-        const host = await startFakeHost({ methods: { context: () => ({ revision: 7 }) } })
+        const host = await startFakeHost({
+          hostVersion: readPackage().version,
+          methods: { context: () => ({ revision: 7 }) },
+        })
         t.after(() => host.close())
         assert.deepEqual(await loaded.rpc("advertise", announcement(host.endpoint, host.scriptHandle)), {
           outcome: "accepted",

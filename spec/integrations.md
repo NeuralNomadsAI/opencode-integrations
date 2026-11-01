@@ -1,6 +1,6 @@
-# OpenCode integrations — specification, draft 0.1
+# OpenCode integrations — specification, draft 0.2
 
-Status: **draft 0.1** (`spec: 0`). Normative. Companion documents: [`rpc-contract.md`](rpc-contract.md) (RPC status contract) and [`host-handshake.md`](host-handshake.md) (application part, handshake, attachment, undo). JSON Schemas: [`schemas/`](schemas/).
+Status: **draft 0.2** (`spec: 0`). Normative. Companion documents: [`rpc-contract.md`](rpc-contract.md) (RPC status contract) and [`host-handshake.md`](host-handshake.md) (application part, handshake, attachment, undo). JSON Schemas: [`schemas/`](schemas/).
 
 The key words **MUST**, **MUST NOT**, **SHOULD** and **MAY** are to be read as in RFC 2119. Every requirement has an identifier (`FAM-1`, `PKG-3`…); [§10](#10-conformance) maps each one to its check.
 
@@ -81,9 +81,9 @@ The `opencodeIntegration` key of `package.json`, readable without executing the 
   "host": {
     "app": "blender",
     "protocol": 1,
-    "range": "^0.1.0",
+    "range": "^0.2.0",
     "appVersions": ">=5.2",
-    "payload": "host/blender/opencode_link-0.1.0.zip",
+    "payload": "host/blender/opencode_link-0.2.0.zip",
     "sha256": "<sha256 of the payload>"
   }
 }
@@ -98,7 +98,7 @@ The `opencodeIntegration` key of `package.json`, readable without executing the 
 
 ## 5. RPC status contract
 
-Defined in [`rpc-contract.md`](rpc-contract.md) (`RPC-*` requirements) with the schema [`schemas/rpc.schema.json`](schemas/rpc.schema.json): `status` for every family; `installHost`, `hosts`, `attachHost`, `detachHost`, `advertise`, `withdraw` and the events `status_changed`, `hosts_changed` for `native`.
+Defined in [`rpc-contract.md`](rpc-contract.md) (`RPC-*` requirements) with the schema [`schemas/rpc.schema.json`](schemas/rpc.schema.json): `status` for every family; `installHost`, `hosts`, `attachHost`, `detachHost`, `bindingRead`, `advertise`, `withdraw` and the events `status_changed`, `hosts_changed` for `native`. `bindingRead` returns exact-session state with current service/registry authority; `status_changed` invalidates it.
 
 ## 6. Application part
 
@@ -119,7 +119,7 @@ Defined in [`host-handshake.md`](host-handshake.md) (`HST-*` and `UNDO-*` requir
 | Environment fallback      | `NEURALNOMADS_<APP>_*`                             | `NEURALNOMADS_BLENDER_*`                    |
 | Offer registry key        | `Symbol.for("neuralnomads.<app>.offers")`          | `Symbol.for("neuralnomads.blender.offers")` |
 | Code-execution permission | `<app>_execute_code`                               | `blender_execute_code`                      |
-| Release tag               | `<app>-v<semver>`; catalog releases `catalog-v<n>` | `blender-v0.1.0`, `catalog-v1`              |
+| Release tag               | `<app>-v<semver>`; catalog releases `catalog-v<n>` | `blender-v0.2.0`, `catalog-v1`              |
 
 - **NAM-1** Packages, IDs, tools, skills, display names and tags MUST follow the table above.
 - **NAM-2** `<app>` matches `^[a-z][a-z0-9-]{0,31}$`.
@@ -128,9 +128,9 @@ Defined in [`host-handshake.md`](host-handshake.md) (`HST-*` and `UNDO-*` requir
 ## 8. Versioning
 
 - **VER-1** The specification carries the integer `spec`: **0 for the whole 0.x draft**, 1 at the 1.0 freeze. The RPC contract carries the integer `contract` (1).
-- **VER-2** During the draft, an incompatible change does not increment `spec`: it increments the draft's minor version (0.1 → 0.2); packages with status `preview` follow; the catalog and the conformance package name the draft they validate. This document is draft **0.1**.
-- **VER-3** After 1.0, an added field is compatible; a removed field or a changed meaning increments the integer. Readers MUST ignore unknown fields of outputs.
-- **VER-4** Packages stay `0.x` until 1.0. Clients write **ranges** (`@^0.1`, later `@^1`), never an exact version.
+- **VER-2** During the draft, an incompatible change does not increment `spec`: it increments the draft's minor version; packages with status `preview` follow; the catalog and the conformance package name the draft they validate. This document is draft **0.2**.
+- **VER-3** After 1.0, an added field is compatible; a removed field or a changed meaning increments the integer. Readers MUST ignore unknown fields of outputs except where a method explicitly requires a closed result ([RPC-11](rpc-contract.md#3-native-methods)).
+- **VER-4** Packages stay `0.x` until 1.0. Clients write **ranges** (`@^0.2`, later `@^1`), never an exact version.
 - **VER-5** The specification stays a draft until each family has shipped an integration (Blender and Gaffer/Houdini for `native`, DaVinci Resolve for `vendor-mcp`, Microsoft 365 for `api`), then freezes as 1.0.
 
 ## 9. Security
@@ -153,7 +153,7 @@ Defined in [`host-handshake.md`](host-handshake.md) (`HST-*` and `UNDO-*` requir
 
 ## 10. Conformance
 
-`packages/conformance` implements the automated checks; `node packages/conformance/src/cli.ts` runs the repository checks and loads every built integration package. It reports the draft it validates (`draft 0.1`).
+`packages/conformance` implements the automated checks; `node packages/conformance/src/cli.ts` runs the repository checks and loads every built integration package. It reports the draft it validates (`draft 0.2`).
 
 - **CNF-1** The tests of every `native` integration MUST run `checkHostListener` against its own host, `checkCodeExecutionGate` against its own plugin and host (it also checks the absence of a code-execution method), and `runSentinelScenario` against its own plugin's RPC handlers. `checkRepository` fails a `native` integration whose tests under `integrations/<app>/` do not import the three checks from the conformance package, by name or through a namespace import that uses them, in a test file (comments do not count); that the tests run them against the integration's own plugin and host is verified by review.
 
@@ -172,5 +172,7 @@ Every requirement is listed at least once below, with the check that covers it o
 | VER-1, VER-2                                                                                                                                                                                                                                                                            | Schemas (`spec: 0`) and `SPEC_DRAFT`, reported by the command line                                                                                                                                                                                                                                                                                                                  |
 | CNF-1                                                                                                                                                                                                                                                                                   | `checkRepository` (imports); review (that the checks run)                                                                                                                                                                                                                                                                                                                           |
 | DEF-1 to DEF-3, FAM-2 to FAM-9, PKG-2, PKG-4, PKG-10 (`NOTICE.md`, data licences), MRK-6 (client side), RPC-1a, RPC-1b, RPC-2a, RPC-3, HST-1, HST-2, HST-8, HST-10, HST-17, HST-23, UNDO-1 to UNDO-4, SEC-4 to SEC-9, NAM-1 (tools, skills, display names, tags), NAM-3, VER-3 to VER-5 | Review, and each integration's own tests (for example the Blender acceptance criteria)                                                                                                                                                                                                                                                                                              |
+
+RPC-9 to RPC-13, HST-26 and HST-27 are covered by contract schema/parser parity and negative tests, native Effect schema import tests, strict `checkRpcOutput("bindingRead", ...)` and sentinel reads; each integration's ownership, timeout, mutation/revision, restart and concurrent move/delete tests; and review of the native snapshot guarantee.
 
 The catalog (`catalog.json`) is checked by `checkCatalogBytes` and against the markers.

@@ -2,7 +2,7 @@
 
 `@neuralnomads/opencode-blender` lets OpenCode read and change the scene open in Blender 5.2 or later. It is a `native` integration: the **OpenCode Link** add-on runs an authenticated host inside Blender, and the plugin sends it bounded, revision-checked intents. Nothing runs in Blender until you offer the session to OpenCode.
 
-> **Status: preview (draft 0.1).** Not published to npm yet.
+> **Status: preview (draft 0.2, `spec: 0`, RPC contract 1).** Not published to npm yet.
 
 ## Installation
 
@@ -12,7 +12,7 @@
 
    ```jsonc
    {
-     "plugins": ["@neuralnomads/opencode-blender@^0.1"]
+     "plugins": ["@neuralnomads/opencode-blender@^0.2"]
    }
    ```
 
@@ -20,7 +20,7 @@
 
    ```jsonc
    {
-     "plugins": [{ "package": "@neuralnomads/opencode-blender@^0.1", "options": { "hostInspectionDir": "/path/to/extensions/user_default" } }]
+     "plugins": [{ "package": "@neuralnomads/opencode-blender@^0.2", "options": { "hostInspectionDir": "/path/to/extensions/user_default" } }]
    }
    ```
 
@@ -37,6 +37,7 @@ Open the **Integrations** extension: it lists OpenCode for Blender, shows whethe
 - **Discovery and consent.** While "Offer this session to OpenCode" is ticked, the add-on listens on `127.0.0.1` on a random port with a random 256-bit token kept in memory, and offers the session to every OpenCode service registered for your user (or to one, see the add-on setting _OpenCode service_). Offers last 15 seconds and are renewed every 5 seconds; unticking the setting withdraws them and closes the listener.
 - **Tools.** `blender_context` reads the document (script handle, revision, mode, and named reads); `blender_apply` applies up to 50 operations with the exact revision and a new `command_id`, after checking its `expect` clauses; `blender_catalog` lists the 30 reads and 49 operations; `blender_docs` searches the Blender API reference and manual (no Blender needed); `blender_audit` summarizes a `.blend` file with a separate background Blender; `blender_status`, `blender_hosts`, `blender_attach`, `blender_detach`, `blender_install_host`.
 - **Attachment and documents.** Opening another file in Blender gives it a new script handle: the offer is replaced and the conversation is detached, so attach it again (`blender_hosts`, `blender_attach`).
+- **Session binding.** Clients read `bindingRead({ sessionID })` at the session's current OpenCode Location: `attached` identifies its live offer and safe label, `none` confirms a verified session without a binding, and `unknown` keeps the state unverified. `attached` and `none` include current service/registry generations and revision; `status_changed {}` invalidates the read. A native session move keeps its exact-session binding; the new Location verifies ownership before using it. See the [draft 0.2 RPC contract](../../../spec/rpc-contract.md).
 - **Undo.** Each apply is **one** undo step named "OpenCode: …". A failed apply is rolled back to the step before it; when the rollback itself fails, the add-on quarantines itself and refuses changes until you press **Reset OpenCode Link**.
 - **Images.** Viewport, node editor and shader editor captures come back as image attachments. They need the Blender interface.
 - **Skills.** `blender-scene`, `blender-geometry-nodes`, `blender-shader-editor`, `blender-asset-browser`, `blender-animation`, `blender-shot-manager`, `blender-docs`, `blender-audit`. A skill of yours with the same name wins.

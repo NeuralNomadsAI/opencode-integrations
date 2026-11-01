@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs"
 import net from "node:net"
 import { join } from "node:path"
 import { after, describe, it } from "node:test"
-
 import {
   checkStatusOutput,
   hostValidator,
@@ -11,6 +10,7 @@ import {
   runSentinelScenario,
   startFakeHost,
 } from "../../conformance/src/index.ts"
+import { BINDING_RPC_TIMEOUT_MS, parseBindingReadInput, parseBindingReadOutput } from "../src/contract.ts"
 import {
   appVersionSatisfies,
   capabilityHash,
@@ -103,6 +103,7 @@ describe("contract schemas", () => {
     assert.deepEqual(Object.keys(native.methods).sort(), [
       "advertise",
       "attachHost",
+      "bindingRead",
       "detachHost",
       "hosts",
       "installHost",
@@ -118,6 +119,208 @@ describe("contract schemas", () => {
     assert.doesNotMatch(JSON.stringify(native), /"pattern"/)
     assert.match(JSON.stringify(RPC_SCHEMAS), /"pattern"/, "the contract schemas keep their patterns")
     assert.deepEqual(native.methods.status?.output.required, ["contract", "integration"])
+    assert.deepEqual(native.methods.bindingRead?.input.required, ["sessionID"])
+    assert.equal(BINDING_RPC_TIMEOUT_MS, 8_000)
+  })
+
+  it("uses native-supported schema keywords and compiles every registered schema through Effect", async () => {
+    const [JsonSchema, Schema, SchemaRepresentation] = await Promise.all([
+      import("effect/JsonSchema"),
+      import("effect/Schema"),
+      import("effect/SchemaRepresentation"),
+    ])
+    const native = rpcDefinition("neuralnomads.demo", "native")
+    assert.doesNotMatch(JSON.stringify(native), /"(?:pattern|not|if|then|else|unevaluatedProperties)":/)
+    const compile = (schema: unknown) =>
+      SchemaRepresentation.fromJsonSchemaDocument(JsonSchema.fromSchemaDraft2020_12(JSON.parse(JSON.stringify(schema))))
+    for (const method of Object.values(native.methods)) {
+      assert.doesNotThrow(() => compile(method.input))
+      assert.doesNotThrow(() => compile(method.output))
+    }
+    for (const event of Object.values(native.events)) assert.doesNotThrow(() => compile(event.schema))
+    const validate = Schema.decodeUnknownSync(Schema.toType(compile(native.methods.bindingRead?.output)), {
+      onExcessProperty: "error",
+    })
+    const authority = { serviceGeneration: "service_1", registryGeneration: "registry_1", revision: 0 }
+    const binding = { offerID: "offer_abcdefgh", label: "scene.blend" }
+    for (const output of [
+      { state: "attached", authority, binding },
+      { state: "none", authority },
+      { state: "unknown" },
+      { state: "unknown", authority },
+    ]) {
+      assert.deepEqual(validate(output), output)
+    }
+    for (const output of [
+      { state: "attached", authority },
+      { state: "attached", binding },
+      { state: "none" },
+      { state: "none", authority, binding },
+      { state: "unknown", binding },
+      { state: "unknown", token: "secret" },
+    ]) {
+      assert.throws(() => validate(output))
+    }
+  })
+
+  it("validates bindingRead's exact session input with full schema parity", () => {
+    const valid = [{ sessionID: "ses_1" }, { sessionID: "A-z_09" }, { sessionID: "x".repeat(128) }]
+    const invalid: unknown[] = [null, [], "ses_1", 1, {}, { sessionId: "ses_1" }]
+    for (const sessionID of [
+      "",
+      "x".repeat(129),
+      "../ses",
+      "C:\\ses",
+      "https://host",
+      "a b",
+      "é",
+      "ses\n",
+      "ses\r\n",
+      "ses\u0000",
+      42,
+      null,
+      [],
+      {},
+    ]) {
+      invalid.push({ sessionID })
+    }
+    for (const key of ["directory", "workspaceID", "offerID", "authority", "token", "port", "extra"]) {
+      invalid.push({ sessionID: "ses_1", [key]: "untrusted" })
+    }
+    const validate = rpcValidator("bindingRead.input")
+    for (const [values, expected] of [
+      [valid, true],
+      [invalid, false],
+    ] as const) {
+      for (const value of values) {
+        assert.equal(validate(value), expected, JSON.stringify(value))
+        assert.equal(parseBindingReadInput(value) !== null, expected, JSON.stringify(value))
+        if (expected) assert.deepEqual(parseBindingReadInput(value), value)
+      }
+    }
+  })
+
+  it("validates every bindingRead output branch and nested bound with full schema parity", () => {
+    const authority = { serviceGeneration: "service_1", registryGeneration: "registry-1", revision: 0 }
+    const binding = { offerID: "offer_abcdefgh", label: "scene.blend" }
+    const attached = { state: "attached", authority, binding }
+    const valid = [
+      attached,
+      { state: "none", authority },
+      { state: "unknown" },
+      { state: "unknown", authority },
+      {
+        ...attached,
+        authority: { serviceGeneration: "S", registryGeneration: "x".repeat(128), revision: Number.MAX_SAFE_INTEGER },
+      },
+      { ...attached, binding: { offerID: "a".repeat(8), label: "😀".repeat(120) } },
+      { ...attached, binding: { offerID: "z".repeat(64), label: "é".repeat(120) } },
+    ]
+    const invalid: unknown[] = [
+      null,
+      [],
+      "attached",
+      {},
+      { authority, binding },
+      { state: "connected", authority },
+      { state: "attached" },
+      { state: "attached", authority },
+      { state: "attached", binding },
+      { state: "none" },
+      { state: "none", authority, binding },
+      { state: "unknown", authority, binding },
+      { ...attached, authority: null },
+      { ...attached, authority: [] },
+      { ...attached, binding: null },
+      { ...attached, binding: [] },
+      { ...attached, binding: { offerID: binding.offerID } },
+      { ...attached, binding: { label: binding.label } },
+      { state: "unknown", authority: null },
+    ]
+    for (const key of ["serviceGeneration", "registryGeneration", "revision"]) {
+      const missing: Record<string, unknown> = { ...authority }
+      delete missing[key]
+      invalid.push({ ...attached, authority: missing })
+    }
+    for (const generation of [
+      "",
+      "x".repeat(129),
+      "é",
+      "a/b",
+      "a\\b",
+      "a.b",
+      "a:b",
+      "a b",
+      "x\n",
+      "x\r\n",
+      "x\u0000",
+      1,
+      null,
+      [],
+      {},
+    ]) {
+      for (const key of ["serviceGeneration", "registryGeneration"])
+        invalid.push({ ...attached, authority: { ...authority, [key]: generation } })
+    }
+    for (const revision of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "1", null]) {
+      invalid.push({ ...attached, authority: { ...authority, revision } })
+    }
+    for (const offerID of [
+      "",
+      "a".repeat(7),
+      "a".repeat(65),
+      "offer/path",
+      "offer key",
+      "offer_abc\n",
+      "offer_ééé",
+      null,
+    ]) {
+      invalid.push({ ...attached, binding: { ...binding, offerID } })
+    }
+    for (const label of [
+      "",
+      "x".repeat(121),
+      "😀".repeat(121),
+      "/tmp/scene",
+      "C:\\scene",
+      "https://host",
+      "line\nbreak",
+      "x\u0000",
+      null,
+      1,
+    ]) {
+      invalid.push({ ...attached, binding: { ...binding, label } })
+    }
+    for (const key of [
+      "extra",
+      "path",
+      "directory",
+      "workspaceID",
+      "sessionID",
+      "token",
+      "password",
+      "port",
+      "script_handle",
+      "offer_key",
+      "binding_key",
+    ]) {
+      invalid.push({ ...attached, [key]: "foreign" })
+      invalid.push({ ...attached, authority: { ...authority, [key]: "foreign" } })
+      invalid.push({ ...attached, binding: { ...binding, [key]: "foreign" } })
+    }
+    for (const mode of ["reader", "strict"] as const) {
+      const validate = rpcValidator("bindingRead.output", mode)
+      for (const [values, expected] of [
+        [valid, true],
+        [invalid, false],
+      ] as const) {
+        for (const value of values) {
+          assert.equal(validate(value), expected, `${mode}: ${JSON.stringify(value)}`)
+          assert.equal(parseBindingReadOutput(value) !== null, expected, JSON.stringify(value))
+          if (expected) assert.deepEqual(parseBindingReadOutput(value), value)
+        }
+      }
+    }
   })
 
   it("validates advertise and withdraw exactly like the JSON Schema", () => {
@@ -471,6 +674,11 @@ describe("integration RPC", () => {
       marker,
       version: "0.1.0",
       registry,
+      nativeSession: {
+        location: { directory: import.meta.dirname },
+        get: async ({ sessionID }) =>
+          sessionID === "ses_sentinel_owned" ? { id: sessionID, location: { directory: import.meta.dirname } } : null,
+      },
       wsl: () => options.wsl ?? false,
       inspectHost: async () => ({ kind: "not-found" }),
       installHost: async () => ({ outcome: "installed", detail: "Installed into D:\\Apps\\addons" }),
@@ -494,7 +702,7 @@ describe("integration RPC", () => {
 
   it("never returns a token, port, script handle or offer key (sentinel scenario)", async () => {
     const target = nativeRpc()
-    const report = await runSentinelScenario(target)
+    const report = await runSentinelScenario(target, { sessionID: "ses_sentinel_owned" })
     assert.deepEqual(report.errors, [])
     assert.ok(target.events.some((event) => event.name === "hosts_changed"))
   })

@@ -56,7 +56,10 @@ export async function loadPlugin(
     legacyPort?: number
     wsl?: () => boolean
     registry?: OfferRegistry
-    answer?: (action: string) => PermissionAnswer
+    answer?: (action: string) => PermissionAnswer | Promise<PermissionAnswer>
+    location?: { directory: string; workspaceID?: string }
+    sessions?: Map<string, { id: string; location: { directory: string; workspaceID?: string } }>
+    nativeGet?: ((input: { sessionID: string }) => Promise<unknown>) | null
   } = {},
 ) {
   const options = input.options ?? {}
@@ -78,6 +81,10 @@ export async function loadPlugin(
   let tools = new Map<string, Info>()
   const skills = new Map<string, { id: string; content: string }>()
   const userSkills = new Map<string, unknown>()
+  const location = input.location ?? { directory: join(tmpdir(), "location") }
+  // Exact native table: an arbitrary ID must never acquire ownership by echoing its input.
+  const sessions =
+    input.sessions ?? new Map(["ses_test", "ses_one"].map((id) => [id, { id, location: { ...location } }]))
 
   const runToolTransforms = () => {
     const next = new Map<string, Info>()
@@ -95,7 +102,18 @@ export async function loadPlugin(
 
   const ctx = {
     options,
-    location: { directory: join(tmpdir(), "location") },
+    location,
+    session: {
+      get:
+        input.nativeGet === null
+          ? undefined
+          : (input.nativeGet ??
+            (async ({ sessionID }: { sessionID: string }) => {
+              const session = sessions.get(sessionID)
+              if (!session) throw new Error("Session not found")
+              return session
+            })),
+    },
     rpc: {
       async register(
         definition: { id: string },
@@ -134,7 +152,8 @@ export async function loadPlugin(
     permission: {
       async assert(request: { action: string; resources: string[] }) {
         permissions.push({ action: request.action, resources: request.resources })
-        if ((input.answer?.(request.action) ?? "allow") === "deny") throw new Error("The user rejected permission")
+        if (((await input.answer?.(request.action)) ?? "allow") === "deny")
+          throw new Error("The user rejected permission")
       },
     },
   } as unknown as Plugin.Context
@@ -150,6 +169,8 @@ export async function loadPlugin(
 
   return {
     registry,
+    sessions,
+    location,
     internals: cleanup.internals,
     cleanup,
     events,

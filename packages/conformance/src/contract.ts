@@ -4,9 +4,18 @@
 import { RPC_DEFINITIONS, rpcValidator, schemaErrors } from "./schemas.ts"
 
 // Draft of the specification these checks validate.
-export const SPEC_DRAFT = "0.1"
+export const SPEC_DRAFT = "0.2"
 export const KNOWN_NOTICES = ["legacy_install"]
-export const NATIVE_METHODS = ["status", "installHost", "hosts", "attachHost", "detachHost", "advertise", "withdraw"]
+export const NATIVE_METHODS = [
+  "status",
+  "installHost",
+  "hosts",
+  "attachHost",
+  "detachHost",
+  "bindingRead",
+  "advertise",
+  "withdraw",
+]
 
 export type MarkerIdentity = {
   spec: number
