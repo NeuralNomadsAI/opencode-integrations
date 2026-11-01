@@ -226,12 +226,12 @@ describe("native snapshots and asynchronous fencing", () => {
     assert.equal(registry.read("ses_one").state, "none")
   })
 
-  for (const mutation of ["revoke", "queued-revoke", "retire", "expired-replacement"] as const) {
+  for (const mutation of ["revoke", "queued-revoke", "retire", "expired-replacement", "revision"] as const) {
     it(`stale hello cannot insert an offer after ${mutation}`, async () => {
       const pending = deferred<unknown>()
       const entered = deferred<void>()
       let at = 0
-      let wait = mutation !== "expired-replacement"
+      let wait = mutation !== "expired-replacement" && mutation !== "revision"
       const registry = createOfferRegistry({
         expected,
         now: () => at,
@@ -241,22 +241,25 @@ describe("native snapshots and asynchronous fencing", () => {
           return pending.promise
         },
       })
-      if (mutation === "expired-replacement") {
+      if (mutation === "expired-replacement" || mutation === "revision") {
         await registry.advertise(offer)
         wait = true
       }
       const advertisement = registry.advertise(
-        mutation === "expired-replacement" ? { ...offer, token: "b".repeat(64) } : offer,
+        mutation === "expired-replacement" || mutation === "revision" ? { ...offer, token: "b".repeat(64) } : offer,
       )
       const queued = mutation === "queued-revoke" ? registry.advertise(offer) : null
       await entered.promise
       if (mutation === "retire") registry.retire()
       else if (mutation === "expired-replacement") at = 15_001
+      else if (mutation === "revision") registry.attach(registry.hosts().offers[0]?.offerID as string, "ses_one")
       else registry.withdraw({ offer_key: offer.offer_key, token: offer.token })
       pending.resolve(hello)
       assert.deepEqual(await advertisement, { outcome: "refused" })
       if (queued) assert.deepEqual(await queued, { outcome: "refused" })
-      assert.deepEqual(registry.hosts(), { offers: [] })
+      if (mutation === "revision") {
+        assert.equal(registry.read("ses_one").state, "attached", "an unrelated binding change fences the pending hello")
+      } else assert.deepEqual(registry.hosts(), { offers: [] })
     })
   }
 })

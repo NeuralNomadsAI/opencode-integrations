@@ -203,9 +203,11 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
     if (!current && offers.size >= MAX_OFFERS) return refused
 
     const endpoint = { host: input.host, port: input.port, token: input.token }
+    const capturedAuthority = { ...authority }
     const hello = await verify(endpoint, input.script_handle)
     sweep()
-    if (!hello || !active() || pending.cancelled || offers.get(input.offer_key) !== current) return refused
+    if (!hello || !registry.current(capturedAuthority) || pending.cancelled || offers.get(input.offer_key) !== current)
+      return refused
     // A replacement (new token, port or document) takes effect only after its hello.
     const previous = offers.get(input.offer_key)
     if (!previous && offers.size >= MAX_OFFERS) return refused
