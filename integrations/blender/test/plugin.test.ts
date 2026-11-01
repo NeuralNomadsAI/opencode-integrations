@@ -25,7 +25,7 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
 }
 
 async function fakeHost(options: Parameters<typeof startFakeHost>[0] = {}) {
-  const host = await startFakeHost({ scriptHandle: "blend-test", ...options })
+  const host = await startFakeHost({ hostVersion: readPackage().version, scriptHandle: "blend-test", ...options })
   cleanups.push(() => host.close())
   return host
 }
@@ -45,10 +45,10 @@ type Status = {
 describe("status.host.state (AC-B7, AC-B13)", () => {
   it("ok, outdated and incompatible come only from a live hello", async () => {
     for (const [options, state] of [
-      [{ hostVersion: "0.1.0" }, "ok"],
+      [{ hostVersion: readPackage().version }, "ok"],
       [{ hostVersion: "0.0.9" }, "outdated"],
       [{ appVersion: "5.1.0" }, "incompatible"],
-      [{ hostVersion: "0.2.0" }, "incompatible"],
+      [{ hostVersion: "99.0.0" }, "incompatible"],
     ] as const) {
       const loaded = await plugin({ paths: paths() })
       assert.equal(((await loaded.rpc("status")) as Status).host.state, "unknown")
@@ -75,20 +75,29 @@ describe("status.host.state (AC-B7, AC-B13)", () => {
     const fixture = paths()
     assert.deepEqual(((await (await plugin({ paths: fixture })).rpc("status")) as Status).host, {
       state: "unknown",
-      expectedRange: "^0.1.0",
+      expectedRange: readPackage().opencodeIntegration.host?.range,
     })
     const empty = join(fixture.root, "extensions")
     mkdirSync(empty)
     const absent = (
       (await (await plugin({ paths: fixture, options: { hostInspectionDir: empty } })).rpc("status")) as Status
     ).host
-    assert.deepEqual(absent, { state: "absent", expectedRange: "^0.1.0", action: "install" })
+    assert.deepEqual(absent, {
+      state: "absent",
+      expectedRange: readPackage().opencodeIntegration.host?.range,
+      action: "install",
+    })
     mkdirSync(join(empty, "opencode_link"))
     writeFileSync(join(empty, "opencode_link", "blender_manifest.toml"), 'id = "opencode_link"\nversion = "0.0.5"\n')
     const outdated = (
       (await (await plugin({ paths: fixture, options: { hostInspectionDir: empty } })).rpc("status")) as Status
     ).host
-    assert.deepEqual(outdated, { state: "outdated", expectedRange: "^0.1.0", partVersion: "0.0.5", action: "update" })
+    assert.deepEqual(outdated, {
+      state: "outdated",
+      expectedRange: readPackage().opencodeIntegration.host?.range,
+      partVersion: "0.0.5",
+      action: "update",
+    })
   })
 
   it("the default inspection folder is the newest Blender >= 5.2 user extensions repository", async () => {
@@ -266,7 +275,7 @@ describe("tools", () => {
         }
       },
     })
-    await assert.rejects(loaded.tool("blender_context"), /No Blender session is attached/)
+    await assert.rejects(loaded.tool("blender_context"), /No verified application is attached/)
     loaded.registry.attach(offerID, "ses_test")
     const result = await loaded.tool("blender_context", {
       reads: [{ name: "scene.get_viewport_screenshot", args: { max_size: 64 } }],

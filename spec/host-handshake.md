@@ -1,4 +1,4 @@
-# Application part, handshake and attachment — draft 0.1
+# Application part, handshake and attachment — draft 0.2
 
 Normative part of [`integrations.md`](integrations.md) for the `native` family; the key words MUST, MUST NOT, SHOULD and MAY are to be read as in RFC 2119. Schema of the wire protocol and of `hello`: [`schemas/host.schema.json`](schemas/host.schema.json). The plugin side is implemented by `packages/integration-kit` (host client, `hello` checks, host state, offer registry); the reference discovery client of headless hosts is `packages/integration-kit/python/opencode_service.py`.
 
@@ -56,6 +56,8 @@ Normative part of [`integrations.md`](integrations.md) for the `native` family; 
 - **HST-15** A plugin MUST hold at most 16 offers; beyond, it answers `refused`.
 - **HST-16** A client lists opaque offers (`hosts`) and calls `attachHost({ offerID, sessionID })`; the plugin MUST refuse (`busy`) a session already bound to another live host.
 - **HST-17** **Hosts with a panel** (Gaffer, Houdini) MUST advertise from the panel's sidecar the same way.
+- **HST-26** **Session ownership.** Binding reads and mutations MUST verify the exact requested session with a fresh native `ctx.session.get` at each call and again after asynchronous permission/hello waits ([RPC-12](rpc-contract.md#3-native-methods)). The Promise-native `Location.PublicRef` intentionally exposes `directory` without `workspaceID`: the exact validated directory is the public ownership contract. A context whose safe ownership decision requires an unavailable workspace distinction MUST fail closed (`unknown` for a read, refusal for a mutation). Implementations MUST NOT infer that distinction from a shared parent directory, project, cached session inventory, the Q8 probe, or a fabricated workspace ID. A binding follows the exact session ID across a native move: the old Location MUST refuse access, and the new Location MUST verify its fresh native session ownership before observing or using that binding. A move MUST NOT automatically detach the session.
+- **HST-27** **Registry authority.** The shared registry MUST expose the current service generation, registry generation and revision of RPC-10. Every final binding observation or commit MUST synchronously verify that registry instance, its generations and revision, and the live selected offer after the last fresh ownership snapshot. A replaced registry or offer, a changed label, a revoked or expired offer, or changed binding MUST invalidate an earlier observation. Ownership snapshots have the concurrent native move/delete window described in RPC-12; the Q8 probe MUST NOT supply ownership or binding authority. Host `hello.capabilities.methods` MUST continue to declare the complete fixed host method table ([HST-25](#21-hello)); `bindingRead` belongs to the plugin RPC contract and leaves that inventory intact.
 
 ## 5. Discovery by headless hosts
 

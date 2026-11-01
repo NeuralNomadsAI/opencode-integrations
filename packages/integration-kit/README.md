@@ -1,6 +1,6 @@
 # integration-kit
 
-Shared core of the integration plugins. Each plugin bundles it into its build, so two integrations loaded in the same OpenCode daemon cannot diverge. It is not published to npm.
+Shared core of the integration plugins, following [draft 0.2](../../spec/integrations.md) (`spec: 0`, RPC contract 1). Each plugin bundles it into its build, so two integrations loaded in the same OpenCode daemon cannot diverge. It is not published to npm.
 
 | Module                       | Role                                                                                                                                                                                                                                                    |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -13,6 +13,7 @@ Shared core of the integration plugins. Each plugin bundles it into its build, s
 | `contract.ts`                | RPC status contract 1: constants (lease, bounds), types, wire schemas equal to `spec/schemas/rpc.schema.json` (`rpcDefinition` registers them without `pattern`, which OpenCode 2.2.5 refuses), `advertise`/`withdraw` input validation, display bounds |
 | `integration-rpc.ts`         | `createIntegrationRpc`: handlers for `ctx.rpc.register`, `status` assembly, bounded `installHost`, payload-free event relay and lease sweeping                                                                                                          |
 | `offer-registry.ts`          | Offer registry with injectable clock and hello transport; `sharedOfferRegistry` keeps it on `globalThis[Symbol.for("neuralnomads.<app>.offers")]`; `liveHellos()` also gives each live host's method table                                              |
+| `session-bindings.ts`        | Per-Location exact native session snapshots, bounded lookups and synchronous registry/generation/revision fencing for reads, attachments and host access                                                                                                |
 | `host-client.ts`             | Loopback client of host wire protocol 1 (127.0.0.1 only, bounded, cancellable; errors never carry the endpoint, `HostError.detail` keeps the host's bounded explanation)                                                                                |
 | `hello.ts`                   | `hello` validation, canonical JSON and capability hash, compatibility with the marker's `host` block                                                                                                                                                    |
 | `host-state.ts`              | Normative derivation of `status.host.state`, WSL detection                                                                                                                                                                                              |
@@ -20,6 +21,12 @@ Shared core of the integration plugins. Each plugin bundles it into its build, s
 | `python/opencode_service.py` | Reference discovery client of headless hosts (standard library only): service registrations, the `global.config` Location with the `OPENCODE_CONFIG_DIR` fallback setting, `service-<name>` targeting, capability hash. Host parts vendor it.           |
 
 Skill loading lives in the Blender pilot (`integrations/blender/plugin/src/skills.ts`) until a second integration needs it.
+
+`bindingRead` uses full local input/output parsers and `BINDING_RPC_TIMEOUT_MS = 8000`. Its pattern-free native schema has three closed `oneOf` result branches supported by the Effect JSON Schema importer; tests compile every registered schema with that importer and compare the complete binding schemas with their local parsers.
+
+Native integrations pass their own `nativeSession: { location: ctx.location, get: input => ctx.session.get(input) }` to `createIntegrationRpc`. Its `bindings` helpers verify the exact session ID and native directory on each call. An explicit workspace identity is unverifiable with the Promise `Location.PublicRef` contract and fails closed. Tools capture authority before permissions, reread ownership after them, then synchronously fence the same registry, generations, revision and offer before mutation or host dispatch. A concurrent native move or deletion after that snapshot remains possible. Moves keep the binding keyed by session ID: the old Location refuses, and the new Location verifies it afresh.
+
+Shared registries retire captured references on replacement. An existing slot whose references cannot be retired is refused; a fresh service lifetime provides a new verifiable registry. Location cleanup only disconnects its events and timer, keeping other Locations' shared offers alive.
 
 The tests of the Python client run the system Python (`python3`, or `python` on Windows; `PYTHON` overrides it) against fake OpenCode services; every path comes from the test's own HOME and XDG folders.
 

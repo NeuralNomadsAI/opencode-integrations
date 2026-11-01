@@ -6,7 +6,7 @@ import type { IntegrationFamily } from "./marker.ts"
 
 // Contract integer carried by `status`; the draft name of the specification.
 export const CONTRACT_VERSION = 1
-export const SPEC_DRAFT = "0.1"
+export const SPEC_DRAFT = "0.2"
 
 // Offer lease and renewal (spec/host-handshake.md, "Advertisement").
 export const OFFER_LEASE_MS = 15_000
@@ -14,6 +14,7 @@ export const OFFER_RENEW_MS = 5_000
 // A hello older than this no longer derives ok, outdated or incompatible.
 export const LIVE_HELLO_MS = 15_000
 export const HELLO_TIMEOUT_MS = 2_000
+export const BINDING_RPC_TIMEOUT_MS = 8_000
 export const MAX_OFFERS = 16
 
 export const LABEL_MAX = 120
@@ -58,6 +59,13 @@ export type HostOffer = {
   protocol: "ok" | "incompatible"
 }
 
+export type BindingReadInput = { sessionID: string }
+export type BindingAuthority = { serviceGeneration: string; registryGeneration: string; revision: number }
+export type BindingReadOutput =
+  | { state: "attached"; authority: BindingAuthority; binding: { offerID: string; label: string } }
+  | { state: "none"; authority: BindingAuthority }
+  | { state: "unknown"; authority?: BindingAuthority }
+
 export type AdvertiseInput = {
   host: "127.0.0.1"
   port: number
@@ -81,6 +89,7 @@ const HANDLE_PATTERN = "^[^\\p{Cc}]+$"
 const CONTROL_PATTERN = "[\\p{Cc}]"
 const OFFER_ID_PATTERN = "^[A-Za-z0-9_-]{8,64}$"
 const SESSION_ID_PATTERN = "^[A-Za-z0-9_-]{1,128}$"
+const GENERATION_PATTERN = "^[A-Za-z0-9_-]{1,128}(?![\\s\\S])"
 
 const semver = (): Schema => ({ type: "string", maxLength: 64, pattern: SEMVER_PATTERN })
 const display = (maxLength: number): Schema => ({ type: "string", minLength: 1, maxLength, pattern: DISPLAY_PATTERN })
@@ -90,6 +99,26 @@ const outcome = (values: string[]): Schema => ({
   required: ["outcome"],
   properties: { outcome: { enum: values } },
 })
+
+const bindingAuthority = {
+  type: "object",
+  additionalProperties: false,
+  required: ["serviceGeneration", "registryGeneration", "revision"],
+  properties: {
+    serviceGeneration: { type: "string", pattern: GENERATION_PATTERN },
+    registryGeneration: { type: "string", pattern: GENERATION_PATTERN },
+    revision: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  },
+}
+const publicBinding = {
+  type: "object",
+  additionalProperties: false,
+  required: ["offerID", "label"],
+  properties: {
+    offerID: { type: "string", pattern: `${OFFER_ID_PATTERN}(?![\\s\\S])` },
+    label: display(LABEL_MAX),
+  },
+}
 
 export const RPC_SCHEMAS = {
   "status.input": empty(),
@@ -184,6 +213,35 @@ export const RPC_SCHEMAS = {
     properties: { sessionID: { type: "string", pattern: SESSION_ID_PATTERN } },
   },
   "detachHost.output": outcome(["detached", "none"]),
+  "bindingRead.input": {
+    type: "object",
+    additionalProperties: false,
+    required: ["sessionID"],
+    properties: { sessionID: { type: "string", pattern: `${SESSION_ID_PATTERN}(?![\\s\\S])` } },
+  },
+  "bindingRead.output": {
+    type: "object",
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["state", "authority", "binding"],
+        properties: { state: { const: "attached" }, authority: bindingAuthority, binding: publicBinding },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["state", "authority"],
+        properties: { state: { const: "none" }, authority: bindingAuthority },
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["state"],
+        properties: { state: { const: "unknown" }, authority: bindingAuthority },
+      },
+    ],
+  },
   "advertise.output": outcome(["accepted", "renewed", "refused"]),
   "withdraw.output": outcome(["withdrawn", "none"]),
   "status_changed.event": empty(),
@@ -195,12 +253,22 @@ export const RPC_SCHEMAS = {
 // refusal never reveals its cause.
 const OPAQUE_INPUT: Schema = { type: "object" }
 
-export const NATIVE_METHODS = ["status", "installHost", "hosts", "attachHost", "detachHost", "advertise", "withdraw"]
+export const NATIVE_METHODS = [
+  "status",
+  "installHost",
+  "hosts",
+  "attachHost",
+  "detachHost",
+  "bindingRead",
+  "advertise",
+  "withdraw",
+]
 
 // OpenCode 2.2.5 compiles registered JSON Schemas without `pattern` support and fails the call
 // ("Patterns may block validation and are disabled"), so the registered copies drop `pattern`.
 // Inputs that matter are validated by the plugin itself (advertise, withdraw, offer and session
-// IDs through the registry), outputs are produced in strict form, and readers validate them.
+// IDs through the registry, bindingRead through its parsers), outputs are produced in strict
+// form, and readers validate them.
 function withoutPatterns(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutPatterns)
   if (typeof value !== "object" || value === null) return value
@@ -227,6 +295,7 @@ export function rpcDefinition(rpcID: string, family: IntegrationFamily) {
     methods.hosts = io("hosts")
     methods.attachHost = io("attachHost")
     methods.detachHost = io("detachHost")
+    methods.bindingRead = io("bindingRead")
     methods.advertise = io("advertise", OPAQUE_INPUT)
     methods.withdraw = io("withdraw", OPAQUE_INPUT)
     events.hosts_changed = event("hosts_changed")
@@ -274,6 +343,37 @@ export function parseWithdrawInput(value: unknown): { offer_key: string; token: 
   if (typeof value.token !== "string" || !TOKEN.test(value.token)) return null
   if (typeof value.offer_key !== "string" || !OFFER_KEY.test(value.offer_key)) return null
   return { offer_key: value.offer_key, token: value.token }
+}
+
+// Validate locally even when the registered schema has lost its patterns.
+export function parseBindingReadInput(value: unknown): BindingReadInput | null {
+  if (!isObject(value) || !hasOnly(value, ["sessionID"])) return null
+  if (!isText(value.sessionID, new RegExp(`${SESSION_ID_PATTERN}(?![\\s\\S])`), 128)) return null
+  return { sessionID: value.sessionID }
+}
+
+export function parseBindingReadOutput(value: unknown): BindingReadOutput | null {
+  if (!isObject(value) || !hasOnly(value, ["state", "authority", "binding"])) return null
+  if (value.state !== "attached" && value.state !== "none" && value.state !== "unknown") return null
+  if (Object.hasOwn(value, "authority")) {
+    const authority = value.authority
+    if (!isObject(authority) || !hasOnly(authority, ["serviceGeneration", "registryGeneration", "revision"]))
+      return null
+    const generation = new RegExp(GENERATION_PATTERN)
+    if (!isText(authority.serviceGeneration, generation, 128) || !isText(authority.registryGeneration, generation, 128))
+      return null
+    if (!isInteger(authority.revision, 0, Number.MAX_SAFE_INTEGER)) return null
+  } else if (value.state !== "unknown") return null
+  if (value.state === "attached") {
+    const binding = value.binding
+    if (!isObject(binding) || !hasOnly(binding, ["offerID", "label"])) return null
+    if (
+      !isText(binding.offerID, new RegExp(`${OFFER_ID_PATTERN}(?![\\s\\S])`), 64) ||
+      !isText(binding.label, DISPLAY, LABEL_MAX)
+    )
+      return null
+  } else if (Object.hasOwn(value, "binding")) return null
+  return structuredClone(value) as BindingReadOutput
 }
 
 // Reduces any text to a display label: last path segment, no control

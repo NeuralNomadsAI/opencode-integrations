@@ -1,6 +1,6 @@
-# Specification of OpenCode integrations (draft 0.1)
+# Specification of OpenCode integrations (draft 0.2)
 
-The specification defines what an OpenCode integration is: its three families (`native`, `vendor-mcp`, `api`), the package contents, the static marker, the RPC status contract, the application part and its handshake, attachment, undo levels, security rules, naming and versioning. It stays a draft (`spec: 0`) until each family has shipped an integration, then freezes as 1.0 (`spec: 1`). This is draft **0.1**.
+The specification defines what an OpenCode integration is: its three families (`native`, `vendor-mcp`, `api`), the package contents, the static marker, the RPC status contract, exact-session binding reads and ownership, the application part and its handshake, attachment, undo levels, security rules, naming and versioning. It stays a draft (`spec: 0`) until each family has shipped an integration, then freezes as 1.0 (`spec: 1`). This is draft **0.2**.
 
 | File                                     | Content                                                                                         |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
