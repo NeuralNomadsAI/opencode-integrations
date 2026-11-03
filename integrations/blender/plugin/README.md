@@ -98,8 +98,6 @@ npm run build --workspace @neuralnomads/opencode-blender        # dist/ (fails w
 
 Tests live in [`../test`](../test): `BLENDER_TEST_BIN` runs the host tests in a background Blender 5.2; `OPENCODE_TEST_BIN` (OpenCode 2.2.5) with it runs the end-to-end test. Interface checks follow [`../test/MANUAL.md`](../test/MANUAL.md).
 
-## Licence and trademarks
+## Licence
 
 The package is licensed `MIT AND GPL-3.0-or-later`: the plugin is MIT and the embedded **OpenCode Link** add-on is GPL-3.0-or-later, like Blender add-ons, with its licence text in the archive; the bundled documentation keeps its own licence ([`data/blender_docs/SOURCE.json`](data/blender_docs/SOURCE.json)). See [`NOTICE.md`](NOTICE.md).
-
-Blender is a trademark of the Blender Foundation. This project is not affiliated with, endorsed by or sponsored by the Blender Foundation or OpenCode.

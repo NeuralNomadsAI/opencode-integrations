@@ -68,10 +68,6 @@ npm run build && npm run scan
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
-## Trademarks
-
-Application and vendor names are used only to say what an integration works with. This project is not affiliated with, endorsed by or sponsored by OpenCode, the Blender Foundation, Image Engine, SideFX, Blackmagic Design, Microsoft or any other vendor.
-
 ## License
 
 [MIT](LICENSE)
