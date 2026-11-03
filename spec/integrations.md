@@ -50,7 +50,7 @@ The marker's `family` names one of three families.
   skills/<app>-<topic>/SKILL.md   front-matter header (name, description), references, scripts
   data/<set>/         reference data, each with SOURCE.json (origin, licence, version)
   host/<app>/         embedded application part, same version as the package; archive + sha256
-  README.md           universal installation first, then "In CodeNomad"; non-affiliation notice
+  README.md           universal installation first, then "In CodeNomad"
   NOTICE.md           licence of each part, when the parts do not all share the plugin's licence
   LICENSE
 ```
@@ -149,7 +149,7 @@ Defined in [`host-handshake.md`](host-handshake.md) (`HST-*` and `UNDO-*` requir
 - **SEC-6** No tool argument that bypasses configuration (for example free `client_id`/`tenant_id`), unless documented and justified.
 - **SEC-7** **Named permissions** guard sensitive actions: launching executables, installing the application part, attaching a session, network access by a host method (declared in `hello.capabilities.operations[].network`).
 - **SEC-8** **Supply chain**: npm publication with OIDC provenance and no long-lived token, after a manual approval; attested host archives; no npm install script ([PKG-8](#3-package-content)).
-- **SEC-9** **Trademarks**: every README carries a non-affiliation notice ([NAM-3](#7-naming)).
+- **SEC-9** **Trademarks**: no integration, README or interface is presented as official or affiliated with a vendor or OpenCode ([NAM-3](#7-naming)).
 
 ## 10. Conformance
 
