@@ -9,8 +9,9 @@ npm ci
 npm run lint        # Biome
 npm run typecheck   # tsc
 npm test            # node --test
+npm run build
 npm run check:markers
-npm run build && npm run scan
+npm run scan
 ```
 
 ## Adding an integration
