@@ -67,6 +67,8 @@ Never commit a GUID, a fingerprint list or the secret value.
 
 ## Releases and publication
 
+Blender is publishable with public npm access; the repository root and shared workspaces stay private. Its repository URL exactly matches the GitHub repository URL for npm trusted publishing.
+
 Nothing is published without the maintainer's explicit approval at the time of publication:
 
 - **npm** (`.github/workflows/publish.yml`): started by hand, its job waits for the protected `npm-publish` environment, which requires a maintainer's approval; it publishes through trusted publishing (OIDC) with provenance.

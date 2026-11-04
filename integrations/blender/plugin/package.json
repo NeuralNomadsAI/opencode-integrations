@@ -1,7 +1,6 @@
 {
   "name": "@neuralnomads/opencode-blender",
   "version": "0.2.0",
-  "private": true,
   "description": "OpenCode for Blender: lets OpenCode inspect and edit an open Blender scene through an authenticated local host.",
   "license": "MIT AND GPL-3.0-or-later",
   "type": "module",
@@ -13,7 +12,7 @@
   "homepage": "https://github.com/NeuralNomadsAI/opencode-integrations/tree/main/integrations/blender/plugin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NeuralNomadsAI/opencode-integrations.git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
     "directory": "integrations/blender/plugin"
   },
   "exports": {
@@ -32,6 +31,9 @@
     "NOTICE.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "node scripts/build.ts",
     "build:host": "node scripts/build-host.ts",
