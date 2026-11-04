@@ -50,8 +50,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run check:markers
       - run: npm run build
+      - run: npm run check:markers
       - name: Full trace scan
         env:
           TRACE_SCAN_FINGERPRINTS: ${{ secrets.TRACE_SCAN_FINGERPRINTS }}
