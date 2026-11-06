@@ -36,6 +36,24 @@
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/houdini/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/houdini/plugin"] }
+    },
+    {
+      "id": "resolve",
+      "package": "@neuralnomads/opencode-resolve",
+      "range": "^0.2",
+      "displayName": "OpenCode for DaVinci Resolve",
+      "family": "vendor-mcp",
+      "plugin": "neuralnomads.resolve",
+      "rpc": "neuralnomads.resolve",
+      "summary": {
+        "en": "Declare the vendor MCP for DaVinci Resolve Studio, check prerequisites and load safe project, Fusion and render workflows.",
+        "fr": "Déclarer le MCP de DaVinci Resolve Studio, vérifier les prérequis et charger les workflows de projet, Fusion et rendu."
+      },
+      "app": { "name": "DaVinci Resolve Studio", "versions": ">=21.1" },
+      "vendor": { "server": "ResolveMCP", "minAppVersion": "21.1" },
+      "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/resolve/plugin/README.md",
+      "status": "preview",
+      "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/resolve/plugin"] }
     }
   ]
 }

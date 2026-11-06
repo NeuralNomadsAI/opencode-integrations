@@ -1,0 +1,58 @@
+{
+  "name": "@neuralnomads/opencode-resolve",
+  "version": "0.2.0",
+  "description": "OpenCode for DaVinci Resolve: skills and a declaration of the vendor's ResolveMCP server.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "resolve"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
+    "directory": "integrations/resolve/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "scripts/check-preconditions.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "resolve",
+    "displayName": "OpenCode for DaVinci Resolve",
+    "family": "vendor-mcp",
+    "plugin": "neuralnomads.resolve",
+    "rpc": "neuralnomads.resolve",
+    "vendor": {
+      "server": "ResolveMCP",
+      "minAppVersion": "21.1"
+    }
+  }
+}
