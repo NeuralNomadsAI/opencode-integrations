@@ -1,0 +1,21 @@
+{
+  "name": "m365_auth_status",
+  "domain": "auth",
+  "description": "Show the local Microsoft 365 authentication state for the current user.",
+  "kind": "hostless",
+  "args": {},
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": false
+  },
+  "execution": {
+    "strategy": "compose",
+    "tool": "m365_auth_status"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

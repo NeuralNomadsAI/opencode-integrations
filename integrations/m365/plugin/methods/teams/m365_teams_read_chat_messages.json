@@ -1,0 +1,43 @@
+{
+  "name": "m365_teams_read_chat_messages",
+  "domain": "teams",
+  "description": "Read messages from a Teams chat using chat id, chat name or participant name.",
+  "kind": "hostless",
+  "args": {
+    "chat_id": {
+      "type": "string",
+      "required": false
+    },
+    "chat_name": {
+      "type": "string",
+      "required": false
+    },
+    "participant_name": {
+      "type": "string",
+      "required": false
+    },
+    "limit": {
+      "type": "integer",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Chat.Read"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_read_chat_messages"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

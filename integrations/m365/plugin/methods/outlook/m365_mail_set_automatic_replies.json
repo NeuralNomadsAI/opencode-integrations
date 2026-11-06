@@ -1,0 +1,42 @@
+{
+  "name": "m365_mail_set_automatic_replies",
+  "domain": "outlook",
+  "description": "Preview or update Outlook automatic replies / out-of-office settings.",
+  "kind": "hostless",
+  "args": {
+    "status": {
+      "type": "string",
+      "required": false,
+      "enum": ["disabled", "alwaysEnabled", "scheduled"]
+    },
+    "enabled": { "type": "boolean", "required": false },
+    "internal_message": { "type": "string", "required": false },
+    "external_message": { "type": "string", "required": false },
+    "external_audience": {
+      "type": "string",
+      "required": false,
+      "default": "none",
+      "enum": ["none", "contactsOnly", "all"]
+    },
+    "start_datetime": { "type": "string", "required": false },
+    "end_datetime": { "type": "string", "required": false },
+    "time_zone": { "type": "string", "required": false, "default": "UTC" },
+    "preview_only": { "type": "boolean", "required": false, "default": true },
+    "confirm": { "type": "boolean", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["MailboxSettings.ReadWrite"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_mail_set_automatic_replies"
+  },
+  "verify": {
+    "strategy": "followup_method",
+    "method": "m365_mail_get_mailbox_settings"
+  },
+  "risk": "write"
+}
