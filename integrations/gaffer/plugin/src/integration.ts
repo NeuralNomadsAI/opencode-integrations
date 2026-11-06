@@ -20,22 +20,26 @@ export function readPackage(): { version: string; opencodeIntegration: Integrati
 }
 
 export function resultContent(result: Record<string, unknown>) {
-  const job = result.job as { outputs?: Array<{ preview_path?: string; name?: string }> } | undefined
-  const images = (job?.outputs ?? []).flatMap(({ preview_path, name }) =>
-    preview_path
-      ? [
-          {
-            type: "file" as const,
-            uri: pathToFileURL(preview_path).href,
-            mime: "image/png",
-            name: `${name ?? "render"}-preview.png`,
-          },
-        ]
-      : [],
+  const clean = JSON.parse(JSON.stringify(result))
+  const jobs = [clean.job, ...(clean.jobs ?? [])].filter(Boolean) as Array<{
+    outputs?: Array<{ preview_path?: string; name?: string }>
+  }>
+  const images = jobs.flatMap((job) =>
+    (job.outputs ?? []).flatMap(({ preview_path, name }) =>
+      preview_path
+        ? [
+            {
+              type: "file" as const,
+              uri: pathToFileURL(preview_path).href,
+              mime: "image/png",
+              name: `${name ?? "render"}-preview.png`,
+            },
+          ]
+        : [],
+    ),
   )
   // Image paths are attachment URIs, never part of the text content.
-  const clean = JSON.parse(JSON.stringify(result))
-  for (const output of clean.job?.outputs ?? []) delete output.preview_path
+  for (const job of jobs) for (const output of job.outputs ?? []) delete output.preview_path
   const text = JSON.stringify(clean, null, 2)
   return images.length ? [{ type: "text" as const, text }, ...images] : text
 }

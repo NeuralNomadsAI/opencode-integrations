@@ -4,10 +4,10 @@ import { join } from "node:path"
 import readline from "node:readline"
 
 import { OpenCode } from "@opencode/client"
-import { Service } from "@opencode/client/service"
 
 import { type HostBinding, requestHost } from "./host-client.ts"
 import { GafferRpc } from "./rpc.ts"
+import { discoverService } from "./service.ts"
 
 type Channel = {
   id: string
@@ -84,11 +84,11 @@ async function ensureClient() {
   // The editor is a client of the user's shared OpenCode2 service. Beta client
   // package versions may lag the independently upgraded CLI, so exact-version
   // discovery would incorrectly stop the shared service and disrupt all hosts.
-  const discovered = await Service.discover()
+  const discovered = await discoverService()
   const endpoint = discovered
   if (!endpoint) throw new Error("OpenCode is not running; start it in your OpenCode client.")
 
-  client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+  client = OpenCode.make({ baseUrl: endpoint.url, headers: endpoint.headers, fetch: endpoint.fetch })
   gafferRpc = client.rpc(GafferRpc as never)
   startEvents()
   return client

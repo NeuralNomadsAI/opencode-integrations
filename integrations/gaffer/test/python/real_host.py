@@ -36,6 +36,25 @@ try:
         assert error.code == "revision_conflict", error.code
     script.undo()
     assert source.getName() == "source"
+    state.flush()
+    view = {"op": "ui.view", "target": card["ref"]}
+    rename = {"op": "node.rename", "target": card["ref"], "name": "mixed"}
+    for operations, expect in [([rename, view], []), ([view, view], []),
+                                ([view], [{"subject": card["ref"], "predicate": "exists"}])]:
+        try:
+            state.apply(dict(intent, if_revision=state.revision, command_id="mixed-view",
+                             operations=operations, expect=expect), 0, False)
+            raise AssertionError("Mixed or postconditioned Viewer intent accepted")
+        except HostError as error:
+            assert error.code == "invalid_intent", error.code
+        assert source.getName() == "source"
+        assert script.getFocus() is None
+    viewIntent = dict(intent, if_revision=state.revision, command_id="sole-view", operations=[view], expect=[])
+    viewResult = state.apply(viewIntent, 0, False)
+    assert viewResult["side_effect"] and viewResult["undoable"] is False
+    assert script.getFocus().isSame(source)
+    assert not script.undoAvailable()
+    assert state.apply(viewIntent, 0, False) == viewResult
     print("GAFFER_REAL_OK " + json.dumps({"app_version": hello["app_version"], "host_version": hello["host_version"], "undo": hello["capabilities"]["undo"]}))
 finally:
     state.close()

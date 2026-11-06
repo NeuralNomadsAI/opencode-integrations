@@ -563,6 +563,24 @@ class ScriptState :
 			raise HostError( "invalid_intent", "operations must contain between 1 and 50 items" )
 
 		plans, aliases = self.__preflight( operations, sessionID )
+		viewPlans = [ plan for plan in plans if plan["kind"] == "view" ]
+		if viewPlans and ( len( plans ) != 1 or request.get( "expect" ) ) :
+			raise HostError( "invalid_intent", "Viewer changes must be the sole operation with no postconditions" )
+		if viewPlans :
+			plan = viewPlans[0]
+			self.__executePlan( plan )
+			result = {
+				"status" : "applied", "side_effect" : True, "undoable" : False,
+				"script_handle" : self.handle, "revision" : self.revision,
+				"revision_before" : self.revision, "command_id" : commandID,
+				"summary" : self.summary(),
+				"views" : [ {
+					"target" : self.__ref( plan["node"] ), "renderer" : plan["renderer"],
+					"device" : plan["device"], "available_devices" : plan.get( "available_devices", [] ),
+				} ],
+			}
+			self.__sideEffectCommands[commandID] = { "digest" : requestDigest, "result" : result, "side_effect" : True }
+			return result
 		renderPlans = [ plan for plan in plans if plan["kind"] in ( "render_start", "render_cancel" ) ]
 		if renderPlans and ( len( plans ) != 1 or request.get( "expect" ) ) :
 			raise HostError( "invalid_intent", "Render start and cancel must each be the sole operation with no postconditions" )
@@ -570,6 +588,7 @@ class ScriptState :
 			before = self.revision
 			payload = self.__executeRenderPlan( renderPlans[0], sessionID )
 			result = {
+				"side_effect" : True, "undoable" : False,
 				"status" : "accepted" if renderPlans[0]["kind"] == "render_start" else "cancelled",
 				"script_handle" : self.handle,
 				"revision" : self.revision,
@@ -591,13 +610,8 @@ class ScriptState :
 			self.__trackingSuppressed = True
 			with Gaffer.UndoScope( self.script ) :
 				for plan in plans :
-					if plan["kind"] == "view" :
-						continue
 					if requestWasCancelled or self.__cancellationState( sessionID )[1] or cancellationGeneration != self.__cancellationState( sessionID )[0] :
 						raise HostError( "cancelled", "The current OpenCode turn was interrupted" )
-					self.__executePlan( plan )
-			for plan in plans :
-				if plan["kind"] == "view" :
 					self.__executePlan( plan )
 
 			if requestWasCancelled or self.__cancellationState( sessionID )[1] or cancellationGeneration != self.__cancellationState( sessionID )[0] :

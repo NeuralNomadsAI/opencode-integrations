@@ -26,6 +26,8 @@ The panel requires **Bun >=1.3 on PATH** (or `NEURALNOMADS_GAFFER_BUN` pointing 
 
 From another client, use `gaffer_hosts` and `gaffer_attach` with the offered opaque ID. Both require the named `gaffer_attach` permission. `gaffer_context` returns bounded reads and the current revision; `gaffer_apply` uses that exact revision, a unique command ID, 1–50 operations, native preflight, verification and transactional undo. Render and Viewer actions are separate side-effecting intents. There is no arbitrary-code tool. Detached conversations require an explicit reconnect; polling only renews offers, never silently reattaches them.
 
+Service discovery validates `service.json` under `$XDG_STATE_HOME/opencode` (default `~/.local/state/opencode`) before authentication: literal HTTP `127.0.0.1` or `::1`, with matching PID and version from `/api/info`. Probes and subsequent requests bypass proxies and refuse redirects. Each Render or Viewer intent contains one operation and no postconditions; its result declares `side_effect: true` and `undoable: false`. Render previews from individual jobs and job lists are returned as image attachments.
+
 ## In CodeNomad
 
 Install the Global plugin in Plugins, install its application part after confirmation, then select the open script in **Status › Gaffer** and attach the displayed conversation. Detach affects that conversation only. The in-app panel can also keep its own conversation attached.

@@ -146,8 +146,14 @@ it("host payload and installer: versioned offline archive, stable sidecar and un
 })
 
 it("render feedback uses attachments and removes temporary image paths from text", () => {
-  const content = resultContent({ job: { outputs: [{ name: "beauty", preview_path: join(tmpdir(), "preview.png") }] } })
-  assert.ok(Array.isArray(content))
-  assert.equal(content[1]!.type, "file")
-  assert.ok(!(content[0] as { text: string }).text.includes("preview_path"))
+  const job = { outputs: [{ name: "beauty", preview_path: join(tmpdir(), "preview.png") }, { name: "pending" }] }
+  for (const result of [{ job }, { jobs: [job, { outputs: [] }] }, { job, jobs: [job] }]) {
+    const content = resultContent(result)
+    assert.ok(Array.isArray(content))
+    assert.equal(content.length, "job" in result && "jobs" in result ? 3 : 2)
+    assert.equal(content[1]!.type, "file")
+    assert.ok(!(content[0] as { text: string }).text.includes("preview_path"))
+    assert.ok(!(content[0] as { text: string }).text.includes("preview.png"))
+    assert.ok(job.outputs[0]?.preview_path)
+  }
 })
