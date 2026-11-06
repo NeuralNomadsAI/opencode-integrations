@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pythonPanelDocument>
+  <interface name="neuralnomads_houdini" label="OpenCode Link" icon="MISC_python" showNetworkNavigationBar="false" help_url="">
+    <script><![CDATA[from opencode_houdini.panel import create_interface
+
+panel = None
+
+def onCreateInterface():
+    global panel
+    panel = create_interface()
+    return panel
+
+def onDestroyInterface():
+    global panel
+    panel = None]]></script>
+    <includeInPaneTabMenu menu_position="200" create_separator="false"/>
+    <includeInToolbarMenu menu_position="200" create_separator="false"/>
+    <help><![CDATA[OpenCode assistant attached to the current Houdini HIP.]]></help>
+  </interface>
+</pythonPanelDocument>
