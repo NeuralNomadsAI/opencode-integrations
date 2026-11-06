@@ -211,6 +211,10 @@ test("packaged precondition script is read-only and returns bounded diagnostics"
     })
     assert.equal(missing.status, 1)
     assert.equal(JSON.parse(missing.stdout).ready, false)
+    const invalid = spawnSync(process.execPath, [script, '{"private-path-token'], { encoding: "utf8" })
+    assert.equal(invalid.status, 1)
+    assert.deepEqual(JSON.parse(invalid.stdout), { ready: false, issues: ["invalid_options"] })
+    assert.equal(invalid.stderr, "")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
