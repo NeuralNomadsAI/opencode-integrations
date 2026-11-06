@@ -31,6 +31,7 @@ def state():
     value.flush = lambda **kwargs: None
     value.summary = lambda: {}
     value.quarantined = False
+    value._closed = False
     value._commands = collections.OrderedDict()
     value.cancellation_state = lambda session: (0, False)
     value._check_cancelled = lambda *args: None
@@ -89,6 +90,9 @@ class HostTests(unittest.TestCase):
             host.dispatch("context", {"script_handle": "wrong"})
         with self.assertRaises(module.HostError):
             host.dispatch("execute_code", {"script_handle": host.state.handle})
+        host.state._closed = True
+        with self.assertRaises(module.HostError):
+            host.dispatch("hello", {})
 
 
 if "--serve" in sys.argv:

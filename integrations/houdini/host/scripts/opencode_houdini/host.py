@@ -523,6 +523,8 @@ class ScriptState:
         return True
 
     def _check_cancelled(self, session_id: str, generation: int, initially_cancelled: bool) -> None:
+        if self._closed:
+            raise HostError("cancelled", "The Houdini host has stopped")
         current_generation, cancelled = self.cancellation_state(session_id)
         if initially_cancelled or cancelled or current_generation != generation:
             raise HostError("cancelled", "The current OpenCode turn was interrupted")
@@ -1186,6 +1188,8 @@ class Host:
 
         def execute() -> Any:
             current = self.state
+            if current._closed:
+                raise HostError("busy", "The Houdini host has stopped")
             if method == "list_scripts":
                 return [current.hello()]
             if state is not current:
