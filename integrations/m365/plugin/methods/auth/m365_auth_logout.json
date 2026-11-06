@@ -1,0 +1,22 @@
+{
+  "name": "m365_auth_logout",
+  "domain": "auth",
+  "description": "Clear the stored Microsoft 365 authentication and any pending device login.",
+  "kind": "hostless",
+  "args": {},
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": false
+  },
+  "execution": {
+    "strategy": "compose",
+    "tool": "m365_auth_logout"
+  },
+  "verify": {
+    "strategy": "readback",
+    "method": "m365_auth_status"
+  },
+  "risk": "write"
+}

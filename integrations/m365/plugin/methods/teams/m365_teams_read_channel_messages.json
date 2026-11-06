@@ -1,0 +1,47 @@
+{
+  "name": "m365_teams_read_channel_messages",
+  "domain": "teams",
+  "description": "Read messages from a Teams channel using team/channel ids or names.",
+  "kind": "hostless",
+  "args": {
+    "team_id": {
+      "type": "string",
+      "required": false
+    },
+    "team_name": {
+      "type": "string",
+      "required": false
+    },
+    "channel_id": {
+      "type": "string",
+      "required": false
+    },
+    "channel_name": {
+      "type": "string",
+      "required": false
+    },
+    "limit": {
+      "type": "integer",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_read_channel_messages"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

@@ -1,0 +1,53 @@
+{
+  "name": "m365_teams_send_channel_message",
+  "domain": "teams",
+  "description": "Send a Teams channel message using team/channel ids or names.",
+  "kind": "hostless",
+  "args": {
+    "team_id": {
+      "type": "string",
+      "required": false
+    },
+    "team_name": {
+      "type": "string",
+      "required": false
+    },
+    "channel_id": {
+      "type": "string",
+      "required": false
+    },
+    "channel_name": {
+      "type": "string",
+      "required": false
+    },
+    "message": {
+      "type": "string",
+      "required": true
+    },
+    "content_type": {
+      "type": "string",
+      "required": false,
+      "default": "text",
+      "enum": ["text", "html"]
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Send"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_send_channel_message"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "write"
+}

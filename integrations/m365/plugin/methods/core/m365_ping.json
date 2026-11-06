@@ -1,0 +1,27 @@
+{
+  "name": "m365_ping",
+  "domain": "core",
+  "description": "Validate Microsoft Graph connectivity by reading the authenticated user profile.",
+  "kind": "hostless",
+  "args": {
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["User.Read"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_ping"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

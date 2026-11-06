@@ -1,0 +1,43 @@
+{
+  "name": "m365_graph_request",
+  "domain": "core",
+  "description": "Send a direct Microsoft Graph request for Microsoft 365 workflows.",
+  "kind": "hostless",
+  "args": {
+    "path": {
+      "type": "string",
+      "required": true
+    },
+    "method": {
+      "type": "string",
+      "required": false
+    },
+    "query": {
+      "type": "object",
+      "required": false
+    },
+    "body": {
+      "type": "object",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Depends on the target Microsoft Graph endpoint"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_graph_request"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "write"
+}

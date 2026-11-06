@@ -1,0 +1,42 @@
+{
+  "name": "m365_teams_create_chat",
+  "domain": "teams",
+  "description": "Create a one-on-one or group Teams chat from participant usernames or user ids.",
+  "kind": "hostless",
+  "args": {
+    "participant_username": {
+      "type": "string",
+      "required": false
+    },
+    "participant_usernames": {
+      "type": "array",
+      "required": false,
+      "items": {
+        "type": "string"
+      }
+    },
+    "chat_topic": {
+      "type": "string",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Chat.ReadWrite"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_create_chat"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "write"
+}

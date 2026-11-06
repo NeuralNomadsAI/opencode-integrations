@@ -1,0 +1,51 @@
+{
+  "name": "m365_mail_send_message",
+  "domain": "outlook",
+  "description": "Preview or send an Outlook email message.",
+  "kind": "hostless",
+  "args": {
+    "to_recipients": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "recipients": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "cc_recipients": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "bcc_recipients": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "subject": { "type": "string", "required": true },
+    "message": { "type": "string", "required": true },
+    "content_type": {
+      "type": "string",
+      "required": false,
+      "default": "text",
+      "enum": ["text", "html"]
+    },
+    "save_to_sent_items": { "type": "boolean", "required": false, "default": true },
+    "preview_only": { "type": "boolean", "required": false, "default": true },
+    "confirm": { "type": "boolean", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Mail.Send"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_mail_send_message"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "write"
+}

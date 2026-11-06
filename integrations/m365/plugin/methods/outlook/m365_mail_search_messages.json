@@ -1,0 +1,23 @@
+{
+  "name": "m365_mail_search_messages",
+  "domain": "outlook",
+  "description": "Search or list recent Outlook mail messages.",
+  "kind": "hostless",
+  "args": {
+    "query": { "type": "string", "required": false },
+    "limit": { "type": "integer", "required": false, "default": 10 },
+    "folder_id": { "type": "string", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Mail.Read"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_mail_search_messages"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "read"
+}

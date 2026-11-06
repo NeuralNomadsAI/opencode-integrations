@@ -1,0 +1,27 @@
+{
+  "name": "m365_auth_device_poll",
+  "domain": "auth",
+  "description": "Poll the pending Microsoft device-code login until access is granted or the timeout elapses.",
+  "kind": "hostless",
+  "args": {
+    "timeout_seconds": {
+      "type": "integer",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": false
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_auth_device_poll"
+  },
+  "verify": {
+    "strategy": "readback",
+    "method": "m365_auth_status"
+  },
+  "risk": "write"
+}
