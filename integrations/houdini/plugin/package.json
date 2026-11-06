@@ -1,0 +1,69 @@
+{
+  "name": "@neuralnomads/opencode-houdini",
+  "version": "0.2.0",
+  "description": "OpenCode for Houdini: bounded graph edits through an authenticated local host, with an optional conversation panel.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "houdini"
+  ],
+  "homepage": "https://github.com/NeuralNomadsAI/opencode-integrations/tree/main/integrations/houdini/plugin",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
+    "directory": "integrations/houdini/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "host",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:host": "node scripts/build-host.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "@opencode/client": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "houdini",
+    "displayName": "OpenCode for Houdini",
+    "family": "native",
+    "plugin": "neuralnomads.houdini",
+    "rpc": "neuralnomads.houdini",
+    "host": {
+      "app": "houdini",
+      "protocol": 1,
+      "range": "^0.2.0",
+      "appVersions": ">=21.0",
+      "payload": "host/houdini/opencode_link-0.2.0.zip",
+      "sha256": "f3e71a6b441ba9285f2cbfff085cce37374d1ffbfcaa53ee0ff2db4cadd22bfc"
+    }
+  }
+}

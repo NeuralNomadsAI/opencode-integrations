@@ -45,7 +45,7 @@ export function findSentinels(value: unknown, sentinels: Sentinels): string[] {
 
 export async function runSentinelScenario(
   target: ContractTarget,
-  options: { sessionID?: string; protocol?: number; hostVersion?: string } = {},
+  options: { sessionID?: string; protocol?: number; hostVersion?: string; appVersion?: string } = {},
 ): Promise<SentinelReport> {
   const marker = randomBytes(6).toString("hex")
   const scriptHandle = `SENTINEL-HANDLE-${marker}`
@@ -56,7 +56,7 @@ export async function runSentinelScenario(
     helloOverride: (hello, endpoint) => ({
       ...hello,
       document: scriptHandle,
-      app_version: `5.2.0 build ${endpoint.port}`,
+      app_version: `${options.appVersion ?? "5.2.0"} build ${endpoint.port}`,
     }),
   })
   const offerKey = `sentinel-key-${marker}`

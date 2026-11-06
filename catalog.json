@@ -18,6 +18,24 @@
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/blender/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/blender/plugin"] }
+    },
+    {
+      "id": "houdini",
+      "package": "@neuralnomads/opencode-houdini",
+      "range": "^0.2",
+      "displayName": "OpenCode for Houdini",
+      "family": "native",
+      "plugin": "neuralnomads.houdini",
+      "rpc": "neuralnomads.houdini",
+      "summary": {
+        "en": "Inspect and edit the graph open in Houdini through an authenticated local host and optional conversation panel.",
+        "fr": "Inspecter et modifier le graphe ouvert dans Houdini grâce à un hôte local authentifié et un panneau de conversation facultatif."
+      },
+      "app": { "name": "Houdini", "versions": ">=21.0" },
+      "host": { "protocol": 1, "range": "^0.2.0" },
+      "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/houdini/plugin/README.md",
+      "status": "preview",
+      "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/houdini/plugin"] }
     }
   ]
 }
