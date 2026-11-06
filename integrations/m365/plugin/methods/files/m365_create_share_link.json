@@ -70,7 +70,7 @@
   },
   "requires": {
     "auth": true,
-    "scopes": ["Files.ReadWrite.All or Files.ReadWrite"]
+    "scopes": ["Files.ReadWrite or Files.ReadWrite.All or Sites.ReadWrite.All"]
   },
   "execution": {
     "strategy": "direct_api",

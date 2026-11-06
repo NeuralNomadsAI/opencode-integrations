@@ -46,7 +46,7 @@
   },
   "requires": {
     "auth": true,
-    "scopes": ["Sites.Read.All", "Files.Read.All"]
+    "scopes": ["Sites.Read.All"]
   },
   "execution": {
     "strategy": "direct_api",

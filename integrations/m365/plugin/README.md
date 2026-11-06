@@ -27,15 +27,18 @@ When published, the package entry is `@neuralnomads/opencode-m365@^0.2`. This re
 
 Options take precedence over environment fallbacks `NEURALNOMADS_M365_CLIENT_ID`, `NEURALNOMADS_M365_TENANT_ID`, and `NEURALNOMADS_M365_SCOPES` (comma/space separated). The default scopes above permit profile read and refresh only. Configure just the delegated scopes needed for the workflow, then sign in again:
 
-| Workflow              | Typical delegated scopes                                                                        |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| Files and SharePoint  | `Files.Read.All` / `Files.ReadWrite.All`, `Sites.Read.All` / `Sites.ReadWrite.All`              |
-| Excel workbook writes | `Files.ReadWrite` or `Files.ReadWrite.All`                                                      |
-| Outlook               | `Mail.Read`, `Mail.Send`, `MailboxSettings.ReadWrite`                                           |
-| Teams chats           | `Chat.Read`, `Chat.ReadWrite`                                                                   |
-| Teams channels        | `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `ChannelMessage.Send` |
+| Workflow             | Typical delegated scopes                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Files and PowerPoint | `Files.Read` for reads; `Files.ReadWrite` for writes. Alternatives: `Files.Read.All` / `Files.ReadWrite.All`, `Sites.Read.All` / `Sites.ReadWrite.All` |
+| SharePoint discovery | `Sites.Read.All` or `Sites.ReadWrite.All` for site metadata and document-library discovery                                                             |
+| Excel workbook APIs  | `Files.ReadWrite` or `Files.ReadWrite.All`, including worksheet and range reads                                                                        |
+| Outlook              | `Mail.Read`, `Mail.Send`, `MailboxSettings.ReadWrite`                                                                                                  |
+| Teams chats          | `Chat.Read`, `Chat.ReadWrite`                                                                                                                          |
+| Teams channels       | `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `ChannelMessage.Send`                                                        |
 
 Call `m365_auth_status`, `m365_auth_device_start`, then open the Microsoft verification URL yourself and enter the returned user code. Call `m365_auth_device_poll` (at most 120 seconds per call), followed by `m365_ping`. `m365_auth_logout` clears the stored credentials and pending login for this app/tenant. Invalid configuration fails with an actionable error; an absent client ID reports `configured: false` and `client_id_required`. Signing out removes local state; revoke consent in Microsoft Entra to revoke previously issued tokens.
+
+Using a `drive_id` avoids site discovery; resolving a site by name or address can additionally require `Sites.Read.All`. Graph enforces access to each target under the granted delegated permissions.
 
 ## In CodeNomad
 
@@ -50,6 +53,8 @@ State is segregated by app/tenant under `$XDG_STATE_HOME/neuralnomads/opencode-m
 Every protected API operation and every authentication mutation asserts the `m365_access` permission, including the expert `m365_graph_request` fallback, which can read, change or delete any resource allowed by the consented scopes. Keep its permission set to `ask`. Mail, bulk changes and notifications additionally offer previews and confirmation arguments. Confirm recipients and targets before sending. Tokens only go to `graph.microsoft.com` and Microsoft's login service; JSON/raw requests reject redirects and arbitrary destinations. Download redirects are restricted to Microsoft's SharePoint/OneDrive HTTPS endpoints and never receive an Authorization header.
 
 Limits: public Microsoft cloud endpoints only; Graph throttling/errors are surfaced rather than retried for mutations; large-file upload sessions and complete pagination are outside the small-file helpers. PowerPoint edits are literal replacements within individual XML text runs; inspect and preview before writing. Device-code flow is unavailable when tenant policy disallows it. Tests use fake credentials and mocked Microsoft responses; tenant-specific consent and end-to-end operation require qualification by the user's administrator.
+
+JSON and raw Graph results recursively remove download/upload capability fields and redact credential-bearing URLs, including nested collections and batch responses. Authorized downloads stream bytes inside the runtime.
 
 ## Development
 

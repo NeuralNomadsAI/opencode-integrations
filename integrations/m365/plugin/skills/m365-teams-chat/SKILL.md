@@ -27,7 +27,7 @@ If authentication is missing, use the `m365-auth` skill first.
 
 ## Scope note
 
-The default Microsoft 365 bundle scopes are file/site oriented.
+The default Microsoft 365 plugin scopes permit only a profile read and refresh.
 For Teams chat workflows, re-authenticate with scopes including:
 
 - `Chat.Read`

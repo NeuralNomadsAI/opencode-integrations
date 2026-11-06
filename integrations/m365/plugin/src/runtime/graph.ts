@@ -1,4 +1,4 @@
-import { getValidAuth, type JsonRecord, parseJson } from "./auth.ts"
+import { getValidAuth, isRecord, type JsonRecord, parseJson } from "./auth.ts"
 import { currentSignal } from "./cancellation.ts"
 
 export const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
@@ -103,6 +103,24 @@ async function request(path: string, query: JsonRecord | undefined, init: Reques
   throw new Error("Microsoft Graph request failed after refresh.")
 }
 
+function stripCapabilities(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripCapabilities)
+  if (isRecord(value))
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => !/(?:^|\.)(?:downloadUrl|uploadUrl)$/i.test(key))
+        .map(([key, item]) => [key, stripCapabilities(item)]),
+    )
+  // Capabilities can also appear in batch Location headers or unlabelled URL arrays.
+  if (typeof value === "string" && /[?&](?:tempauth|authkey|access_token|token|sig|signature)=/i.test(value))
+    return null
+  return value
+}
+
+async function responseResult(response: Response) {
+  return stripCapabilities(parseJson(Buffer.from(await boundedBytes(response, 10 * 1024 * 1024)).toString("utf8")))
+}
+
 export async function executeGraphRequest(args: GraphRequestArgs): Promise<GraphRequestResult> {
   buildGraphUrl(args.path, args.query)
   if (args.force_refresh) await getValidAuth(true)
@@ -113,7 +131,7 @@ export async function executeGraphRequest(args: GraphRequestArgs): Promise<Graph
       ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(args.body) }
       : {}),
   })
-  const result = parseJson(Buffer.from(await boundedBytes(response, 10 * 1024 * 1024)).toString("utf8"))
+  const result = await responseResult(response)
   return { ok: true, status: response.status, method, path: args.path, result }
 }
 
@@ -126,7 +144,7 @@ export async function executeGraphRawRequest(args: GraphRawRequestArgs): Promise
     headers: { "Content-Type": args.content_type || "application/octet-stream" },
     body: args.body instanceof Uint8Array ? Buffer.from(args.body) : args.body,
   })
-  const result = parseJson(Buffer.from(await boundedBytes(response, 10 * 1024 * 1024)).toString("utf8"))
+  const result = await responseResult(response)
   return { ok: true, status: response.status, method, path: args.path, result }
 }
 

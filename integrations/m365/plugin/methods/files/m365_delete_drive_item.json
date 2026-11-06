@@ -19,7 +19,7 @@
   "returns": { "type": "object" },
   "requires": {
     "auth": true,
-    "scopes": ["Files.ReadWrite.All or Sites.ReadWrite.All"]
+    "scopes": ["Files.ReadWrite or Files.ReadWrite.All or Sites.ReadWrite.All"]
   },
   "execution": {
     "strategy": "direct_api",

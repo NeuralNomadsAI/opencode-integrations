@@ -240,6 +240,147 @@ test("logout during an in-flight refresh cannot recreate credentials", async () 
     assert.equal(readState("auth"), null)
   }))
 
+test("public Graph fallback strips nested download and upload capabilities, including batches", async () => {
+  const tools: Info[] = []
+  const registration = { dispose: async () => {} }
+  const ctx = {
+    options: { clientId: options.clientId },
+    rpc: { register: async () => ({ ...registration, events: { emit: async () => {} } }) },
+    permission: { assert: async () => {} },
+    tool: {
+      transform: async (edit: (editor: unknown) => void) => {
+        edit({ namespace: () => {}, add: (tool: Info) => tools.push(tool) })
+        return registration
+      },
+    },
+    skill: { transform: async () => registration },
+  } as unknown as Plugin.Context
+  inAuth(() => writeState("auth", token))
+  const capability = "https://example.sharepoint.com/download?tempauth=FAKE_CAPABILITY_SENTINEL"
+  const payload = {
+    id: "item",
+    "@microsoft.graph.downloadUrl": "https://example.sharepoint.com/FAKE_DOWNLOAD_SENTINEL",
+    responses: [
+      {
+        body: {
+          value: [
+            {
+              downloadUrl: "https://example.sharepoint.com/FAKE_NESTED_SENTINEL",
+              uploadUrl: "https://example.sharepoint.com/FAKE_UPLOAD_SENTINEL",
+            },
+          ],
+        },
+        headers: { Location: capability },
+      },
+    ],
+    links: [capability, "https://example.sharepoint.com/upload?sig=FAKE_SIGNATURE_SENTINEL"],
+    webUrl: "https://example.sharepoint.com/document",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/drive/root/children?$skiptoken=page2",
+  }
+  globalThis.fetch = async () => json(payload)
+  const cleanup = await setupM365(ctx)
+  try {
+    const graph = tools.find((tool) => tool.name === "graph_request")
+    assert.ok(graph)
+    for (const path of ["/me/drive/items/item", "/$batch", "/me/drive/items/item/createUploadSession"]) {
+      const result = await graph.execute({ path }, { signal: new AbortController().signal } as never)
+      const serialized = JSON.stringify(result)
+      assert.ok(!serialized.includes("SENTINEL"), serialized)
+      assert.ok(serialized.includes(payload.webUrl))
+      assert.ok(serialized.includes("nextLink"))
+      assert.ok(serialized.includes("page2"))
+    }
+    await inAuth(async () => {
+      const raw = await executeGraphRawRequest({ path: "/drives/d/items/i/content", body: "file" })
+      assert.ok(!JSON.stringify(raw).includes("SENTINEL"))
+    })
+  } finally {
+    await cleanup()
+  }
+})
+
+test("file reads accept every delegated alternative and reject unrelated scopes before Graph", async () =>
+  inAuth(async () => {
+    let calls = 0
+    globalThis.fetch = async (input) => {
+      calls++
+      return json(String(input).includes("/items/") ? { id: "item", name: "file.txt" } : { id: "drive" })
+    }
+    for (const scope of [
+      "Files.Read",
+      "Files.ReadWrite",
+      "Files.Read.All",
+      "Files.ReadWrite.All",
+      "Sites.Read.All",
+      "Sites.ReadWrite.All",
+    ]) {
+      writeState("auth", { ...token, scope })
+      const result = await dispatchDeclaredMethod("m365_get_drive_item", { drive_id: "drive", item_id: "item" })
+      assert.ok(JSON.stringify(result).includes("file.txt"), scope)
+    }
+    assert.equal(calls, 12)
+    for (const scope of ["User.Read", "Files.Read.Selected", "Files.ReadWrite.AppFolder"]) {
+      writeState("auth", { ...token, scope })
+      await assert.rejects(
+        dispatchDeclaredMethod("m365_get_drive_item", { drive_id: "drive", item_id: "item" }),
+        /Missing Microsoft Graph scopes/,
+      )
+    }
+    assert.equal(calls, 12)
+  }))
+
+test("least-privilege write and Office tokens reach Graph, while read-only tokens cannot write", async () =>
+  inAuth(async () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ["m365_create_drive_folder", { folder_name: "folder" }],
+      ["m365_upload_small_drive_item", { file_name: "file.txt", content_base64: "eA==" }],
+      ["m365_update_drive_item", { new_name: "file.txt" }],
+      ["m365_delete_drive_item", { confirm: true }],
+      ["m365_create_share_link", {}],
+      ["m365_excel_list_worksheets", {}],
+      ["m365_excel_read_range", { range_address: "A1" }],
+      ["m365_excel_write_range", { range_address: "A1", values: [["x"]] }],
+      ["m365_powerpoint_replace_text", { replacements: { old: "new" } }],
+    ]
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls++
+      throw new Error("GRAPH_REACHED")
+    }
+    for (const [name, args] of cases) {
+      const input = { drive_id: "drive", ...args }
+      writeState("auth", { ...token, scope: "Files.ReadWrite" })
+      await assert.rejects(dispatchDeclaredMethod(name, input), /GRAPH_REACHED/, name)
+      writeState("auth", { ...token, scope: "Files.Read" })
+      await assert.rejects(dispatchDeclaredMethod(name, input), /Missing Microsoft Graph scopes/, name)
+    }
+    assert.equal(calls, cases.length)
+  }))
+
+test("all file and Office manifests declare endpoint-specific least-privilege alternatives", () => {
+  for (const manifest of listPublicMethods()) {
+    if (manifest.domain === "files") {
+      const expected =
+        manifest.name === "m365_list_document_libraries"
+          ? ["Sites.Read.All"] // The handler also resolves the site's metadata.
+          : manifest.risk === "read"
+            ? ["Files.Read or Files.Read.All or Sites.Read.All"]
+            : ["Files.ReadWrite or Files.ReadWrite.All or Sites.ReadWrite.All"]
+      assert.deepEqual(manifest.requires?.scopes, expected, manifest.name)
+    }
+    if (manifest.domain === "powerpoint")
+      assert.deepEqual(
+        manifest.requires?.scopes,
+        manifest.risk === "read"
+          ? ["Files.Read or Files.Read.All or Sites.Read.All"]
+          : ["Files.ReadWrite or Files.ReadWrite.All or Sites.ReadWrite.All"],
+        manifest.name,
+      )
+    if (manifest.domain === "excel")
+      assert.deepEqual(manifest.requires?.scopes, ["Files.ReadWrite or Files.ReadWrite.All"], manifest.name)
+  }
+})
+
 test("Office archive budget rejects excessive expanded sizes and malformed input", async () => {
   const zip = new JSZip()
   zip.file("ppt/slides/slide1.xml", "x".repeat(1024))
