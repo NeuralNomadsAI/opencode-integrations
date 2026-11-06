@@ -20,7 +20,7 @@ The state directory is `$XDG_STATE_HOME/neuralnomads/opencode-gaffer` (default `
 
 ## Connect
 
-Start OpenCode yourself. Open the **Opencode** editor in Gaffer and connect explicitly to offer its script. Closing the panel withdraws the offer. The authenticated host listens only on `127.0.0.1` at an ephemeral port; its 256-bit process token stays in memory. Offers expire after 15 seconds and renew every 5 seconds. No RPC output or event contains credentials, the port or the script handle. An application closed without inspection reports host state `unknown`.
+Start OpenCode yourself. Open the **OpenCode for Gaffer** editor in Gaffer and press **Connect** to offer its script. **Disconnect** or closing the panel withdraws the offer. The authenticated host listens only on `127.0.0.1` at an ephemeral port; its 256-bit process token stays in memory. Offers expire after 15 seconds and renew every 5 seconds. No RPC output or event contains credentials, the port or the script handle. An application closed without inspection reports host state `unknown`.
 
 The panel requires **Bun >=1.3 on PATH** (or `NEURALNOMADS_GAFFER_BUN` pointing to its executable). It runs the **compiled, self-contained `sidecar.js` shipped inside the host payload**, beside the Python host, rather than TypeScript in the npm cache. `NEURALNOMADS_GAFFER_SIDECAR` can explicitly override that path. The sidecar discovers a running service and never launches a daemon. The matching `@opencode/client` 2.2.5 is bundled into it. If your daemon uses a custom `OPENCODE_CONFIG_DIR`, set `NEURALNOMADS_GAFFER_GLOBAL_CONFIG_DIR` in Gaffer's environment to that daemon's Global configuration directory.
 

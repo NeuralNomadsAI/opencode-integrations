@@ -1,6 +1,8 @@
 import functools
+import hashlib
 import os
 import pathlib
+import uuid
 
 import IECore
 import imath
@@ -28,7 +30,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		self._qtWidget().setObjectName( "gafferOpenCodeEditor" )
 
 		self.__header = GafferUI.ListContainer( GafferUI.ListContainer.Orientation.Horizontal, spacing = 6 )
-		self.__brand = GafferUI.Label( "OPENCODE / GAFFER" )
+		self.__brand = GafferUI.Label( "OpenCode for Gaffer" )
 		self.__brand._qtWidget().setObjectName( "gafferOpenCodeBrand" )
 		self.__sessionLabel = GafferUI.Label( "SESSION  disconnected" )
 		self.__sessionLabel._qtWidget().setObjectName( "gafferOpenCodeSession" )
@@ -114,6 +116,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			raise RuntimeError( "OpenCodeEditor requires a ScriptNode registered with the Gaffer application" )
 		self.__connectParams = dict( hostInfo )
 		self.__connectParams["script_handle"] = scriptHandle
+		self.__unsavedKey = uuid.uuid4().hex
 		self.__updateConnectParams()
 		self.__scriptConnections = [
 			scriptNode.plugSetSignal().connect( Gaffer.WeakMethod( self.__scriptPlugSet ), scoped = True ),
@@ -234,7 +237,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		fileName = str( scriptNode["fileName"].getValue() )
 		directory = str( pathlib.Path( fileName ).resolve().parent ) if fileName else os.getcwd()
 		self.__connectParams.update( {
-			"script_key" : str( pathlib.Path( fileName ).resolve() ) if fileName else "untitled:" + self.__connectParams["script_handle"],
+			"script_key" : "document:" + hashlib.sha256( str( pathlib.Path( fileName ).resolve() ).encode( "utf-8" ) ).hexdigest() if fileName else "untitled:" + self.__unsavedKey,
 			"script_name" : pathlib.Path( fileName ).name if fileName else scriptNode.getName(),
 			"directory" : directory,
 		} )
@@ -337,4 +340,4 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		self.__transcript._qtWidget().ensureCursorVisible()
 
 
-GafferUI.Editor.registerType( "Opencode", OpenCodeEditor )
+GafferUI.Editor.registerType( "OpenCode for Gaffer", OpenCodeEditor )

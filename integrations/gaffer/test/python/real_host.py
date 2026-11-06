@@ -51,6 +51,7 @@ editor = OpenCodeEditor(script)
 assert editor._OpenCodeEditor__channel is None
 assert editor._OpenCodeEditor__client is None
 assert editor._OpenCodeEditor__connectButton.getText() == "Connect"
+assert GafferOpenCode.scriptHandle(script) not in editor._OpenCodeEditor__connectParams["script_key"]
 print("GAFFER_PANEL_OK")
 
 import GafferUI
