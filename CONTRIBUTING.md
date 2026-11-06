@@ -68,7 +68,31 @@ Never commit a GUID, a fingerprint list or the secret value.
 
 ## Releases and publication
 
-Blender is publishable with public npm access; the repository root and shared workspaces stay private. Its repository URL exactly matches the GitHub repository URL for npm trusted publishing.
+Integration plugins are published with public npm access; the repository root and shared workspaces stay private. Each plugin's repository URL exactly matches the GitHub repository URL for npm trusted publishing.
+
+### First publication of new packages
+
+A maintainer with publish access to the `@neuralnomads` npm scope and account-level 2FA runs one local batch in an interactive terminal:
+
+```sh
+npm login
+npm run npm:bootstrap -- --dry-run
+npm run npm:bootstrap
+```
+
+At the first npm web authentication prompt, tick **"skip two-factor authentication for the next 5 minutes"**. Keep the same terminal open: publish, trust and access calls share that window, instead of asking for approval per package. Very large or slow batches can require a second validation when the window expires. The script spaces registry calls by two seconds, keeps npm output and authentication URLs visible, and uses `npx --yes npm@12` when local npm is older than 11.15 (without changing the global installation).
+
+The script discovers public `integrations/*/plugin` workspaces, selects unpublished packages, then runs `npm ci`, `build` and `check:markers` once before publishing. Each new package is published at `latest` without local provenance, linked to `publish.yml` in `NeuralNomadsAI/opencode-integrations` with the `npm-publish` environment, and set to `mfa=publish`. Existing packages are skipped. To finish setup for existing packages (including a partially completed batch), run:
+
+```sh
+npm run npm:bootstrap -- --trust-only
+```
+
+This mode skips existing trust configurations, enforcing MFA even when trust is already present so a failed final access call can be retried. Combine either mode with `--dry-run` to query and print its command plan without building, publishing or changing registry settings. Query failures are reported rather than treated as unpublished packages.
+
+New versions go through the **publish.yml** workflow below, using OIDC without maintainer npm 2FA. Configure and validate the trust relationship promptly: [npm trust configurations expire after two days unless a CI publication validates them](https://docs.npmjs.com/trusted-publishers). The [npm trust bulk usage guide](https://docs.npmjs.com/cli/v11/commands/npm-trust#bulk-usage) documents the five-minute skip window and rate-limit spacing.
+
+### Subsequent releases
 
 Nothing is published without the maintainer's explicit approval at the time of publication:
 
