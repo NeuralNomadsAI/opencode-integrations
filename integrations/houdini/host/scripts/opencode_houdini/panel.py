@@ -237,7 +237,7 @@ class OpenCodePanel(QtWidgets.QWidget):
         }
 
     def _connect(self) -> None:
-        opencode_houdini.initialise()
+        opencode_houdini.acquirePanel(self._channel)
         self._connected = False
         self._status.setText("CONNECTING")
         self._send.setEnabled(False)
@@ -245,11 +245,12 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._client.send(self._channel, "connect", self._connect_params())
 
     def _new_session(self) -> None:
-        opencode_houdini.initialise()
+        opencode_houdini.acquirePanel(self._channel)
         self._status.setText("CONNECTING")
         self._client.send(self._channel, "new_session", self._connect_params())
 
     def _disconnect(self) -> None:
+        opencode_houdini.releasePanel(self._channel)
         self._client.send(self._channel, "close", {})
         self._connected = False
         self._send.setEnabled(False)
@@ -373,6 +374,7 @@ class OpenCodePanel(QtWidgets.QWidget):
             self._disconnect()
 
     def _destroyed(self, unused_object=None) -> None:
+        opencode_houdini.releasePanel(self._channel)
         try:
             hou.hipFile.removeEventCallback(self._hip_event)
             self._client.send(self._channel, "close", {})

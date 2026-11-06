@@ -86,7 +86,7 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
   }
 })
 
-it("disconnecting or destroying panels preserves the process-owned Houdini listener", () => {
+it("panels share the Houdini listener until the last owner disconnects or is destroyed", () => {
   const result = spawnSync(
     process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
     ["-I", join(import.meta.dirname, "panel_probe.py"), "test_shared_host_lifetime"],

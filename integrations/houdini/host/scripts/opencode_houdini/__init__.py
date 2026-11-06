@@ -7,6 +7,7 @@ from .host import Host, HostError, HostServer, ScriptState
 
 _host: Host | None = None
 _server: HostServer | None = None
+_panel_owners: set[str] = set()
 
 
 def initialise(application=None) -> None:
@@ -27,9 +28,23 @@ def shutdown() -> None:
         _host.close()
     _server = None
     _host = None
+    _panel_owners.clear()
 
 
-# The Houdini process owns the shared host; panels only own their sidecar channels.
+def acquirePanel(channel: str) -> None:
+    initialise()
+    _panel_owners.add(channel)
+
+
+def releasePanel(channel: str) -> None:
+    if channel not in _panel_owners:
+        return
+    _panel_owners.remove(channel)
+    if not _panel_owners:
+        shutdown()
+
+
+# Process exit also cleans up any remaining consenting panels.
 atexit.register(shutdown)
 
 
@@ -61,10 +76,12 @@ __all__ = [
     "HostError",
     "HostServer",
     "ScriptState",
+    "acquirePanel",
     "currentState",
     "hostInfo",
     "initialise",
     "reset",
+    "releasePanel",
     "scriptHandle",
     "shutdown",
 ]

@@ -46,8 +46,8 @@ class PanelTests(unittest.TestCase):
                     self.assertEqual(value["method"], "prepend")
                     value = value["value"]
                 env[name] = Template(value).substitute(env)
-        root = Path(env["NEURALNOMADS_HOUDINI_ROOT"])
-        self.assertEqual(Template(config["path"]).substitute(env), str(root).replace("\\", "/"))
+        root = Path(env["NEURALNOMADS_HOUDINI_ROOT"]).resolve()
+        self.assertEqual(Path(Template(config["path"]).substitute(env)).resolve(), root)
         # -I excludes cwd and ambient PYTHONPATH: only the generated package's path is added.
         if env.get("PYTHONPATH"):
             sys.path.insert(0, env["PYTHONPATH"])
@@ -120,16 +120,37 @@ class PanelTests(unittest.TestCase):
                 first._destroyed()
                 client.send.assert_called_with(first._channel, "close", {})
                 assert_live()
-                # Even the last panel closing leaves the process-owned host usable by attached clients.
-                second._destroyed()
-                assert_live()
                 state.close.assert_not_called()
+                # Close delivery is asynchronous (or can fail); host revocation is synchronous.
+                client.send.side_effect = RuntimeError("sidecar unavailable")
+                second._destroyed()
+                self.assertFalse(server.running)
+                self.assertNotEqual(server.token, endpoint["token"])
+                self.assertIsNone(integration._host)
+                with self.assertRaises(OSError):
+                    socket.create_connection((endpoint["host"], endpoint["port"]), timeout=2)
+                state.close.assert_called_once()
+                client.send.side_effect = None
+                # Repeated release is harmless; fresh consent creates fresh authority.
+                second._destroyed()
+                second._connect()
+                replacement = integration._server
+                self.assertNotEqual(replacement.token, endpoint["token"])
+                first._destroyed()  # A disconnected panel cannot revoke the remaining owner.
+                self.assertTrue(replacement.running)
+                second._disconnect()
+                client.send.assert_called_with(second._channel, "close", {})
+                self.assertFalse(replacement.running)
+                self.assertIsNone(integration._host)
+                with self.assertRaises(OSError):
+                    socket.create_connection(("127.0.0.1", replacement.port), timeout=2)
+                self.assertEqual(state.close.call_count, 2)
             finally:
                 integration.shutdown()
             self.assertFalse(server.running)
             self.assertNotEqual(server.token, endpoint["token"])
             self.assertIsNone(integration._host)
-            state.close.assert_called_once()
+            self.assertEqual(state.close.call_count, 2)
             integration.shutdown()  # Explicit cleanup and process exit are idempotent.
 
 

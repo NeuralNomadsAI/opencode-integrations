@@ -63,7 +63,7 @@
       "range": "^0.2.0",
       "appVersions": ">=21.0",
       "payload": "host/houdini/opencode_link-0.2.0.zip",
-      "sha256": "9f307a42ff7a14ab6317d04f2ba2cbb1f6d13470385704994073febc64cec573"
+      "sha256": "db061c8b3880211ac319fd3e89366de0ab2fee02ea89632354807351db4ce094"
     }
   }
 }

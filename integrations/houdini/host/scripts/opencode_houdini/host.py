@@ -1238,6 +1238,11 @@ class HostServer:
     def close(self) -> None:
         self.running = False
         self.token = secrets.token_hex(32)
+        # Wake a blocking accept before closing the listener on every platform.
+        try:
+            self.socket.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         try:
             self.socket.close()
         except OSError:
