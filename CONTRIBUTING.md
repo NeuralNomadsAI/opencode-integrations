@@ -82,7 +82,7 @@ npm run npm:bootstrap
 
 At the first npm web authentication prompt, tick **"skip two-factor authentication for the next 5 minutes"**. Keep the same terminal open: publish, trust and access calls share that window, instead of asking for approval per package. Very large or slow batches can require a second validation when the window expires. The script spaces registry calls by two seconds, keeps npm output and authentication URLs visible, and uses `npx --yes npm@12` when local npm is older than 11.15 (without changing the global installation).
 
-The script discovers public `integrations/*/plugin` workspaces, selects unpublished packages, then runs `npm ci`, `build` and `check:markers` once before publishing. Each new package is published at `latest` without local provenance, linked to `publish.yml` in `NeuralNomadsAI/opencode-integrations` with the `npm-publish` environment, and set to `mfa=publish`. Existing packages are skipped. To finish setup for existing packages (including a partially completed batch), run:
+The script runs `npm ci`, `build` and `check:markers` once before querying package and trust state, keeping that preparation outside the five-minute authentication window. It discovers public `integrations/*/plugin` workspaces and selects unpublished packages. Each new package is published at `latest` without local provenance, linked to `publish.yml` in `NeuralNomadsAI/opencode-integrations` with the `npm-publish` environment, and set to `mfa=publish`. Existing packages are skipped. To finish setup for existing packages (including a partially completed batch), run:
 
 ```sh
 npm run npm:bootstrap -- --trust-only

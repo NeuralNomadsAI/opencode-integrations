@@ -1,14 +1,25 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import { fileURLToPath } from "node:url"
 import { bootstrap, commandPlan, packages, parseArgs, type Run, supportsTrust } from "../npm-bootstrap.ts"
 
 const fresh = { name: "@neuralnomads/opencode-new", dir: "integrations/new/plugin" }
 const existing = { name: "@neuralnomads/opencode-old", dir: "integrations/old/plugin" }
 const absent = { code: 1, output: '{"error":{"code":"E404"}}' }
 const ok = { code: 0, output: "" }
+
+test("the actual CLI refuses non-TTY execution before starting npm", () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../npm-bootstrap.ts", import.meta.url))], {
+    encoding: "utf8",
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /An interactive TTY is required/)
+  assert.equal(result.stdout, "")
+})
 
 test("arguments reject unknown options; trust needs a stable npm >=11.15", () => {
   assert.deepEqual(parseArgs([]), { dryRun: false, trustOnly: false })
@@ -86,7 +97,7 @@ test("new batch runs checks once, skips published packages, and spaces every reg
   assert.equal(await bootstrap([fresh, existing], parseArgs([]), m.run, m.log, m.pause), true)
   assert.deepEqual(
     m.calls.slice(0, 6).map((args) => args[0]),
-    ["whoami", "view", "view", "ci", "run", "run"],
+    ["whoami", "ci", "run", "run", "view", "view"],
   )
   assert.deepEqual(m.calls.slice(6), commandPlan(fresh, false, false, false))
   assert.equal(m.pauses(), 5)
@@ -156,6 +167,48 @@ test("trust-only creates missing trust; malformed/failed list cannot overwrite i
   )
 })
 
+test("trust-only accepts npm's multiple-publisher JSON stream without replacing trust", async () => {
+  for (const separator of ["\n", "\n\n", "\r\n\r\n"]) {
+    const configs = [
+      { type: "github", id: "one" },
+      { type: "gitlab", id: "two" },
+    ]
+    const output = configs.map((config) => JSON.stringify(config, null, 2)).join(separator)
+    const m = mock((args) => (args[0] === "trust" ? { code: 0, output } : ok))
+    assert.equal(await bootstrap([existing], parseArgs(["--trust-only"]), m.run, m.log, m.pause), true)
+    assert.equal(
+      m.calls.some((args) => args[1] === "github"),
+      false,
+    )
+    assert.deepEqual(m.calls.at(-1), ["access", "set", "mfa=publish", existing.name])
+  }
+})
+
+test("trust-list authentication inherits the terminal before a captured JSON read", async () => {
+  const calls: { args: string[]; capture: boolean }[] = []
+  const run: Run = async (args, capture = false) => {
+    calls.push({ args, capture })
+    return ok
+  }
+  assert.equal(
+    await bootstrap(
+      [existing],
+      parseArgs(["--trust-only", "--dry-run"]),
+      run,
+      () => {},
+      async () => {},
+    ),
+    true,
+  )
+  assert.deepEqual(
+    calls.filter(({ args }) => args[0] === "trust"),
+    [
+      { args: ["trust", "list", existing.name], capture: false },
+      { args: ["trust", "list", existing.name, "--json"], capture: true },
+    ],
+  )
+})
+
 test("publish/trust/access failures report exact stage and stop dependent steps", async () => {
   for (const stage of ["publish", "trust", "access"]) {
     const m = mock((args) => (args[0] === "view" ? absent : args[0] === stage ? { code: 7, output: "" } : ok))
@@ -167,7 +220,8 @@ test("publish/trust/access failures report exact stage and stop dependent steps"
 
 test("failed validation never publishes", async () => {
   const m = mock((args) => (args[0] === "view" ? absent : args[0] === "ci" ? { code: 1, output: "" } : ok))
-  await assert.rejects(bootstrap([fresh], parseArgs([]), m.run, m.log, m.pause), /ci failed/)
+  assert.equal(await bootstrap([fresh], parseArgs([]), m.run, m.log, m.pause), false)
+  assert.match(m.logs.join("\n"), /Failed: 1[\s\S]*Preparation: ci failed/)
   assert.equal(
     m.calls.some((args) => args[0] === "publish"),
     false,

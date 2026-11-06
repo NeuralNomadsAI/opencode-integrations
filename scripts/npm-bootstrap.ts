@@ -71,12 +71,19 @@ export function commandPlan(pkg: Package, exists: boolean, trusted: boolean, tru
 }
 
 function hasTrust(output: string): boolean {
-  // npm 12 emits no JSON for an empty list, and one object for its single supported configuration.
+  // npm emits no JSON for an empty list, or whitespace-separated JSON objects for existing publishers.
   if (!output.trim()) return false
-  const value = JSON.parse(output)
-  if (Array.isArray(value) && value.length === 0) return false
-  if (value && typeof value === "object" && typeof value.type === "string" && typeof value.id === "string") return true
-  throw new Error("Unexpected npm trust list response; refusing to replace trust")
+  const configs = output
+    .trim()
+    .split(/(?<=})\s+(?={)/)
+    .flatMap((item) => {
+      const value = JSON.parse(item)
+      return Array.isArray(value) ? value : [value]
+    })
+  if (!configs.every((value) => value && typeof value.type === "string" && typeof value.id === "string")) {
+    throw new Error("Unexpected npm trust list response; refusing to replace trust")
+  }
+  return configs.length > 0
 }
 
 export async function bootstrap(
@@ -90,6 +97,15 @@ export async function bootstrap(
   const trusted: string[] = []
   const done: string[] = []
   const failed: string[] = []
+  const summarize = () => {
+    for (const [label, items] of [
+      ["Published", published],
+      ["Trusted", trusted],
+      ["Already done / skipped", done],
+      ["Failed", failed],
+    ] as const)
+      log(`${label}: ${items.length}${items.length ? `\n  ${items.join("\n  ")}` : ""}`)
+  }
   const pending: { pkg: Package; commands: string[][] }[] = []
   let called = false
   const registry: Run = async (args, capture) => {
@@ -110,6 +126,18 @@ export async function bootstrap(
       "npm whoami failed. Run npm login, then retry with an account that can publish @neuralnomads packages and has 2FA enabled.",
     )
 
+  // Finish preparation before trust list or publication can start the five-minute 2FA window.
+  if (!options.dryRun) {
+    try {
+      for (const args of [["ci"], ["run", "build"], ["run", "check:markers"]]) {
+        requireSuccess(await run(args), args.join(" "))
+      }
+    } catch (error) {
+      failed.push(`Preparation: ${(error as Error).message}`)
+      summarize()
+      return false
+    }
+  }
   for (const pkg of pkgs) {
     try {
       const view = await registry(["view", pkg.name, "version", "--json"], true)
@@ -130,6 +158,10 @@ export async function bootstrap(
       }
       let configured = false
       if (exists) {
+        // npm refuses web 2FA when stdout is piped. Authenticate with inherited terminal streams first;
+        // the following JSON read shares the five-minute skip window and tees its output for parsing.
+        const interactiveList = await registry(["trust", "list", pkg.name])
+        requireSuccess(interactiveList, `interactive trust list ${pkg.name}`)
         const list = await registry(["trust", "list", pkg.name, "--json"], true)
         requireSuccess(list, `trust list ${pkg.name}`)
         configured = hasTrust(list.output)
@@ -141,11 +173,6 @@ export async function bootstrap(
     }
   }
 
-  if (pending.length && !options.dryRun) {
-    for (const args of [["ci"], ["run", "build"], ["run", "check:markers"]]) {
-      requireSuccess(await run(args), args.join(" "))
-    }
-  }
   for (const { pkg, commands } of pending) {
     try {
       for (const args of commands) {
@@ -159,14 +186,7 @@ export async function bootstrap(
       failed.push(`${pkg.name}: ${(error as Error).message}; retry --trust-only if publication succeeded`)
     }
   }
-  for (const [label, items] of [
-    ["Published", published],
-    ["Trusted", trusted],
-    ["Already done / skipped", done],
-    ["Failed", failed],
-  ] as const) {
-    log(`${label}: ${items.length}${items.length ? `\n  ${items.join("\n  ")}` : ""}`)
-  }
+  summarize()
   return failed.length === 0
 }
 
