@@ -29,7 +29,7 @@ import {
 import { type HostEndpoint, requestHost } from "./host-client.ts"
 import type { LiveHello } from "./host-state.ts"
 
-export type HelloProbe = (endpoint: HostEndpoint) => Promise<unknown>
+export type HelloProbe = (endpoint: HostEndpoint, scriptHandle: string) => Promise<unknown>
 
 export type OfferRegistryOptions = {
   expected: HostExpectation
@@ -83,7 +83,8 @@ type OfferRecord = {
 }
 type PendingAnnouncement = { key: string; token: string; cancelled: boolean }
 
-const defaultHello: HelloProbe = (endpoint) => requestHost(endpoint, "hello", {}, { timeoutMs: HELLO_TIMEOUT_MS })
+const defaultHello: HelloProbe = (endpoint, scriptHandle) =>
+  requestHost(endpoint, "hello", { script_handle: scriptHandle }, { timeoutMs: HELLO_TIMEOUT_MS })
 
 const opaqueGeneration = () => randomBytes(24).toString("base64url")
 const SERVICE_KEY = Symbol.for("neuralnomads.integrations.serviceGeneration")
@@ -171,7 +172,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
   const verify = async (endpoint: HostEndpoint, scriptHandle: string): Promise<Hello | null> => {
     let result: unknown
     try {
-      result = await probe(endpoint)
+      result = await probe(endpoint, scriptHandle)
     } catch {
       return null
     }

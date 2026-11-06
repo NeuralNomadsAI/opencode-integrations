@@ -37,6 +37,32 @@ jobs:
       - run: npm run build
       - run: npm run check:markers
 
+  gaffer:
+    name: Gaffer host and panel consent (1.7.6.0, private profile)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Download the portable Gaffer and verify its digest
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'gaffer.zip'
+          Invoke-WebRequest 'https://github.com/GafferHQ/gaffer/releases/download/1.7.6.0/gaffer-1.7.6.0-windows.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '1B6C03F768E6FDFDE686A2AF256E59A313E1BFC64643371FA587DAC24AC69FC0') { throw 'Gaffer checksum mismatch' }
+          Expand-Archive $archive -DestinationPath $env:RUNNER_TEMP
+      - name: Exercise the real graph, authenticated listener and offscreen panel
+        shell: pwsh
+        run: |
+          $env:GAFFER_TEST_BIN = Join-Path $env:RUNNER_TEMP 'gaffer-1.7.6.0-windows/bin/gaffer.cmd'
+          node --test integrations/gaffer/test/real-host.test.ts
+
   blender-native:
     name: Blender binding contract (OpenCode 2.2.5, private service)
     runs-on: ubuntu-latest
