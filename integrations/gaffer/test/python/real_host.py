@@ -73,6 +73,10 @@ def probe():
                 if valid:
                     assert response["result"]["script_handle"] == handle
                     assert response["result"]["host_version"] == "0.2.0"
+        with socket.create_connection((info["host"], info["port"]), timeout=5) as client:
+            client.sendall((json.dumps({"id": "bad-handle", "token": info["token"], "method": "hello", "params": {"script_handle": "gone"}}) + "\n").encode())
+            response = json.loads(client.makefile("rb").readline())
+            assert response["error"]["code"] == "stale_handle"
         wire.append("ok")
     except Exception as error:
         wire.append(type(error).__name__)

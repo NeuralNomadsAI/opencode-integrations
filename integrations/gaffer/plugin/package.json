@@ -61,7 +61,7 @@
       "range": "^0.2.0",
       "appVersions": ">=1.6",
       "payload": "host/gaffer/opencode_link-0.2.0.zip",
-      "sha256": "5815e7c7f0f274c995c1d3cd06a1938a594e5b28826bcd0eb26d96645d4f9bf4"
+      "sha256": "7349cef77fce845e19f119d3299ac258e6ef56d59fa0d330ec22436df40e1284"
     }
   }
 }

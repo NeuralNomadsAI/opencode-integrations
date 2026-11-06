@@ -27,7 +27,7 @@ from . import Recipes
 
 PROTOCOL_VERSION = 1
 HOST_VERSION = json.loads( ( pathlib.Path( __file__ ).resolve().parents[2] / "manifest.json" ).read_text( encoding = "utf-8" ) )["version"]
-MAX_REQUEST_BYTES = 8 * 1024 * 1024
+MAX_REQUEST_BYTES = 1024 * 1024
 JOURNAL_LIMIT = 256
 COMMAND_LIMIT = 256
 TOMBSTONE_LIMIT = 4096
@@ -1724,7 +1724,7 @@ class HostServer :
 
 		requestID = None
 		try :
-			client.settimeout( 120 )
+			client.settimeout( 2 )
 			buffer = b""
 			while b"\n" not in buffer :
 				chunk = client.recv( 65536 )
@@ -1740,9 +1740,19 @@ class HostServer :
 			result = self.host.dispatch( str( request.get( "method", "" ) ), request.get( "params" ) or {} )
 			response = { "id" : requestID, "ok" : True, "result" : result }
 		except HostError as error :
-			response = { "id" : requestID, "ok" : False, "error" : { "code" : error.code, "message" : str( error ), "data" : error.data } }
+			code = {
+				"unknown_script" : "stale_handle", "revision_conflict" : "stale_revision",
+				"unknown_method" : "method_not_found", "script_quarantined" : "quarantined",
+				"rollback_failed" : "quarantined", "request_too_large" : "invalid_request",
+				"read_only" : "permission_denied",
+			}.get( error.code, error.code )
+			if code.startswith( ( "invalid_", "unsupported_" ) ) and code != "invalid_request" :
+				code = "invalid_args"
+			if code not in ( "unauthorized", "invalid_request", "method_not_found", "method_disabled", "invalid_args", "stale_handle", "stale_revision", "expectation_failed", "mode_conflict", "busy", "quarantined", "permission_denied", "internal" ) :
+				code = "internal"
+			response = { "id" : requestID, "ok" : False, "error" : { "code" : code, "message" : str( error )[:300] } }
 		except Exception as error :
-			response = { "id" : requestID, "ok" : False, "error" : { "code" : "internal", "message" : str( error ) } }
+			response = { "id" : requestID, "ok" : False, "error" : { "code" : "internal", "message" : str( error )[:300] } }
 
 		try :
 			client.sendall( ( json.dumps( response, allow_nan = False ) + "\n" ).encode( "utf-8" ) )
