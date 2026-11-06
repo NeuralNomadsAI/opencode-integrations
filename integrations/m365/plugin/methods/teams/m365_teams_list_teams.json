@@ -1,0 +1,31 @@
+{
+  "name": "m365_teams_list_teams",
+  "domain": "teams",
+  "description": "List joined Teams workspaces with optional fuzzy filtering by name.",
+  "kind": "hostless",
+  "args": {
+    "query": {
+      "type": "string",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Team.ReadBasic.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_list_teams"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

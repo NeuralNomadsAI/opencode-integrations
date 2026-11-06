@@ -1,0 +1,20 @@
+{
+  "name": "m365_mail_get_mailbox_settings",
+  "domain": "outlook",
+  "description": "Read Outlook mailbox settings such as automatic replies, language, working hours, and timezone.",
+  "kind": "hostless",
+  "args": {
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["MailboxSettings.Read"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_mail_get_mailbox_settings"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "read"
+}

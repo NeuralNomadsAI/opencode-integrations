@@ -13,7 +13,7 @@
   "scripts": {
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts && tsc -p integrations/blender/plugin && tsc -p integrations/houdini/plugin && tsc -p integrations/resolve/plugin",
+    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts && tsc -p integrations/blender/plugin && tsc -p integrations/houdini/plugin && tsc -p integrations/m365/plugin && tsc -p integrations/resolve/plugin",
     "build": "npm run build --workspaces --if-present",
     "test": "node --test \"packages/*/test/**/*.test.ts\" \"scripts/test/**/*.test.ts\" \"integrations/*/test/**/*.test.ts\"",
     "check:markers": "node packages/conformance/src/cli.ts",

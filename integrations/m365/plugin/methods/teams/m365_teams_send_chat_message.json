@@ -1,0 +1,64 @@
+{
+  "name": "m365_teams_send_chat_message",
+  "domain": "teams",
+  "description": "Send a Teams chat message to an existing chat or create a chat from participant usernames.",
+  "kind": "hostless",
+  "args": {
+    "chat_id": {
+      "type": "string",
+      "required": false
+    },
+    "chat_name": {
+      "type": "string",
+      "required": false
+    },
+    "participant_name": {
+      "type": "string",
+      "required": false
+    },
+    "participant_username": {
+      "type": "string",
+      "required": false
+    },
+    "participant_usernames": {
+      "type": "array",
+      "required": false,
+      "items": {
+        "type": "string"
+      }
+    },
+    "chat_topic": {
+      "type": "string",
+      "required": false
+    },
+    "message": {
+      "type": "string",
+      "required": true
+    },
+    "content_type": {
+      "type": "string",
+      "required": false,
+      "default": "text",
+      "enum": ["text", "html"]
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Chat.ReadWrite"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_send_chat_message"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "write"
+}

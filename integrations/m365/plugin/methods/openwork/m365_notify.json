@@ -1,0 +1,55 @@
+{
+  "name": "m365_notify",
+  "domain": "openwork",
+  "description": "Preview or send a notification through Teams chat, Teams channel, or email.",
+  "kind": "hostless",
+  "args": {
+    "target": {
+      "type": "string",
+      "required": true,
+      "enum": ["chat", "channel", "email"]
+    },
+    "message": { "type": "string", "required": true },
+    "subject": { "type": "string", "required": false },
+    "preview_only": { "type": "boolean", "required": false, "default": true },
+    "confirm": { "type": "boolean", "required": false },
+    "content_type": {
+      "type": "string",
+      "required": false,
+      "default": "text",
+      "enum": ["text", "html"]
+    },
+    "recipients": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "save_to_sent_items": { "type": "boolean", "required": false, "default": true },
+    "chat_id": { "type": "string", "required": false },
+    "chat_name": { "type": "string", "required": false },
+    "participant_name": { "type": "string", "required": false },
+    "participant_username": { "type": "string", "required": false },
+    "participant_usernames": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" }
+    },
+    "chat_topic": { "type": "string", "required": false },
+    "team_id": { "type": "string", "required": false },
+    "team_name": { "type": "string", "required": false },
+    "channel_id": { "type": "string", "required": false },
+    "channel_name": { "type": "string", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Depends on notification target"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_notify"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "write"
+}
