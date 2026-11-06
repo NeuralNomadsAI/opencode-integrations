@@ -251,7 +251,6 @@ class OpenCodePanel(QtWidgets.QWidget):
 
     def _disconnect(self) -> None:
         self._client.send(self._channel, "close", {})
-        opencode_houdini.shutdown()
         self._connected = False
         self._send.setEnabled(False)
         self._prompt.setEnabled(False)
@@ -377,7 +376,6 @@ class OpenCodePanel(QtWidgets.QWidget):
         try:
             hou.hipFile.removeEventCallback(self._hip_event)
             self._client.send(self._channel, "close", {})
-            opencode_houdini.shutdown()
             self._client.eventReceived.disconnect(self._event)
             self._client.diagnostic.disconnect(self._diagnostic)
         except RuntimeError:

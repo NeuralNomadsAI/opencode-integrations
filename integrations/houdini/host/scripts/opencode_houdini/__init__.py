@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import atexit
+
 from .host import Host, HostError, HostServer, ScriptState
 
 
@@ -25,6 +27,10 @@ def shutdown() -> None:
         _host.close()
     _server = None
     _host = None
+
+
+# The Houdini process owns the shared host; panels only own their sidecar channels.
+atexit.register(shutdown)
 
 
 def reset() -> None:

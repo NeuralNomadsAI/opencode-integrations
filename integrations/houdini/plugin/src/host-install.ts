@@ -44,7 +44,10 @@ export function installHost(marker: IntegrationMarker, preferences?: string, sta
     {
       enable: true,
       neuralnomadsHostVersion: manifest.version,
-      env: [{ NEURALNOMADS_HOUDINI_ROOT: resolve(payload).replaceAll("\\", "/") }],
+      env: [
+        { NEURALNOMADS_HOUDINI_ROOT: resolve(payload).replaceAll("\\", "/") },
+        { PYTHONPATH: { value: "$NEURALNOMADS_HOUDINI_ROOT/scripts", method: "prepend" } },
+      ],
       path: "$NEURALNOMADS_HOUDINI_ROOT",
     },
     null,

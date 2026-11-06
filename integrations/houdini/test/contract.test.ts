@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -56,6 +57,17 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
     const native = JSON.parse(readFileSync(join(preferences, "packages", "neuralnomads_houdini.json"), "utf8"))
     assert.ok(native.env[0].NEURALNOMADS_HOUDINI_ROOT.startsWith(join(root, "state").replaceAll("\\", "/")))
     assert.equal(native.neuralnomadsHostVersion, "0.2.0")
+    const imported = spawnSync(
+      process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
+      [
+        "-I",
+        join(import.meta.dirname, "panel_probe.py"),
+        "test_installed_import",
+        join(preferences, "packages", "neuralnomads_houdini.json"),
+      ],
+      { windowsHide: true, encoding: "utf8" },
+    )
+    assert.equal(imported.status, 0, imported.stderr)
     assert.deepEqual(inspectHost(preferences), { kind: "found", version: "0.2.0" })
     assert.deepEqual(await plugin.rpc("installHost"), { outcome: "unchanged" })
     const wsl = await loadPlugin({
@@ -72,6 +84,15 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
     await plugin.cleanup()
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+it("disconnecting or destroying panels preserves the process-owned Houdini listener", () => {
+  const result = spawnSync(
+    process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
+    ["-I", join(import.meta.dirname, "panel_probe.py"), "test_shared_host_lifetime"],
+    { windowsHide: true, encoding: "utf8" },
+  )
+  assert.equal(result.status, 0, result.stderr)
 })
 
 it("attachment and write permissions fence revoked hosts, without dispatch or replay", async () => {
