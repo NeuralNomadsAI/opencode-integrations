@@ -206,7 +206,11 @@ function succeeded(response: unknown) {
 export type ListenerReport = { errors: string[]; notes: string[]; hello: unknown }
 
 // The host listens on 127.0.0.1 only and answers nothing without the exact token.
-export async function checkHostListener(endpoint: Endpoint, timeoutMs = 2_000): Promise<ListenerReport> {
+export async function checkHostListener(
+  endpoint: Endpoint,
+  timeoutMs = 2_000,
+  params: Record<string, unknown> = {},
+): Promise<ListenerReport> {
   const errors: string[] = []
   const notes: string[] = []
   if (endpoint.host !== "127.0.0.1") errors.push(`host: advertised address ${endpoint.host} is not 127.0.0.1`)
@@ -227,15 +231,15 @@ export async function checkHostListener(endpoint: Endpoint, timeoutMs = 2_000): 
   const target = { host: "127.0.0.1", port: endpoint.port }
   const wrongToken = endpoint.token.startsWith("0") ? `1${endpoint.token.slice(1)}` : `0${endpoint.token.slice(1)}`
   const attempts: Array<[string, unknown]> = [
-    ["without a token", { id, method: "hello", params: {} }],
-    ["with an empty token", { id, token: "", method: "hello", params: {} }],
-    ["with a wrong token", { id, token: wrongToken, method: "hello", params: {} }],
+    ["without a token", { id, method: "hello", params }],
+    ["with an empty token", { id, token: "", method: "hello", params }],
+    ["with a wrong token", { id, token: wrongToken, method: "hello", params }],
   ]
   for (const [label, request] of attempts) {
     if (succeeded(await rawHostRequest(target, request, timeoutMs))) errors.push(`host: hello succeeds ${label}`)
   }
 
-  const response = await rawHostRequest(target, { id, token: endpoint.token, method: "hello", params: {} }, timeoutMs)
+  const response = await rawHostRequest(target, { id, token: endpoint.token, method: "hello", params }, timeoutMs)
   let hello: unknown = null
   if (!succeeded(response)) errors.push("host: hello with the token fails")
   else {

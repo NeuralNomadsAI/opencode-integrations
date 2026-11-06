@@ -21,9 +21,10 @@ None is released yet. The reviewed list lives in [`catalog.json`](catalog.json).
 | Integration                                                           | Family       | Status          |
 | --------------------------------------------------------------------- | ------------ | --------------- |
 | [OpenCode for Blender](integrations/blender/plugin/README.md)         | `native`     | preview (pilot) |
+| [OpenCode for Gaffer](integrations/gaffer/plugin/README.md)           | `native`     | preview         |
 | [OpenCode for DaVinci Resolve](integrations/resolve/plugin/README.md) | `vendor-mcp` | preview         |
 
-Gaffer, Houdini and Microsoft 365 follow.
+Houdini and Microsoft 365 follow.
 
 ## Installation
 

@@ -1,0 +1,5 @@
+# Gaffer qualification
+
+All checks use private HOME, USERPROFILE, XDG, TEMP and npm cache directories. Never attach the user's existing scripts, contact a shared OpenCode daemon or install into their Gaffer startup folder.
+
+The automated wire test imports the real `HostServer` and `ScriptState.hello` under stub Gaffer modules; it proves the loopback listener and token gate, not graph semantics. With `GAFFER_TEST_BIN`, the real-host smoke script creates an isolated script, reads a bounded context, applies a node edit, rejects stale revisions, replays an idempotent command and undoes the edit. The portable Gaffer 1.7.6.0 Windows archive runs without a system installation. The launch uses an offscreen Qt platform and private startup paths. Run the panel manually against a private OpenCode service to check streaming, model selection, cancellation, permission answers and explicit reconnect after detach. Renderer plugins and external render executables need their own configured test environment.
