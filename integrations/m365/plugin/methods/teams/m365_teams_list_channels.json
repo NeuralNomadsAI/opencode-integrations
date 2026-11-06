@@ -1,0 +1,39 @@
+{
+  "name": "m365_teams_list_channels",
+  "domain": "teams",
+  "description": "List channels for a team, or search channels across all joined teams.",
+  "kind": "hostless",
+  "args": {
+    "team_id": {
+      "type": "string",
+      "required": false
+    },
+    "team_name": {
+      "type": "string",
+      "required": false
+    },
+    "query": {
+      "type": "string",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Team.ReadBasic.All", "Channel.ReadBasic.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_list_channels"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

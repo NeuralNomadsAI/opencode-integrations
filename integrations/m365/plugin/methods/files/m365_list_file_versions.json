@@ -1,0 +1,67 @@
+{
+  "name": "m365_list_file_versions",
+  "domain": "files",
+  "description": "List version history for a Microsoft 365 file.",
+  "kind": "hostless",
+  "args": {
+    "site_id": {
+      "type": "string",
+      "required": false
+    },
+    "site_name": {
+      "type": "string",
+      "required": false
+    },
+    "site_url": {
+      "type": "string",
+      "required": false
+    },
+    "hostname": {
+      "type": "string",
+      "required": false
+    },
+    "site_path": {
+      "type": "string",
+      "required": false
+    },
+    "drive_id": {
+      "type": "string",
+      "required": false
+    },
+    "library_name": {
+      "type": "string",
+      "required": false
+    },
+    "item_id": {
+      "type": "string",
+      "required": false
+    },
+    "item_path": {
+      "type": "string",
+      "required": false
+    },
+    "limit": {
+      "type": "integer",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Files.Read.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_list_file_versions"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

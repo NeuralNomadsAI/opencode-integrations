@@ -1,0 +1,35 @@
+{
+  "name": "m365_search_workspace",
+  "domain": "openwork",
+  "description": "Search across the user's Microsoft 365 workspace sources for prompt-driven discovery.",
+  "kind": "hostless",
+  "args": {
+    "query": { "type": "string", "required": true },
+    "sources": {
+      "type": "array",
+      "required": false,
+      "items": { "type": "string" },
+      "default": ["sites", "files", "mail", "teams_chats", "teams_channels"]
+    },
+    "limit": { "type": "integer", "required": false, "default": 10 },
+    "site_id": { "type": "string", "required": false },
+    "site_name": { "type": "string", "required": false },
+    "site_url": { "type": "string", "required": false },
+    "hostname": { "type": "string", "required": false },
+    "site_path": { "type": "string", "required": false },
+    "drive_id": { "type": "string", "required": false },
+    "library_name": { "type": "string", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Depends on selected search sources"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_search_workspace"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "read"
+}

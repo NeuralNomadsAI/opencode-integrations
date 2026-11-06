@@ -1,0 +1,34 @@
+{
+  "name": "m365_batch_drive_items",
+  "domain": "openwork",
+  "description": "Plan or execute a batch of SharePoint/OneDrive file operations with dry-run first.",
+  "kind": "hostless",
+  "args": {
+    "site_id": { "type": "string", "required": false },
+    "site_name": { "type": "string", "required": false },
+    "site_url": { "type": "string", "required": false },
+    "hostname": { "type": "string", "required": false },
+    "site_path": { "type": "string", "required": false },
+    "drive_id": { "type": "string", "required": false },
+    "library_name": { "type": "string", "required": false },
+    "actions": {
+      "type": "array",
+      "required": true,
+      "items": { "type": "object" }
+    },
+    "dry_run": { "type": "boolean", "required": false, "default": true },
+    "confirm": { "type": "boolean", "required": false },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Depends on batch actions"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_batch_drive_items"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "destructive"
+}

@@ -1,0 +1,35 @@
+{
+  "name": "m365_powerpoint_replace_text",
+  "domain": "powerpoint",
+  "description": "Replace text tokens inside slide and template parts of a PowerPoint file stored in Microsoft 365.",
+  "kind": "hostless",
+  "args": {
+    "site_id": { "type": "string", "required": false },
+    "site_name": { "type": "string", "required": false },
+    "site_url": { "type": "string", "required": false },
+    "hostname": { "type": "string", "required": false },
+    "site_path": { "type": "string", "required": false },
+    "drive_id": { "type": "string", "required": false },
+    "library_name": { "type": "string", "required": false },
+    "item_id": { "type": "string", "required": false },
+    "item_path": { "type": "string", "required": false },
+    "replacements": { "type": "object", "required": true },
+    "include_template_parts": { "type": "boolean", "required": false, "default": true },
+    "preview_only": { "type": "boolean", "required": false, "default": true },
+    "fail_if_missing": { "type": "boolean", "required": false, "default": false },
+    "max_bytes": { "type": "integer", "required": false, "default": 52428800 },
+    "max_text_chars": { "type": "integer", "required": false, "default": 4000 },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Files.ReadWrite.All or Files.ReadWrite"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_powerpoint_replace_text"
+  },
+  "verify": { "strategy": "readback", "method": "m365_powerpoint_inspect_text" },
+  "risk": "write"
+}

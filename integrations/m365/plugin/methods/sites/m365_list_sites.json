@@ -1,0 +1,35 @@
+{
+  "name": "m365_list_sites",
+  "domain": "sites",
+  "description": "List SharePoint sites, optionally searching by name or URL.",
+  "kind": "hostless",
+  "args": {
+    "query": {
+      "type": "string",
+      "required": false
+    },
+    "limit": {
+      "type": "integer",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Sites.Read.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_list_sites"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

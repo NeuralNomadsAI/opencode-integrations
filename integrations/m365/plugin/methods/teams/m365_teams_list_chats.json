@@ -1,0 +1,35 @@
+{
+  "name": "m365_teams_list_chats",
+  "domain": "teams",
+  "description": "List recent Teams chats with human-friendly labels, participants and message previews.",
+  "kind": "hostless",
+  "args": {
+    "limit": {
+      "type": "integer",
+      "required": false
+    },
+    "query": {
+      "type": "string",
+      "required": false
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Chat.Read"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_teams_list_chats"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

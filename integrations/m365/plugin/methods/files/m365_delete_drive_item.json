@@ -1,0 +1,33 @@
+{
+  "name": "m365_delete_drive_item",
+  "domain": "files",
+  "description": "Delete a SharePoint or OneDrive file or folder after explicit confirmation.",
+  "kind": "hostless",
+  "args": {
+    "site_id": { "type": "string", "required": false },
+    "site_name": { "type": "string", "required": false },
+    "site_url": { "type": "string", "required": false },
+    "hostname": { "type": "string", "required": false },
+    "site_path": { "type": "string", "required": false },
+    "drive_id": { "type": "string", "required": false },
+    "library_name": { "type": "string", "required": false },
+    "item_id": { "type": "string", "required": false },
+    "item_path": { "type": "string", "required": false },
+    "confirm": { "type": "boolean", "required": true },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Files.ReadWrite.All or Sites.ReadWrite.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_delete_drive_item"
+  },
+  "verify": {
+    "strategy": "followup_method",
+    "method": "m365_list_drive_items"
+  },
+  "risk": "destructive"
+}

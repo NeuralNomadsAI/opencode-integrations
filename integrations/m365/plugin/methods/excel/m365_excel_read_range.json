@@ -1,0 +1,75 @@
+{
+  "name": "m365_excel_read_range",
+  "domain": "excel",
+  "description": "Read a worksheet range from an Excel workbook stored in Microsoft 365.",
+  "kind": "hostless",
+  "args": {
+    "site_id": {
+      "type": "string",
+      "required": false
+    },
+    "site_name": {
+      "type": "string",
+      "required": false
+    },
+    "site_url": {
+      "type": "string",
+      "required": false
+    },
+    "hostname": {
+      "type": "string",
+      "required": false
+    },
+    "site_path": {
+      "type": "string",
+      "required": false
+    },
+    "drive_id": {
+      "type": "string",
+      "required": false
+    },
+    "library_name": {
+      "type": "string",
+      "required": false
+    },
+    "item_id": {
+      "type": "string",
+      "required": false
+    },
+    "item_path": {
+      "type": "string",
+      "required": false
+    },
+    "worksheet_id": {
+      "type": "string",
+      "required": false
+    },
+    "worksheet_name": {
+      "type": "string",
+      "required": false
+    },
+    "range_address": {
+      "type": "string",
+      "required": true
+    },
+    "force_refresh": {
+      "type": "boolean",
+      "required": false
+    }
+  },
+  "returns": {
+    "type": "object"
+  },
+  "requires": {
+    "auth": true,
+    "scopes": ["Files.Read.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_excel_read_range"
+  },
+  "verify": {
+    "strategy": "none"
+  },
+  "risk": "read"
+}

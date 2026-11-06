@@ -18,6 +18,23 @@
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/blender/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/blender/plugin"] }
+    },
+    {
+      "id": "m365",
+      "package": "@neuralnomads/opencode-m365",
+      "range": "^0.2",
+      "displayName": "OpenCode for Microsoft 365",
+      "family": "api",
+      "plugin": "neuralnomads.m365",
+      "rpc": "neuralnomads.m365",
+      "summary": {
+        "en": "Work with Microsoft Graph files, mail, Teams and Office using your own Entra application.",
+        "fr": "Utiliser les fichiers, courriels, Teams et Office via Microsoft Graph avec votre propre application Entra."
+      },
+      "app": { "name": "Microsoft 365" },
+      "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/m365/plugin/README.md",
+      "status": "preview",
+      "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/m365/plugin"] }
     }
   ]
 }

@@ -1,0 +1,29 @@
+{
+  "name": "m365_search_drive_items",
+  "domain": "files",
+  "description": "Search files and folders in a SharePoint or OneDrive document library.",
+  "kind": "hostless",
+  "args": {
+    "site_id": { "type": "string", "required": false },
+    "site_name": { "type": "string", "required": false },
+    "site_url": { "type": "string", "required": false },
+    "hostname": { "type": "string", "required": false },
+    "site_path": { "type": "string", "required": false },
+    "drive_id": { "type": "string", "required": false },
+    "library_name": { "type": "string", "required": false },
+    "query": { "type": "string", "required": true },
+    "limit": { "type": "integer", "required": false, "default": 100 },
+    "force_refresh": { "type": "boolean", "required": false }
+  },
+  "returns": { "type": "object" },
+  "requires": {
+    "auth": true,
+    "scopes": ["Files.Read.All"]
+  },
+  "execution": {
+    "strategy": "direct_api",
+    "tool": "m365_search_drive_items"
+  },
+  "verify": { "strategy": "none" },
+  "risk": "read"
+}

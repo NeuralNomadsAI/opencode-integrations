@@ -1,0 +1,60 @@
+{
+  "name": "@neuralnomads/opencode-m365",
+  "version": "0.2.0",
+  "description": "OpenCode for Microsoft 365: direct Microsoft Graph tools and workflows.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "m365"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
+    "directory": "integrations/m365/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "methods",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "jszip": "3.10.1"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "m365",
+    "displayName": "OpenCode for Microsoft 365",
+    "family": "api",
+    "plugin": "neuralnomads.m365",
+    "rpc": "neuralnomads.m365"
+  }
+}
