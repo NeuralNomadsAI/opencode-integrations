@@ -1,6 +1,6 @@
 import { dirname, join, normalize } from "node:path/posix"
 import JSZip from "jszip"
-import { checkZipBudget } from "../zip-budget.ts"
+import { checkExpandedBudget, checkZipBudget } from "../zip-budget.ts"
 
 import { isRecord } from "./auth.ts"
 import { throwIfCancelled } from "./cancellation.ts"
@@ -664,6 +664,7 @@ async function loadPowerPointPackage(args: DriveItemArgs & { max_bytes?: unknown
 
   checkZipBudget(result.bytes)
   const zip = await JSZip.loadAsync(result.bytes)
+  await checkExpandedBudget(zip)
   const contentTypesXml = await zip.file("[Content_Types].xml")?.async("string")
   const contentTypes =
     typeof contentTypesXml === "string"

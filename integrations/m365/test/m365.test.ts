@@ -24,7 +24,7 @@ import {
   executeGraphRequest,
 } from "../plugin/src/runtime/graph.ts"
 import { readState, stateFile, writeState } from "../plugin/src/state.ts"
-import { checkZipBudget } from "../plugin/src/zip-budget.ts"
+import { checkExpandedBudget, checkZipBudget } from "../plugin/src/zip-budget.ts"
 
 const root = mkdtempSync(join(tmpdir(), "m365-test-"))
 const originalEnv = { ...process.env }
@@ -245,6 +245,8 @@ test("Office archive budget rejects excessive expanded sizes and malformed input
   zip.file("ppt/slides/slide1.xml", "x".repeat(1024))
   const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" })
   checkZipBudget(bytes)
+  await checkExpandedBudget(await JSZip.loadAsync(bytes))
+  await assert.rejects(checkExpandedBudget(await JSZip.loadAsync(bytes), 100), /size limit/)
   assert.throws(() => checkZipBudget(bytes, 100), /size limit/)
   assert.throws(() => checkZipBudget(new Uint8Array([1, 2])), /Unsupported/)
 })

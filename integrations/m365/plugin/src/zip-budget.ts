@@ -1,3 +1,6 @@
+import type { Readable } from "node:stream"
+import type JSZip from "jszip"
+
 // Reject oversized Office archives from central-directory metadata before JSZip inflates XML.
 // ZIP64 and encrypted/multi-disk archives are outside the small-file helpers.
 export function checkZipBudget(bytes: Uint8Array, maxBytes = 100 * 1024 * 1024) {
@@ -28,4 +31,24 @@ export function checkZipBudget(bytes: Uint8Array, maxBytes = 100 * 1024 * 1024) 
     cursor += 46 + data.readUInt16LE(cursor + 28) + data.readUInt16LE(cursor + 30) + data.readUInt16LE(cursor + 32)
   }
   if (cursor !== centralEnd) throw new Error("Unsupported Office archive.")
+}
+
+// Verify the actual expanded byte count too: untrusted central-directory sizes can lie.
+export async function checkExpandedBudget(zip: JSZip, maxBytes = 100 * 1024 * 1024) {
+  let remaining = maxBytes
+  for (const file of Object.values(zip.files)) {
+    if (file.dir) continue
+    await new Promise<void>((done, fail) => {
+      const stream = file.nodeStream() as Readable
+      stream.on("data", (chunk: Buffer) => {
+        remaining -= chunk.length
+        if (remaining < 0) {
+          stream.destroy()
+          fail(new Error("Expanded Office archive exceeds the size limit."))
+        }
+      })
+      stream.on("error", fail)
+      stream.on("end", done)
+    })
+  }
 }
