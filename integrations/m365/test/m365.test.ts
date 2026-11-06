@@ -107,6 +107,18 @@ test("private state, atomic writes, separate app/tenant and secret-free status",
     )
   }))
 
+test("state location refuses a watched OpenCode configuration directory", () =>
+  inAuth(() => {
+    const key = process.platform === "win32" ? "LOCALAPPDATA" : "XDG_STATE_HOME"
+    const before = process.env[key]
+    process.env[key] = join(process.env.XDG_CONFIG_HOME || root, "opencode")
+    try {
+      assert.throws(() => stateFile("auth"), /outside the OpenCode configuration/)
+    } finally {
+      process.env[key] = before
+    }
+  }))
+
 test("device login and refresh use mocked OAuth, only granted scopes and no credential overrides", async () =>
   inAuth(async () => {
     const requests: string[] = []
