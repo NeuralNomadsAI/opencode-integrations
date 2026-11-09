@@ -12,7 +12,9 @@ def onCreateInterface():
 
 def onDestroyInterface():
     global panel
-    panel = None]]></script>
+    if panel is not None:
+        panel.dispose()
+        panel = None]]></script>
     <includeInPaneTabMenu menu_position="200" create_separator="false"/>
     <includeInToolbarMenu menu_position="200" create_separator="false"/>
     <help><![CDATA[OpenCode assistant attached to the current Houdini HIP.]]></help>

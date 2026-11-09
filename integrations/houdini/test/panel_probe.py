@@ -24,7 +24,11 @@ sys.modules["hou"] = hou
 qt = types.ModuleType("PySide6")
 qt.QtCore = types.SimpleNamespace(QObject=object, Signal=lambda *args: Mock(), Slot=lambda *args: lambda fn: fn)
 qt.QtGui = types.SimpleNamespace()
-qt.QtWidgets = types.SimpleNamespace(QWidget=object, QPlainTextEdit=object)
+class Widget:
+    def closeEvent(self, event):
+        event.accept()
+
+qt.QtWidgets = types.SimpleNamespace(QWidget=Widget, QPlainTextEdit=object)
 sys.modules["PySide6"] = qt
 
 
@@ -74,7 +78,7 @@ class PanelTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1] / "host"
         sys.path.insert(0, str(root / "scripts"))
         with patch("atexit.register") as register:
-            load_panel(root)
+            interfaces = [load_panel(root), load_panel(root)]
         import opencode_houdini as integration
         from opencode_houdini import panel
         register.assert_called_once_with(integration.shutdown)
@@ -86,6 +90,7 @@ class PanelTests(unittest.TestCase):
             second = panel.OpenCodePanel.__new__(panel.OpenCodePanel)
             client = Mock()
             for index, widget in enumerate((first, second)):
+                widget._disposed = False
                 widget._channel = str(index)
                 widget._client = client
                 widget._status = Mock()
@@ -93,6 +98,9 @@ class PanelTests(unittest.TestCase):
                 widget._prompt = Mock()
                 widget._session = Mock()
                 widget._append = Mock()
+                with patch.object(panel, "create_interface", return_value=widget):
+                    interfaces[index]["create_interface"] = panel.create_interface
+                    self.assertIs(interfaces[index]["onCreateInterface"](), widget)
                 widget._connect()
                 widget._event(widget._channel, "session", {"id": "session-" + str(index)})
             endpoint = integration.hostInfo()
@@ -117,13 +125,23 @@ class PanelTests(unittest.TestCase):
                 assert_live()
                 first._connect()
                 first._new_session()
-                first._destroyed()
+                interfaces[0]["onDestroyInterface"]()
                 client.send.assert_called_with(first._channel, "close", {})
+                self.assertEqual(integration._panel_owners, {second._channel})
+                sends = client.send.call_count
+                interfaces[0]["onDestroyInterface"]()
+                first._destroyed()
+                first._connect()
+                self.assertEqual(client.send.call_count, sends)
                 assert_live()
                 state.close.assert_not_called()
                 # Close delivery is asynchronous (or can fail); host revocation is synchronous.
                 client.send.side_effect = RuntimeError("sidecar unavailable")
-                second._destroyed()
+                interfaces[1]["onDestroyInterface"]()
+                self.assertEqual(integration._panel_owners, set())
+                self.assertIsNone(interfaces[1]["panel"])
+                self.assertEqual(client.eventReceived.disconnect.call_count, 2)
+                self.assertEqual(client.diagnostic.disconnect.call_count, 2)
                 self.assertFalse(server.running)
                 self.assertNotEqual(server.token, endpoint["token"])
                 self.assertIsNone(integration._host)
@@ -133,13 +151,18 @@ class PanelTests(unittest.TestCase):
                 client.send.side_effect = None
                 # Repeated release is harmless; fresh consent creates fresh authority.
                 second._destroyed()
-                second._connect()
+                third = panel.OpenCodePanel.__new__(panel.OpenCodePanel)
+                third.__dict__.update(second.__dict__, _disposed=False, _channel="third")
+                third._connect()
                 replacement = integration._server
                 self.assertNotEqual(replacement.token, endpoint["token"])
                 first._destroyed()  # A disconnected panel cannot revoke the remaining owner.
                 self.assertTrue(replacement.running)
-                second._disconnect()
-                client.send.assert_called_with(second._channel, "close", {})
+                event = Mock()
+                third.closeEvent(event)
+                event.accept.assert_called_once()
+                third._destroyed()
+                client.send.assert_called_with(third._channel, "close", {})
                 self.assertFalse(replacement.running)
                 self.assertIsNone(integration._host)
                 with self.assertRaises(OSError):

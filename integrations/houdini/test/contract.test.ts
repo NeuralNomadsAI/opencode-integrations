@@ -56,7 +56,7 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
     })
     const native = JSON.parse(readFileSync(join(preferences, "packages", "neuralnomads_houdini.json"), "utf8"))
     assert.ok(native.env[0].NEURALNOMADS_HOUDINI_ROOT.startsWith(join(root, "state").replaceAll("\\", "/")))
-    assert.equal(native.neuralnomadsHostVersion, "0.2.0")
+    assert.equal(native.neuralnomadsHostVersion, "0.2.1")
     const imported = spawnSync(
       process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
       [
@@ -68,7 +68,7 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
       { windowsHide: true, encoding: "utf8" },
     )
     assert.equal(imported.status, 0, imported.stderr)
-    assert.deepEqual(inspectHost(preferences), { kind: "found", version: "0.2.0" })
+    assert.deepEqual(inspectHost(preferences), { kind: "found", version: "0.2.1" })
     assert.deepEqual(await plugin.rpc("installHost"), { outcome: "unchanged" })
     const wsl = await loadPlugin({
       options: { hostInspectionDir: preferences },
@@ -86,7 +86,7 @@ it("installer needs explicit preferences, installs stable payload, is idempotent
   }
 })
 
-it("panels share the Houdini listener until the last owner disconnects or is destroyed", () => {
+it("real onDestroyInterface callbacks revoke panel ownership idempotently through 2 → 1 → 0", () => {
   const result = spawnSync(
     process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
     ["-I", join(import.meta.dirname, "panel_probe.py"), "test_shared_host_lifetime"],
