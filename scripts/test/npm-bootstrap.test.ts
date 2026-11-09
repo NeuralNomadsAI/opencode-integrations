@@ -11,6 +11,15 @@ const fresh = { name: "@neuralnomads/opencode-new", dir: "integrations/new/plugi
 const existing = { name: "@neuralnomads/opencode-old", dir: "integrations/old/plugin" }
 const absent = { code: 1, output: '{"error":{"code":"E404"}}' }
 const ok = { code: 0, output: "" }
+// npm v12.2.2 TrustGitHub.bodyToOptions + TrustCommand.logOptions project these flat fields.
+const publisher = {
+  id: "existing-config",
+  type: "github",
+  repository: "NeuralNomadsAI/opencode-integrations",
+  file: "publish.yml",
+  environment: "npm-publish",
+  permissions: ["createPackage"],
+}
 
 test("the actual CLI refuses non-TTY execution before starting npm", () => {
   const result = spawnSync(process.execPath, [fileURLToPath(new URL("../npm-bootstrap.ts", import.meta.url))], {
@@ -138,7 +147,7 @@ test("query errors fail closed; one bad package does not stop the rest", async (
 test("trust-only skips missing packages, preserves existing trust and repairs MFA", async () => {
   const m = mock((args) => {
     if (args[0] === "view" && args[1] === fresh.name) return absent
-    if (args[0] === "trust") return { code: 0, output: '{"type":"github","id":"existing-config"}' }
+    if (args[0] === "trust") return { code: 0, output: JSON.stringify(publisher) }
     return ok
   })
   await bootstrap([fresh, existing], parseArgs(["--trust-only"]), m.run, m.log, m.pause)
@@ -147,6 +156,8 @@ test("trust-only skips missing packages, preserves existing trust and repairs MF
     false,
   )
   assert.deepEqual(m.calls.at(-1), ["access", "set", "mfa=publish", existing.name])
+  assert.match(m.logs.join("\n"), /Trusted: 0/)
+  assert.match(m.logs.join("\n"), /expiry\/validation unknown/)
 })
 
 test("trust-only creates missing trust; malformed/failed list cannot overwrite it", async () => {
@@ -167,20 +178,103 @@ test("trust-only creates missing trust; malformed/failed list cannot overwrite i
   )
 })
 
-test("trust-only accepts npm's multiple-publisher JSON stream without replacing trust", async () => {
+test("one fully matching publisher is preserved, including extra permissions", async () => {
+  for (const permissions of [["createPackage"], ["createStagedPackage", "createPackage", "manageDistTags"]]) {
+    const config = { ...publisher, permissions }
+    for (const value of [config, [config]]) {
+      const output = JSON.stringify(value, null, 2)
+      const m = mock((args) => (args[0] === "trust" ? { code: 0, output } : ok))
+      assert.equal(await bootstrap([existing], parseArgs(["--trust-only"]), m.run, m.log, m.pause), true)
+      assert.deepEqual(m.calls.slice(5), [
+        ["trust", "list", existing.name],
+        ["trust", "list", existing.name, "--json"],
+        ["access", "set", "mfa=publish", existing.name],
+      ])
+      assert.match(m.logs.join("\n"), /Trusted: 0/)
+    }
+  }
+})
+
+test("mismatched, incomplete, ambiguous or malformed publishers block all package mutations", async () => {
+  const invalid = [
+    { ...publisher, type: "gitlab" },
+    { ...publisher, id: "" },
+    { ...publisher, repository: "other/opencode-integrations" },
+    { ...publisher, repository: "neuralnomadsai/opencode-integrations" },
+    { ...publisher, file: ".github/workflows/publish.yml" },
+    { ...publisher, environment: "other" },
+    { ...publisher, environment: undefined },
+    { type: "github", id: "incomplete" },
+    { ...publisher, repository: undefined, claims: { repository: publisher.repository } },
+    { ...publisher, permissions: undefined },
+    { ...publisher, permissions: [] },
+    { ...publisher, permissions: ["createStagedPackage"] },
+    { ...publisher, permissions: ["publish"] },
+    { ...publisher, permissions: { createPackage: true } },
+    { ...publisher, permissions: ["createPackage", null] },
+    {},
+    null,
+    1,
+    "secret-value",
+    [null],
+    [[publisher]],
+    [publisher, publisher],
+    [publisher, { type: "gitlab", id: "other" }],
+  ].map((value) => JSON.stringify(value))
+  invalid.push('{"secret-value":', "not-json-secret-value", `${JSON.stringify(publisher)} trailing-secret-value`)
   for (const separator of ["\n", "\n\n", "\r\n\r\n"]) {
-    const configs = [
-      { type: "github", id: "one" },
-      { type: "gitlab", id: "two" },
-    ]
-    const output = configs.map((config) => JSON.stringify(config, null, 2)).join(separator)
+    invalid.push(
+      [publisher, { type: "gitlab", id: "other" }].map((value) => JSON.stringify(value, null, 2)).join(separator),
+    )
+  }
+  for (const output of invalid) {
+    for (const options of [["--trust-only"], ["--trust-only", "--dry-run"]]) {
+      const m = mock((args) => (args[0] === "trust" ? { code: 0, output } : ok))
+      assert.equal(await bootstrap([existing], parseArgs(options), m.run, m.log, m.pause), false, output)
+      assert.equal(
+        m.calls.some((args) => args[0] === "access" || args[1] === "github" || args[1] === "revoke"),
+        false,
+      )
+      assert.doesNotMatch(m.logs.join("\n"), /Would run:|secret-value/)
+      assert.match(m.logs.join("\n"), /inspect .*npmjs.com/i)
+    }
+  }
+})
+
+test("trust-only dry run plans creation only for empty lists and never reports Trusted", async () => {
+  for (const output of ["", " \r\n", "[]", JSON.stringify(publisher)]) {
     const m = mock((args) => (args[0] === "trust" ? { code: 0, output } : ok))
-    assert.equal(await bootstrap([existing], parseArgs(["--trust-only"]), m.run, m.log, m.pause), true)
+    assert.equal(await bootstrap([existing], parseArgs(["--trust-only", "--dry-run"]), m.run, m.log, m.pause), true)
     assert.equal(
-      m.calls.some((args) => args[1] === "github"),
+      m.calls.some((args) => args[0] === "access" || args[1] === "github"),
       false,
     )
-    assert.deepEqual(m.calls.at(-1), ["access", "set", "mfa=publish", existing.name])
+    assert.equal(
+      m.logs.some((text) => text.startsWith("Would run: npm trust github")),
+      output !== JSON.stringify(publisher),
+    )
+    assert.match(m.logs.join("\n"), /Would run: npm access set/)
+    assert.match(m.logs.join("\n"), /Trusted: 0/)
+  }
+})
+
+test("a blocked or failed trust read stops dependents while another package can finish", async () => {
+  for (const failAt of ["interactive", "json", "schema"]) {
+    const m = mock((args) => {
+      if (args[0] !== "trust" || args[2] !== existing.name) return ok
+      if (failAt === "interactive" && !args.includes("--json")) return { code: 7, output: "" }
+      if (failAt === "json" && args.includes("--json")) return { code: 7, output: "" }
+      return { code: 0, output: "{}" }
+    })
+    assert.equal(await bootstrap([existing, fresh], parseArgs(["--trust-only"]), m.run, m.log, m.pause), false)
+    const badCalls = m.calls.filter((args) => args.includes(existing.name))
+    assert.deepEqual(badCalls, [
+      ["view", existing.name, "version", "--json"],
+      ["trust", "list", existing.name],
+      ...(failAt === "interactive" ? [] : [["trust", "list", existing.name, "--json"]]),
+    ])
+    assert.deepEqual(m.calls.slice(-2), commandPlan(fresh, true, false, true))
+    assert.match(m.logs.join("\n"), /Trusted: 1[\s\S]*Failed: 1/)
   }
 })
 

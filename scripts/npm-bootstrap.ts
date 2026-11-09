@@ -73,17 +73,41 @@ export function commandPlan(pkg: Package, exists: boolean, trusted: boolean, tru
 function hasTrust(output: string): boolean {
   // npm emits no JSON for an empty list, or whitespace-separated JSON objects for existing publishers.
   if (!output.trim()) return false
-  const configs = output
-    .trim()
-    .split(/(?<=})\s+(?={)/)
-    .flatMap((item) => {
-      const value = JSON.parse(item)
-      return Array.isArray(value) ? value : [value]
-    })
-  if (!configs.every((value) => value && typeof value.type === "string" && typeof value.id === "string")) {
-    throw new Error("Unexpected npm trust list response; refusing to replace trust")
+  const refusal =
+    "Unexpected or conflicting npm trust configuration; inspect package Settings on npmjs.com before retrying"
+  let configs: unknown[]
+  try {
+    configs = output
+      .trim()
+      .split(/(?<=})\s+(?={)/)
+      .flatMap((item) => {
+        const value = JSON.parse(item)
+        return Array.isArray(value) ? value : [value]
+      })
+  } catch {
+    throw new Error(refusal)
   }
-  return configs.length > 0
+  if (configs.length === 0) return false
+  // npm v12.2.2 projects GitHub claims to flat fields and exposes permission names as strings.
+  // Expiry/validation are omitted by that CLI, so lifecycle stays unknown even for a matching publisher.
+  const config = configs[0] as Record<string, unknown> | null
+  if (
+    configs.length !== 1 ||
+    !config ||
+    Array.isArray(config) ||
+    typeof config.id !== "string" ||
+    !config.id.trim() ||
+    config.type !== "github" ||
+    config.repository !== "NeuralNomadsAI/opencode-integrations" ||
+    config.file !== "publish.yml" ||
+    config.environment !== "npm-publish" ||
+    !Array.isArray(config.permissions) ||
+    !config.permissions.every((permission) => typeof permission === "string") ||
+    !config.permissions.includes("createPackage")
+  ) {
+    throw new Error(refusal)
+  }
+  return true
 }
 
 export async function bootstrap(
@@ -165,7 +189,8 @@ export async function bootstrap(
         const list = await registry(["trust", "list", pkg.name, "--json"], true)
         requireSuccess(list, `trust list ${pkg.name}`)
         configured = hasTrust(list.output)
-        if (configured) done.push(`${pkg.name} (trust exists; only enforcing MFA)`)
+        if (configured)
+          done.push(`${pkg.name} (publisher matches; expiry/validation unknown; inspect npmjs.com; only enforcing MFA)`)
       }
       pending.push({ pkg, commands: commandPlan(pkg, exists, configured, options.trustOnly) })
     } catch (error) {
@@ -180,7 +205,7 @@ export async function bootstrap(
         if (options.dryRun) continue
         requireSuccess(await registry(args), `${args[0]} ${pkg.name}`)
         if (args[0] === "publish") published.push(pkg.name)
-        if (args[0] === "trust") trusted.push(pkg.name)
+        if (args[0] === "trust" && args[1] === "github") trusted.push(pkg.name)
       }
     } catch (error) {
       failed.push(`${pkg.name}: ${(error as Error).message}; retry --trust-only if publication succeeded`)

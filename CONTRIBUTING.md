@@ -80,7 +80,7 @@ npm run npm:bootstrap -- --dry-run
 npm run npm:bootstrap
 ```
 
-At the first npm web authentication prompt, tick **"skip two-factor authentication for the next 5 minutes"**. Keep the same terminal open: publish, trust and access calls share that window, instead of asking for approval per package. Very large or slow batches can require a second validation when the window expires. The script spaces registry calls by two seconds, keeps npm output and authentication URLs visible, and uses `npx --yes npm@12` when local npm is older than 11.15 (without changing the global installation).
+At the first npm web authentication prompt, tick **"skip two-factor authentication for the next 5 minutes"**. Keep the same terminal open: publish, trust and access calls share that window. Further authentication can be required when it expires. The script spaces registry calls by two seconds, keeps npm output and authentication URLs visible, and uses `npx --yes npm@12` when local npm is older than 11.15 (without changing the global installation).
 
 The script runs `npm ci`, `build` and `check:markers` once before querying package and trust state, keeping that preparation outside the five-minute authentication window. It discovers public `integrations/*/plugin` workspaces and selects unpublished packages. Each new package is published at `latest` without local provenance, linked to `publish.yml` in `NeuralNomadsAI/opencode-integrations` with the `npm-publish` environment, and set to `mfa=publish`. Existing packages are skipped. To finish setup for existing packages (including a partially completed batch), run:
 
@@ -88,9 +88,17 @@ The script runs `npm ci`, `build` and `check:markers` once before querying packa
 npm run npm:bootstrap -- --trust-only
 ```
 
-This mode skips existing trust configurations, enforcing MFA even when trust is already present so a failed final access call can be retried. Combine either mode with `--dry-run` to query and print its command plan without building, publishing or changing registry settings. Query failures are reported rather than treated as unpublished packages.
+This mode creates a publisher only when the trust list is empty. It preserves a single existing GitHub publisher only when its repository is exactly `NeuralNomadsAI/opencode-integrations`, workflow is `publish.yml`, environment is `npm-publish`, and permissions include `createPackage` (direct `npm publish`). Extra permissions are preserved. It then enforces MFA, allowing a failed final access call to be retried. Multiple, mismatched, incomplete or malformed configurations stop all changes for that package, including MFA; independent packages can continue. `Trusted` counts successful creations only.
 
-New versions go through the **publish.yml** workflow below, using OIDC without maintainer npm 2FA. Configure and validate the trust relationship promptly: [npm trust configurations expire after two days unless a CI publication validates them](https://docs.npmjs.com/trusted-publishers). The [npm trust bulk usage guide](https://docs.npmjs.com/cli/v11/commands/npm-trust#bulk-usage) documents the five-minute skip window and rate-limit spacing.
+Combine either mode with `--dry-run` to query and print its command plan without building, publishing or changing registry settings. Trust queries still need interactive authentication. Query failures are reported rather than treated as unpublished packages.
+
+### Inspecting and replacing an expired publisher
+
+The [npm CLI 12.2.2 trust commands](https://github.com/npm/cli/tree/v12.2.2/lib/commands/trust) expose identity and permissions, while expiry and validation remain unknown to the script. A matching publisher means its settings match; inspect **npmjs.com → Packages → YOUR_PACKAGE → Settings → Trusted publishing** for its lifecycle state. The script leaves every existing connection intact.
+
+If the site shows an expired connection, remove only that affected connection, preserving other publishers. When the resulting list is empty, rerun `npm run npm:bootstrap -- --trust-only` to create its replacement. If other publishers remain, use the site's **Add trusted publisher** action to add the replacement with the exact settings above and direct-publish permission; the script blocks ambiguous lists. Confirm any mismatched or incomplete connection on the site before removing or recreating it.
+
+New versions go through the **publish.yml** workflow below, using OIDC without maintainer npm 2FA. Complete the replacement's first successful OIDC publish within **48 hours**: [npm expires an unvalidated configuration after two days](https://docs.npmjs.com/trusted-publishers/#trusted-publisher-configuration-expiry). The first successful publish validates the configuration and binds the repository identity. The [npm trust bulk usage guide](https://docs.npmjs.com/cli/v11/commands/npm-trust#bulk-usage) documents the five-minute skip window and rate-limit spacing.
 
 ### Subsequent releases
 
