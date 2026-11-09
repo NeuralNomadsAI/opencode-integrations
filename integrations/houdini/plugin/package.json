@@ -1,6 +1,6 @@
 {
   "name": "@neuralnomads/opencode-houdini",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenCode for Houdini: bounded graph edits through an authenticated local host, with an optional conversation panel.",
   "license": "MIT",
   "type": "module",
@@ -62,8 +62,8 @@
       "protocol": 1,
       "range": "^0.2.0",
       "appVersions": ">=21.0",
-      "payload": "host/houdini/opencode_link-0.2.0.zip",
-      "sha256": "db061c8b3880211ac319fd3e89366de0ab2fee02ea89632354807351db4ce094"
+      "payload": "host/houdini/opencode_link-0.2.1.zip",
+      "sha256": "518330d99122b6cf090acb64543c6513b172a4798ecd4a5b3af776c0bfa5bc8f"
     }
   }
 }

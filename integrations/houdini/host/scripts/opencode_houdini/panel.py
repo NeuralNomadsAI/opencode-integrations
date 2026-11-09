@@ -145,6 +145,7 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._busy = False
         self._connected = False
         self._streaming = False
+        self._disposed = False
         self._build_ui()
         self._client = JsonlClient.acquire()
         self._client.eventReceived.connect(self._event)
@@ -237,6 +238,8 @@ class OpenCodePanel(QtWidgets.QWidget):
         }
 
     def _connect(self) -> None:
+        if self._disposed:
+            return
         opencode_houdini.acquirePanel(self._channel)
         self._connected = False
         self._status.setText("CONNECTING")
@@ -245,6 +248,8 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._client.send(self._channel, "connect", self._connect_params())
 
     def _new_session(self) -> None:
+        if self._disposed:
+            return
         opencode_houdini.acquirePanel(self._channel)
         self._status.setText("CONNECTING")
         self._client.send(self._channel, "new_session", self._connect_params())
@@ -373,15 +378,29 @@ class OpenCodePanel(QtWidgets.QWidget):
         ):
             self._disconnect()
 
-    def _destroyed(self, unused_object=None) -> None:
+    def dispose(self) -> None:
+        if self._disposed:
+            return
+        self._disposed = True
+        self._connected = False
         opencode_houdini.releasePanel(self._channel)
-        try:
-            hou.hipFile.removeEventCallback(self._hip_event)
-            self._client.send(self._channel, "close", {})
-            self._client.eventReceived.disconnect(self._event)
-            self._client.diagnostic.disconnect(self._diagnostic)
-        except RuntimeError:
-            pass
+        for cleanup in (
+            lambda: hou.hipFile.removeEventCallback(self._hip_event),
+            lambda: self._client.send(self._channel, "close", {}),
+            lambda: self._client.eventReceived.disconnect(self._event),
+            lambda: self._client.diagnostic.disconnect(self._diagnostic),
+        ):
+            try:
+                cleanup()
+            except RuntimeError:
+                pass
+
+    def _destroyed(self, unused_object=None) -> None:
+        self.dispose()
+
+    def closeEvent(self, event) -> None:
+        self.dispose()
+        super().closeEvent(event)
 
 
 def create_interface() -> OpenCodePanel:
