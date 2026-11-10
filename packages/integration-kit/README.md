@@ -30,6 +30,8 @@ Shared registries retire captured references on replacement. An existing slot wh
 
 The tests of the Python client run the system Python (`python3`, or `python` on Windows; `PYTHON` overrides it) against fake OpenCode services; every path comes from the test's own HOME and XDG folders.
 
+Host discovery prepares each candidate Location with the integration's payload-free `status` RPC before announcing or withdrawing an offer. A bounded wait handles native registration still loading; only `status` is repeated. The mutation uses the remaining Location deadline and is sent once. Directory fallback happens during preparation, before any mutation dispatch.
+
 ## Origin of the modules
 
 The kit reconciles the two OpenCode V2 migrations of the previous runtime, reviewed file by file:
