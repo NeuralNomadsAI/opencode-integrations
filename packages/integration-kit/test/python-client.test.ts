@@ -215,7 +215,7 @@ describe("Python discovery client", () => {
       service.calls.map((call) => call.directory),
       [custom],
     )
-    assert(service.probes.some(call => call.directory === configDir))
+    assert(service.probes.some((call) => call.directory === configDir))
   })
 
   it("withdraws, and reports unexpected answers as errors without their content", async () => {
@@ -304,31 +304,40 @@ describe("Python discovery client", () => {
   it("waits for cold registration with status only and dispatches the advertisement once", async () => {
     const { env, register } = fixture()
     let probes = 0
-    const service = await fakeService(101, call => call.method === "status" && ++probes < 3
-      ? { status: 400, body: { _tag: "RpcError", type: "rpc.unavailable" } }
-      : { status: 200, body: { output: { outcome: "accepted" } } })
+    const service = await fakeService(101, (call) =>
+      call.method === "status" && ++probes < 3
+        ? { status: 400, body: { _tag: "RpcError", type: "rpc.unavailable" } }
+        : { status: 200, body: { output: { outcome: "accepted" } } },
+    )
     register("service.json", { url: service.url, pid: 101, version: "2.2.5" })
-    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer])).parsed,
-      [{ service: "service.json", outcome: "accepted" }])
+    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer])).parsed, [
+      { service: "service.json", outcome: "accepted" },
+    ])
     assert.equal(service.probes.length, 3)
     assert.equal(service.calls.length, 1)
     assert.equal(service.calls[0]?.method, "advertise")
-    assert(service.probes.every(call => Object.keys(call.input as object).length === 0))
+    assert(service.probes.every((call) => Object.keys(call.input as object).length === 0))
   })
 
   it("bounds missing registration and never changes Location after dispatching a mutation", async () => {
     const { env, register, root } = fixture()
     let ready = false
-    const service = await fakeService(101, call => ready && call.method === "status"
-      ? { status: 200, body: { output: {} } }
-      : { status: 400, body: { _tag: "RpcError", type: "rpc.unavailable" } })
+    const service = await fakeService(101, (call) =>
+      ready && call.method === "status"
+        ? { status: 200, body: { output: {} } }
+        : { status: 400, body: { _tag: "RpcError", type: "rpc.unavailable" } },
+    )
     register("service.json", { url: service.url, pid: 101, version: "2.2.5" })
-    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer], { timeout: 0.1 })).parsed,
-      [{ service: "service.json", outcome: "unavailable" }])
+    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer], { timeout: 0.1 })).parsed, [
+      { service: "service.json", outcome: "unavailable" },
+    ])
     assert.equal(service.calls.length, 0)
     ready = true
-    assert.deepEqual((await python(env, "advertise_all", ["neuralnomads.demo", offer], { config_dir_setting: join(root, "other") })).parsed,
-      [{ service: "service.json", outcome: "unavailable" }])
+    assert.deepEqual(
+      (await python(env, "advertise_all", ["neuralnomads.demo", offer], { config_dir_setting: join(root, "other") }))
+        .parsed,
+      [{ service: "service.json", outcome: "unavailable" }],
+    )
     assert.equal(service.calls.length, 1)
   })
 })
