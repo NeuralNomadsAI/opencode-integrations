@@ -176,7 +176,11 @@ describe("advertising to OpenCode services (AC-B11)", () => {
     assert.deepEqual(result.advertised, [{ service: "service.json", outcome: "accepted" }])
     assert.deepEqual(
       target.calls.map((call) => call.directory),
-      [join(env.XDG_CONFIG_HOME, "opencode"), custom],
+      [join(env.XDG_CONFIG_HOME, "opencode"), custom, custom],
+    )
+    assert.deepEqual(
+      target.calls.map((call) => call.method),
+      ["status", "status", "advertise"],
     )
   })
 })
