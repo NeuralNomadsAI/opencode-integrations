@@ -30,6 +30,8 @@ Affinity and enable its MCP server; never guess another port or start Affinity y
 - Pass `if_revision` (from `affinity_context`), `expect` clauses for the refs you rely on and a fresh
   `command_id`. On `stale_revision`, re-read `affinity_context` and rebuild the plan; never retry blindly.
 - Refs of objects created by a plan come back in its result; use them in the next call.
+- New objects land at Affinity's insertion point, sometimes behind backgrounds: after creating,
+  render, and `arrange` them `to: "front"` (or above a ref) if they are hidden.
 - If a call reports that the change "may be applied", re-read `affinity_context` before anything else.
 
 ## Scripts for the rest, still one undo step

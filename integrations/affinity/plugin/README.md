@@ -86,6 +86,11 @@ applied instead of claiming nothing changed.
 | `rename` / `set_visible` / `set_text`     | `refs, name` / `refs, visible` / `ref, text` (replaces the whole text) |
 | `group` / `ungroup` / `delete` / `select` | `refs`                                                                 |
 | `boolean`                                 | `refs` (2+), `mode` (`union`, `subtract`, `intersect`, `xor`)          |
+| `arrange`                                 | `refs`, `to` (`front`, `back`, `above` or `below` a `target` ref)      |
+
+Affinity inserts new objects at its current insertion point, which can be behind existing ones;
+`arrange` with `to: "front"` brings them forward. `front` and `back` are computed before the plan's
+own creations, which always land first.
 
 `fill` is `"none"`, `{ colour: "#rrggbb[aa]" }` or `{ gradient: { stops: [{ colour, position }], angle?, type? } }`
 (linear by default, `angle` 0 = left to right, 90 = top to bottom; `radial` from the centre). Gradients
