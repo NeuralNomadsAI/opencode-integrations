@@ -1,6 +1,6 @@
 {
   "name": "@neuralnomads/opencode-affinity",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenCode for Affinity: tools and skills over Affinity's embedded MCP server, without an extra bridge process.",
   "license": "MIT",
   "type": "module",

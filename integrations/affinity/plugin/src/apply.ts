@@ -184,6 +184,18 @@ function operation(value: unknown, i: number): Json {
         mode: oneOf(o.mode, `${path}.mode`, ["union", "subtract", "intersect", "xor"] as const),
       }
     }
+    case "arrange": {
+      const o = record(value, path, ["op", "refs", "to", "target"], ["refs", "to"])
+      const to = oneOf(o.to, `${path}.to`, ["front", "back", "above", "below"] as const)
+      const list = refs(o.refs, `${path}.refs`)
+      if (to === "above" || to === "below") {
+        const target = text(o.target, `${path}.target`, 40, REF)
+        if (list.includes(target)) fail(`${path}.target`, "must not be one of refs")
+        return { op, refs: list, to, target }
+      }
+      if (o.target !== undefined) fail(`${path}.target`, "only with above or below")
+      return { op, refs: list, to }
+    }
     case "group":
     case "ungroup":
     case "delete":
@@ -210,6 +222,7 @@ export const OPERATIONS = [
   "group",
   "ungroup",
   "boolean",
+  "arrange",
   "delete",
   "select",
 ] as const

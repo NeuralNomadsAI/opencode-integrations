@@ -152,7 +152,8 @@ export function buildTools(
 create_shape {shape, box{x,y,width,height}, fill?}; create_text {text, position{x,y} (baseline start), size (px), colour?};
 set_fill {refs, fill}; set_stroke {refs, colour?|"none", width?}; set_opacity {refs, opacity 0-1};
 move {refs, dx, dy}; set_box {ref, box}; rotate {refs, degrees}; align {refs, horizontal? left|center|right, vertical? top|middle|bottom, to? selection|page};
-rename {refs, name}; set_visible {refs, visible}; set_text {ref, text}; group {refs}; ungroup {refs}; boolean {refs (2+), mode union|subtract|intersect|xor}; delete {refs}; select {refs}.
+rename {refs, name}; set_visible {refs, visible}; set_text {ref, text}; group {refs}; ungroup {refs}; boolean {refs (2+), mode union|subtract|intersect|xor}; arrange {refs, to front|back|above|below, target? (above/below)}; delete {refs}; select {refs}.
+New objects are inserted where Affinity's insertion point is, possibly behind others: arrange them to the front when needed.
 fill = "none" | {colour:"#rrggbb[aa]"} | {gradient:{stops:[{colour,position 0-1}...], angle? (deg, 0 = left to right, 90 = top to bottom), type? linear|radial}}.
 Shapes: ${Object.keys(SHAPES).join(", ")}. Boxes are spread pixels. Created objects get their refs in the result; a ref grouped, combined or deleted cannot be used later in the same call.`,
       {

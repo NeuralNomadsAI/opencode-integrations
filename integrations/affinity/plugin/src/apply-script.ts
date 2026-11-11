@@ -29,7 +29,7 @@ export function applyScript(plan: unknown): string {
 const PLAN = ${JSON.stringify(plan)};
 const SHAPES = ${JSON.stringify(SHAPES)};
 const { Document } = require('/document.js');
-const { AddChildNodesCommandBuilder, CompoundCommandBuilder, DocumentCommand } = require('/commands.js');
+const { AddChildNodesCommandBuilder, CompoundCommandBuilder, DocumentCommand, NodeMoveType, NodeChildType } = require('/commands.js');
 const { Rectangle, Transform } = require('/geometry.js');
 const { ShapeNodeDefinition, ArtTextNodeDefinition } = require('/nodes.js');
 const ShapesModule = require('/shapes.js');
@@ -251,6 +251,30 @@ function main() {
         commands.push(DocumentCommand.createDeleteSelection(select(many(op.refs, i))));
         for (const ref of op.refs) consumed.set(ref, 'deleted');
         break;
+      case 'arrange': {
+        // Children run from back to front: After the last sibling is the front, Before the first is the back.
+        const targets = many(op.refs, i);
+        let anchor;
+        let type;
+        if (op.to === 'front' || op.to === 'back') {
+          const parentId = (n) => safe(() => String(n.parent.nodeId));
+          const parent = safe(() => targets[0].parent);
+          if (!parent || targets.some((t) => parentId(t) !== parentId(targets[0]))) fail('operation ' + i + ': arrange front/back needs refs with the same parent');
+          const siblings = safe(() => [...parent.children], []);
+          anchor = op.to === 'front' ? siblings[siblings.length - 1] : siblings[0];
+          type = op.to === 'front' ? NodeMoveType.After : NodeMoveType.Before;
+        } else {
+          anchor = node(op.target, i);
+          type = op.to === 'above' ? NodeMoveType.After : NodeMoveType.Before;
+        }
+        if (!anchor) fail('operation ' + i + ': nothing to arrange against');
+        if (targets.some((t) => safe(() => String(t.nodeId)) === safe(() => String(anchor.nodeId)))) {
+          if (targets.length === 1) break;
+          fail('operation ' + i + ': the anchor of arrange is one of its refs');
+        }
+        commands.push(DocumentCommand.createMoveNodes(select(targets), anchor, type, NodeChildType.Main));
+        break;
+      }
       case 'select':
         commands.push(DocumentCommand.createSetSelection(select(many(op.refs, i))));
         break;

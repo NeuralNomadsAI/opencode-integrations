@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import type { Plugin } from "@opencode/plugin"
 import { createAffinityConnection } from "../plugin/src/connection.ts"
@@ -8,6 +9,9 @@ import { setupAffinity } from "../plugin/src/plugin.ts"
 import { startFakeAffinity } from "./fake-affinity.ts"
 
 const clientInfo = { name: "test", version: "0.0.0" }
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(new URL("../plugin/package.json", import.meta.url), "utf8")) as { version: string }
+).version
 
 test("options accept loopback http URLs only and bound the call timeout", () => {
   assert.deepEqual(
@@ -181,7 +185,7 @@ test("plugin registers curated tools, a skill and the vendor status RPC", async 
     assert.deepEqual(Object.keys(h.definition()?.methods ?? {}), ["status"])
     const status = (state: string) => ({
       contract: 1,
-      integration: { id: "affinity", version: "0.1.0", family: "vendor-mcp", spec: 0 },
+      integration: { id: "affinity", version: PACKAGE_VERSION, family: "vendor-mcp", spec: 0 },
       connection: { state },
     })
     assert.deepEqual(await h.status(), status("none"))
