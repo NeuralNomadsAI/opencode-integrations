@@ -1,0 +1,57 @@
+{
+  "name": "@neuralnomads/opencode-affinity",
+  "version": "0.1.0",
+  "description": "OpenCode for Affinity: tools and skills over Affinity's embedded MCP server, without an extra bridge process.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "affinity"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
+    "directory": "integrations/affinity/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "affinity",
+    "displayName": "OpenCode for Affinity",
+    "family": "vendor-mcp",
+    "plugin": "neuralnomads.affinity",
+    "rpc": "neuralnomads.affinity",
+    "vendor": {
+      "server": "Affinity MCP",
+      "minAppVersion": "3.3"
+    }
+  }
+}
