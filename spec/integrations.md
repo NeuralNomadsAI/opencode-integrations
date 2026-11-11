@@ -31,6 +31,7 @@ The marker's `family` names one of three families.
 ### 2.2 `vendor-mcp`
 
 - **FAM-6** The plugin MUST declare the vendor server without overwriting a user entry: it tests `editor.get(id)` before adding it. It MUST NOT bundle or redistribute the vendor server.
+- **FAM-6a** When the vendor server only speaks a transport OpenCode cannot declare (for example the legacy HTTP+SSE transport, while OpenCode `remote` entries are Streamable HTTP), the plugin MAY act as the MCP client itself instead of declaring it: loopback addresses only, no extra process or bridge dependency, plugin tools in the `<app>_` namespace, and no connection while loading or answering `status` ([PKG-6](#3-package-content)). FAM-7 applies to the tools that execute vendor code.
 - **FAM-7** When the vendor server executes arbitrary code, its execution tools MUST fall under a named OpenCode permission set to "ask" by default, and the README MUST say so.
 
 ### 2.3 `api`

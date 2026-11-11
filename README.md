@@ -11,7 +11,7 @@ Integrations work in **every OpenCode client**: the terminal UI, the desktop app
 | Family       | Principle                                                                                                                                                                                                                                                        | Examples                         |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | `native`     | An authenticated loopback host inside the application owns the document state; the plugin exposes bounded `<app>_context` / `<app>_apply` intents. The conversation happens in an application panel or in any OpenCode client by attaching the open application. | Blender (pilot), Gaffer, Houdini |
-| `vendor-mcp` | The plugin declares the vendor's official MCP server (never redistributed), checks its preconditions and adds tested skills and workflows.                                                                                                                       | DaVinci Resolve                  |
+| `vendor-mcp` | The plugin declares the vendor's official MCP server (never redistributed), or connects to it when OpenCode cannot, checks its preconditions and adds tested skills and workflows.                                                                               | DaVinci Resolve, Affinity        |
 | `api`        | The plugin calls a remote API directly.                                                                                                                                                                                                                          | Microsoft 365                    |
 
 ## Integrations
@@ -20,6 +20,7 @@ None is released yet. The reviewed list lives in [`catalog.json`](catalog.json).
 
 | Integration                                                           | Family       | Status          |
 | --------------------------------------------------------------------- | ------------ | --------------- |
+| [OpenCode for Affinity](integrations/affinity/plugin/README.md)       | `vendor-mcp` | preview         |
 | [OpenCode for Blender](integrations/blender/plugin/README.md)         | `native`     | preview (pilot) |
 | [OpenCode for Gaffer](integrations/gaffer/plugin/README.md)           | `native`     | preview         |
 | [OpenCode for Houdini](integrations/houdini/plugin/README.md)         | `native`     | preview         |

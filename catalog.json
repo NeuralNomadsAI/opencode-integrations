@@ -2,6 +2,24 @@
   "schemaVersion": 1,
   "integrations": [
     {
+      "id": "affinity",
+      "package": "@neuralnomads/opencode-affinity",
+      "range": "^0.1",
+      "displayName": "OpenCode for Affinity",
+      "family": "vendor-mcp",
+      "plugin": "neuralnomads.affinity",
+      "rpc": "neuralnomads.affinity",
+      "summary": {
+        "en": "Read, script and render documents open in Affinity through its embedded MCP server, with no extra bridge process.",
+        "fr": "Lire, scripter et rendre les documents ouverts dans Affinity via son serveur MCP intégré, sans processus passerelle."
+      },
+      "app": { "name": "Affinity", "versions": ">=3.3" },
+      "vendor": { "server": "Affinity MCP", "minAppVersion": "3.3" },
+      "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/affinity/plugin/README.md",
+      "status": "preview",
+      "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/affinity/plugin"] }
+    },
+    {
       "id": "blender",
       "package": "@neuralnomads/opencode-blender",
       "range": "^0.2",
