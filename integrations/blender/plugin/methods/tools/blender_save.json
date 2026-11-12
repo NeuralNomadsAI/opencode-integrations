@@ -1,0 +1,27 @@
+{
+  "name": "blender_save",
+  "domain": "tools",
+  "description": "Save the open file; with path, save it under that .blend (as the open file, or a copy with copy true). Relative paths are next to the current file; an existing other file needs overwrite.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "path": {
+      "type": "string"
+    },
+    "copy": {
+      "type": "boolean",
+      "default": false
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/save.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

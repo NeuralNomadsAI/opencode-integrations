@@ -1,0 +1,43 @@
+{
+  "name": "blender_lab",
+  "domain": "tools",
+  "description": "Run one of Blender Lab's tools in Blender (their code is part of the add-on). Arguments as Lab's (name, area_ui_type, size_limit_in_bytes, space_type, allow_edits, output_path). Images come back as attachments.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "tool": {
+      "type": "string",
+      "description": "The Lab tool.",
+      "required": true,
+      "enum": [
+        "get_objects_summary",
+        "get_object_detail_summary",
+        "get_blendfile_summary_datablocks",
+        "get_blendfile_summary_missing_files",
+        "get_blendfile_summary_of_linked_libraries",
+        "get_blendfile_summary_path_info",
+        "get_blendfile_summary_usage_guess",
+        "get_screenshot_of_area_as_image",
+        "get_screenshot_of_window_as_image",
+        "get_screenshot_of_window_as_json",
+        "jump_to_tab_by_name",
+        "jump_to_tab_by_space_type",
+        "jump_to_view3d_object_by_name",
+        "jump_to_view3d_object_data_by_name",
+        "render_thumbnail_to_path",
+        "render_viewport_to_path"
+      ]
+    },
+    "args": {
+      "type": "object",
+      "description": "The Lab tool's arguments."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "lab_tool"
+  },
+  "requires": {
+    "hostMethods": ["lab_tool"]
+  }
+}

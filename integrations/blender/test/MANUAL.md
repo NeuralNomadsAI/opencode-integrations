@@ -1,45 +1,29 @@
-# Interface protocol (AC-B3 interface part, AC-B4, AC-B6 interface part)
+# Interface protocol
 
-The CI runs the host tests in a background Blender. Undo history, Edit mode and captures with the interface are checked with this protocol, on a workstation, before each release of OpenCode Link. Record the printed JSON result in the pull request.
+The CI runs the add-on's tests, the plugin's tools and the conformance checks in a background Blender. What needs Blender's interface (the Undo History, Edit mode, a GPU render, screenshots) is checked by hand, on a workstation, before each release of OpenCode Link, in a conversation with the plugin installed. Record the result in the pull request.
 
 ## Requirements
 
-- Blender 5.2 or later, its executable in `BLENDER_TEST_BIN`.
-- This repository with `npm ci` done. No OpenCode service is needed: the driver stands in for one.
-- Nothing touches your own Blender profile: the driver starts Blender in a temporary profile (user resources, HOME, XDG and temporary folders), installs OpenCode Link there from the sources, and enables it.
+- Blender 5.3 or later, with OpenCode Link of this version installed (`blender_install_host`, or the archive in `host/blender/`) and enabled, in a profile you can change.
+- An OpenCode client with this plugin in the global configuration.
 
-## Guided run
+## Steps
 
-```sh
-node integrations/blender/test/manual/drive.ts
-```
-
-Blender opens without taking the focus. Answer each question in the terminal.
-
-| #   | You do                                                                                  | You check                                                                                                                                      | Criterion      |
-| --- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| 1   | In the 3D Viewport sidebar (N) ▸ **OpenCode**, tick **Offer this session to OpenCode**. | The terminal prints `PASS consent`. Nothing was offered before the tick.                                                                       | HST-10         |
-| 2   | — (the driver applies three cube creations in one apply)                                | **Edit ▸ Undo History** shows **one** step `OpenCode: three cubes`. One **Ctrl+Z** removes the three cubes; **Ctrl+Shift+Z** brings them back. | AC-B4          |
-| 3   | — (the driver applies a creation followed by a failing deletion)                        | No `Manual_Partial` object exists; the steps before it are intact in the Undo History.                                                         | AC-B4, model B |
-| 4   | Select `Manual_A`, press **Tab** (Edit mode).                                           | The terminal prints `PASS … mode_conflict`. Press **Tab** again.                                                                               | AC-B3          |
-| 5   | Move `Manual_A` (**G**, move, click).                                                   | `PASS … stale_revision`, then `PASS replaying a command_id applies nothing`.                                                                   | AC-B3          |
-| 6   | — (the driver captures the viewport)                                                    | `PASS viewport capture returns a PNG`.                                                                                                         | AC-B6          |
-| 7   | Untick **Offer this session to OpenCode**.                                              | `PASS unticking withdraws the offer` and `PASS the listener is closed`.                                                                        | HST-10, AC-B15 |
-
-The run ends with a JSON summary; every step must be `"ok": true`.
-
-## Unattended run
-
-```sh
-node integrations/blender/test/manual/drive.ts --auto
-```
-
-The same steps without questions: a startup script ticks the consent, and the driver performs the undo, redo, Edit mode and object move itself through the dangerous method, which it enables in the temporary profile only (`Allow code execution`, and the plugin-side flag of its requests). It checks the undo effects by reading the object list. It does not replace looking at the Undo History in step 2 once per release.
+| #   | Ask the conversation, or do                                                | Check                                                                                                                                |
+| --- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | With one Blender open, any Blender request (for example "read the scene"). | The conversation is attached without a permission request; `blender_hosts` shows it attached to "this conversation".                 |
+| 2   | "Create three cubes in one apply."                                         | **Edit ▸ Undo History** shows **one** step `OpenCode: …`; one **Ctrl+Z** removes the three cubes, **Ctrl+Shift+Z** brings them back. |
+| 3   | Select a cube, press **Tab** (Edit mode), then ask for a change.           | The change is refused as not in Object mode; nothing changed. Press **Tab** again.                                                   |
+| 4   | Move a cube by hand, then ask for a change with the revision read before.  | Refused as changed since the last read; a replayed `command_id` applies nothing.                                                     |
+| 5   | "Verify the render at frame 1" (EEVEE).                                    | `blender_verify` returns an image and its facts (camera used, black or not).                                                         |
+| 6   | "Take a screenshot of the window" (`blender_lab`).                         | The image comes back as an attachment.                                                                                               |
+| 7   | "Run `print(1)` in Blender."                                               | `blender_execute_code` asks permission; a refusal runs nothing.                                                                      |
+| 8   | Disable OpenCode Link in the preferences.                                  | Within 15 s `blender_hosts` lists no Blender and the conversation is no longer attached.                                             |
 
 ## Quarantine
 
-A failed restoration cannot be provoked from the interface: a modal operator only makes the add-on answer `busy`. The background host test `a_failed_restoration_quarantines_the_host` covers it by making the undo fail. In the interface, the quarantine shows as "Quarantined" in the sidebar, and **Reset OpenCode Link** clears it.
+A failed restoration cannot be provoked from the interface: a modal operator only makes the add-on answer `busy`. The background host tests cover it by making the undo fail. In the interface, the quarantine shows as "Quarantined" in the add-on's panel, and **Reset OpenCode Link** clears it.
 
 ## Last recorded result
 
-Blender 5.2.0 LTS Beta (Windows), unattended run: 13 of 13 steps passed.
+Blender 5.3.0 (Windows), OpenCode Link 0.4.0 through a conversation: the trial missions of the pull request that introduced 0.4.0 (steps 1, 2, 5 and 6 in a real scene).

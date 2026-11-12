@@ -1,34 +1,47 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Registration, preferences and the consent switch of OpenCode Link."""
+"""Registration and preferences of OpenCode Link: enabled, the add-on offers this Blender session to OpenCode
+(code execution included, each run asked in OpenCode); disabled, it offers nothing. Its state is shown in its
+preferences; Blender's console output is captured as reports for OpenCode (console.py)."""
 
+import os
+import sys
 import threading
 import time
 
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import BoolProperty, StringProperty
+from bpy.props import StringProperty
 
 from . import advertiser as advertiser_module
+from . import console
 from .blender_app import BlenderApp
-from .core import HostCore
+from .core import HostCore, require_app_version
+from .process import state as process_state
 from .wire import Listener
+from . import limits
 
-DRAIN_INTERVAL = 0.02
+DRAIN_INTERVAL = limits.value("drain_interval_s")
+# A reload or a relaunch's quit waits this long after its request, so the reply leaves before the listener closes.
+RELOAD_DELAY = limits.value("reload_delay_s")
+QUIT_DELAY = limits.value("quit_delay_s")
 
 
 class _Session(object):
-    """The live host: one adapter and core per Blender process, a listener and advertiser while consenting."""
+    """The live host: one adapter and core per Blender process, a listener and advertiser while enabled."""
 
     def __init__(self):
-        self.app = BlenderApp(code_execution_allowed=lambda: bool(getattr(preferences(), "allow_code_execution", False)))
+        self.app = BlenderApp(code_execution_allowed=lambda: True)
+        self.app.reload_request = schedule_reload
+        self.app.relaunch_request = schedule_quit
         self.core = HostCore(self.app)
         self.listener = None
         self.advertiser = None
 
     def snapshot(self):
         listener = self.listener
-        if listener is None or not listener.running:
+        # Nothing is offered before the open document is known: never an "Untitled" first offer.
+        if listener is None or not listener.running or not self.app.document_known():
             return 0, None, self.app.script_handle(), ""
         return (
             listener.port,
@@ -40,9 +53,12 @@ class _Session(object):
     def start(self, prefs):
         if self.listener is not None:
             return
+        # The update callback runs on the main thread: the first offer carries the open file's name.
+        self.app.refresh_document()
         self.listener = Listener(self.core.handle)
         self.advertiser = advertiser_module.Advertiser(
-            self.snapshot, service_name=prefs.service_name.strip(), config_dir=prefs.config_dir.strip()
+            self.snapshot, service_name=getattr(prefs, "service_name", "").strip(),
+            config_dir=getattr(prefs, "config_dir", "").strip()
         ).start()
         if not bpy.app.background and not bpy.app.timers.is_registered(_drain):
             bpy.app.timers.register(_drain, first_interval=DRAIN_INTERVAL, persistent=True)
@@ -80,27 +96,92 @@ def _drain():
 
 
 def pump(seconds, stop=None):
-    """Background mode: serve queued requests on the main thread for `seconds` (no timers run there)."""
+    """Background mode: serve queued requests on the main thread for `seconds` (no timers run there).
+
+    The live module is looked up on each turn: after a hot reload, the reloaded add-on serves."""
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline and not (stop and stop()):
-        if _session is not None:
-            _session.app.drain()
+        live = sys.modules.get(__name__)
+        if getattr(live, "_quit_requested", False):
+            return  # a relaunch quits this Blender: the script ends, and Blender with it
+        current = getattr(live, "_session", None)
+        if current is not None:
+            current.app.drain()
+        at = getattr(live, "_reload_at", None)
+        if at is not None and time.monotonic() >= at:
+            live.run_pending_reload()
+        quit_at = getattr(live, "_quit_at", None)
+        if quit_at is not None and time.monotonic() >= quit_at:
+            live.run_pending_quit()
         time.sleep(0.01)
 
 
-def _offer_changed(prefs, _context):
-    if _session is None:
-        return
-    if prefs.offer_session:
-        _session.start(prefs)
-    else:
+_reload_at = None
+_quit_at = None
+_quit_requested = False
+
+
+def schedule_quit():
+    """Main thread: quit Blender shortly after a relaunch's reply (its replacement is already starting)."""
+    global _quit_at
+    _quit_at = time.monotonic() + QUIT_DELAY
+    if not bpy.app.background:
+        bpy.app.timers.register(run_pending_quit, first_interval=QUIT_DELAY)
+
+
+def run_pending_quit():
+    """Quit without a prompt: the relaunch saved what it had to (a recovery copy at least)."""
+    global _quit_at, _quit_requested
+    if _quit_at is None:
+        return None
+    _quit_at = None
+    _quit_requested = True
+    if _session is not None:
         _session.stop()
+    try:
+        if _session is not None:
+            _session.app.with_window(lambda: bpy.ops.wm.quit_blender())
+        else:
+            bpy.ops.wm.quit_blender()
+    except RuntimeError:
+        pass  # background mode: the pump returns and the script ends
+    return None
+
+
+def schedule_reload():
+    """Main thread: reload OpenCode Link from disk shortly after this request's reply."""
+    global _reload_at
+    _reload_at = time.monotonic() + RELOAD_DELAY
+    if not bpy.app.background:
+        bpy.app.timers.register(run_pending_reload, first_interval=RELOAD_DELAY)
+
+
+def run_pending_reload():
+    """Disable the add-on, drop its modules and enable it again from disk, which offers the session again:
+    a new listener, token and script handle (references are invalidated), the same offer key."""
+    global _reload_at
+    if _reload_at is None:
+        return None
+    _reload_at = None
+    import addon_utils
+
+    if _session is not None and _session.core.busy():
+        # An apply is still running (a network operation): try again shortly.
+        _reload_at = time.monotonic() + RELOAD_DELAY
+        return RELOAD_DELAY
+    if _session is not None:
+        process_state().revision = _session.app.revision()
+    addon_utils.disable(__package__, default_set=False, handle_error=None)
+    for name in [name for name in sys.modules if name == __package__ or name.startswith(__package__ + ".")]:
+        del sys.modules[name]
+    addon_utils.enable(__package__, default_set=False, handle_error=None)
+    return None  # a one-shot timer
 
 
 def _service_changed(prefs, _context):
-    # A new target or a new code-execution choice needs a new handshake: offer the session afresh
-    # (new token), which also detaches the conversations bound to the previous offer.
-    if _session is not None and _session.listener is not None and prefs.offer_session:
+    # A new target needs a new handshake: offer the session afresh (new token); conversations attached
+    # to it follow (same host and document).
+    if _session is not None and _session.listener is not None:
         _session.stop()
         _session.start(prefs)
 
@@ -108,12 +189,6 @@ def _service_changed(prefs, _context):
 class OpenCodeLinkPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
-    offer_session: BoolProperty(
-        name="Offer this session to OpenCode",
-        description="Let OpenCode services on this computer attach this Blender session. Off at every start",
-        default=False,
-        update=_offer_changed,
-    )
     service_name: StringProperty(
         name="OpenCode service",
         description="Name of one OpenCode service to offer the session to; empty offers it to every service found",
@@ -127,28 +202,20 @@ class OpenCodeLinkPreferences(bpy.types.AddonPreferences):
         subtype="DIR_PATH",
         update=_service_changed,
     )
-    allow_code_execution: BoolProperty(
-        name="Allow code execution",
-        description=(
-            "Dangerous: lets OpenCode run Python code in this Blender when its plugin option allowCodeExecution "
-            "is also on; every run still asks for permission"
-        ),
-        default=False,
-        update=_service_changed,
-    )
 
     def draw(self, context):
         del context
         layout = self.layout
-        layout.prop(self, "offer_session")
         draw_status(layout)
         layout.prop(self, "service_name")
         layout.prop(self, "config_dir")
-        box = layout.box()
-        box.prop(self, "allow_code_execution")
-        box.label(text="Code execution can change or delete anything Blender can reach.", icon="ERROR")
+        draw_code_note(layout)
         if _session is not None and _session.core.quarantined:
             layout.operator(OPENCODE_OT_link_reset.bl_idname, icon="FILE_REFRESH")
+
+
+def draw_code_note(layout):
+    layout.label(text="OpenCode can run Python here: it can change or delete anything Blender can reach.", icon="ERROR")
 
 
 def draw_status(layout):
@@ -173,23 +240,9 @@ class OPENCODE_OT_link_reset(bpy.types.Operator):
     def execute(self, _context):
         if _session is not None:
             _session.core.quarantined = False
+            _session.app.reset_native()
+            _session.app.bump_revision()
         return {"FINISHED"}
-
-
-class VIEW3D_PT_opencode_link(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "OpenCode"
-    bl_label = "OpenCode Link"
-
-    def draw(self, _context):
-        prefs = preferences()
-        if prefs is None:
-            return
-        self.layout.prop(prefs, "offer_session")
-        draw_status(self.layout)
-        if _session is not None and _session.core.quarantined:
-            self.layout.operator(OPENCODE_OT_link_reset.bl_idname, icon="FILE_REFRESH")
 
 
 @persistent
@@ -205,6 +258,12 @@ def _on_save(*_args):
 
 
 @persistent
+def _on_history(*_args):
+    if _session is not None:
+        _session.app.history_changed()
+
+
+@persistent
 def _on_load(*_args):
     if _session is not None:
         _session.app.loaded()
@@ -213,33 +272,67 @@ def _on_load(*_args):
 
 _HANDLERS = (
     ("depsgraph_update_post", _on_change),
-    ("undo_post", _on_change),
-    ("redo_post", _on_change),
+    ("undo_post", _on_history),
+    ("redo_post", _on_history),
     ("load_post", _on_load),
     ("save_post", _on_save),
 )
-_CLASSES = (OpenCodeLinkPreferences, OPENCODE_OT_link_reset, VIEW3D_PT_opencode_link)
+_CLASSES = (OpenCodeLinkPreferences, OPENCODE_OT_link_reset)
 
 
-def register():
-    global _session
-    for cls in _CLASSES:
-        bpy.utils.register_class(cls)
-    prefs = preferences()
-    if prefs is not None and prefs.offer_session:
-        # Consent never survives a restart (saved preferences included).
-        prefs["offer_session"] = False
-    _session = _Session()
-    for name, handler in _HANDLERS:
-        getattr(bpy.app.handlers, name).append(handler)
-
-
-def unregister():
-    global _session
+def _remove_handlers():
     for name, handler in _HANDLERS:
         handlers = getattr(bpy.app.handlers, name)
         if handler in handlers:
             handlers.remove(handler)
+
+
+def register():
+    global _session
+    require_app_version(bpy.app.version)
+    # Process-wide and kept across hot reloads; a failure leaves Blender's streams as they were.
+    console.capture().install()
+    registered = []
+    try:
+        for cls in _CLASSES:
+            bpy.utils.register_class(cls)
+            registered.append(cls)
+        session = _Session()
+        for name, handler in _HANDLERS:
+            getattr(bpy.app.handlers, name).append(handler)
+        _session = session
+    except BaseException:
+        # Never leave the add-on half registered: undo what this call registered.
+        console.capture().uninstall()
+        _remove_handlers()
+        _session = None
+        for cls in reversed(registered):
+            try:
+                bpy.utils.unregister_class(cls)
+            except RuntimeError:
+                pass
+        raise
+    # Enabled means offered: once Blender has started (data access is restricted while add-ons
+    # register), or at once in background mode (no timers run there).
+    if bpy.app.background:
+        _start_offer()
+    else:
+        bpy.app.timers.register(_start_offer, first_interval=0.1, persistent=True)
+
+
+def _start_offer():
+    # A Blender that OpenCode Link started to render (render.render_animation) is never offered.
+    if os.environ.get("OPENCODE_LINK_ROLE") == "render":
+        return None
+    if _session is not None:
+        _session.start(preferences())
+    return None  # a one-shot timer
+
+
+def unregister():
+    global _session
+    console.capture().uninstall()
+    _remove_handlers()
     if _session is not None:
         _session.stop()
         _session = None

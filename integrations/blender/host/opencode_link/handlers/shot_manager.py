@@ -471,11 +471,22 @@ def launch_batch_render():
         else:
             status = "unknown"
 
-        return {
+        output = {
             "status": status,
             "message": "Batch render started" if status == "started" else "Shot Manager render operator returned",
             "result": result_flags,
             "queued_shots": total_queue_count,
         }
+        if status == "started":
+            # A task follows the render job until Blender reports it finished (blender_tasks).
+            from .. import tasks as tasks_module
+
+            def run(task, tasks):
+                task.update("Rendering %d shot(s)" % total_queue_count)
+                tasks.watch(task, lambda: None if bpy.app.is_job_running("RENDER") else True, 12 * 3600, interval=2.0)
+                return {"queued_shots": total_queue_count}
+
+            output["task"] = tasks_module.current().start("render", "Shot Manager batch render", run).snapshot()
+        return output
     except Exception as exc:
         return {"status": "error", "message": str(exc)}

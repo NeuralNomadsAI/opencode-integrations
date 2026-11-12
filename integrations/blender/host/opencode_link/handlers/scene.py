@@ -53,62 +53,6 @@ def get_scene_info():
     }
 
 
-def get_full_scene_hierarchy():
-    """Get the full collection/object hierarchy tree."""
-
-    def _collection_tree(collection):
-        return {
-            "name": collection.name,
-            "objects": [obj.name for obj in collection.objects],
-            "children": [_collection_tree(child) for child in collection.children],
-        }
-
-    return _collection_tree(bpy.context.scene.collection)
-
-
-# ---------------------------------------------------------------------------
-# Object info
-# ---------------------------------------------------------------------------
-def get_object_info(name):
-    """Get detailed info about a specific object."""
-    obj = bpy.data.objects.get(name)
-    if not obj:
-        raise ValueError(f"Object not found: {name}")
-
-    info = {
-        "name": obj.name,
-        "type": obj.type,
-        "location": list(obj.location),
-        "rotation_euler": list(obj.rotation_euler),
-        "scale": list(obj.scale),
-        "visible": obj.visible_get(),
-        "parent": obj.parent.name if obj.parent else None,
-        "children": [child.name for child in obj.children],
-        "materials": [slot.material.name for slot in obj.material_slots if slot.material],
-    }
-
-    if obj.type == "MESH" and obj.data:
-        mesh = obj.data
-        info["mesh"] = {
-            "vertices": len(mesh.vertices),
-            "edges": len(mesh.edges),
-            "polygons": len(mesh.polygons),
-        }
-
-        corners = [mathutils.Vector(corner) for corner in obj.bound_box]
-        world_corners = [obj.matrix_world @ corner for corner in corners]
-        min_corner = [min(corner[index] for corner in world_corners) for index in range(3)]
-        max_corner = [max(corner[index] for corner in world_corners) for index in range(3)]
-        info["world_bounding_box"] = [min_corner, max_corner]
-
-    if obj.modifiers:
-        info["modifiers"] = [
-            {"name": modifier.name, "type": modifier.type} for modifier in obj.modifiers
-        ]
-
-    return info
-
-
 def get_object_modifiers(name):
     """Get detailed modifier info for an object."""
     obj = bpy.data.objects.get(name)
@@ -217,19 +161,37 @@ def transform_object(name, location=None, rotation=None, scale=None):
     if not obj:
         raise ValueError(f"Object not found: {name}")
 
+    written = None
     if location is not None:
         obj.location = tuple(location)
     if rotation is not None:
-        obj.rotation_euler = tuple(rotation)
+        # The rotation goes where the object's rotation mode reads it: rotation_euler alone would be
+        # silently ignored by an object in quaternion or axis-angle mode (imported models often are).
+        euler = mathutils.Euler(tuple(rotation), "XYZ")
+        if obj.rotation_mode == "QUATERNION":
+            obj.rotation_quaternion = euler.to_quaternion()
+            written = "rotation_quaternion (converted from Euler XYZ)"
+        elif obj.rotation_mode == "AXIS_ANGLE":
+            axis, angle = euler.to_quaternion().to_axis_angle()
+            obj.rotation_axis_angle = (angle, axis.x, axis.y, axis.z)
+            written = "rotation_axis_angle (converted from Euler XYZ)"
+        else:
+            obj.rotation_euler = euler.to_matrix().to_euler(obj.rotation_mode)
+            written = "rotation_euler (%s)" % obj.rotation_mode
+
     if scale is not None:
         obj.scale = tuple(scale)
 
-    return {
+    output = {
         "name": obj.name,
         "location": list(obj.location),
-        "rotation": list(obj.rotation_euler),
+        "rotation": list(obj.matrix_basis.to_euler("XYZ")),
+        "rotation_mode": obj.rotation_mode,
         "scale": list(obj.scale),
     }
+    if written:
+        output["rotation_written"] = written
+    return output
 
 
 def set_active_camera(name):
@@ -244,11 +206,6 @@ def set_active_camera(name):
 # ---------------------------------------------------------------------------
 # Captures (images come back as attachments)
 # ---------------------------------------------------------------------------
-def get_viewport_screenshot(max_size=800):
-    """Capture the 3D viewport."""
-    return capture_area(find_area("VIEW_3D"), max_size)
-
-
 def get_node_editor_screenshot(tree_name=None, max_size=1200, fit_all=True):
     """Capture the node editor, optionally showing a given node tree."""
     area = find_area("NODE_EDITOR")

@@ -55,7 +55,14 @@ for (const detection of ["environment", "kernel"] as const) {
       if (withOffer) {
         const host = await startFakeHost({
           hostVersion: readPackage().version,
-          methods: { context: () => ({ revision: 7 }) },
+          appVersion: "5.3.0",
+          capabilities: {
+            methods: ["hello", "scene", "apply"],
+            operations: [],
+            undo: "grouped_best_effort",
+            background: false,
+          },
+          methods: { scene: () => ({ revision: 7 }) },
         })
         t.after(() => host.close())
         assert.deepEqual(await loaded.rpc("advertise", announcement(host.endpoint, host.scriptHandle)), {

@@ -8,6 +8,23 @@ import shutil
 import tempfile
 
 import bpy
+import imbuf
+
+
+def refresh_display():
+    """The interface draws after a change only at Blender's next turn: draw now, so a screenshot shows the
+    current document (two requests served in one turn would otherwise capture the state before the first)."""
+    if bpy.app.background:
+        return False
+    layer = bpy.context.view_layer
+    if layer is not None:
+        layer.update()
+    windows = bpy.context.window_manager.windows
+    if not windows:
+        return False
+    with bpy.context.temp_override(window=windows[0]):
+        bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
+    return True
 
 
 def find_area(area_type):
@@ -31,6 +48,7 @@ def capture_area(area, max_size, fit_all=False):
     folder = tempfile.mkdtemp(prefix="opencode-link-")
     path = os.path.join(folder, "capture.png")
     try:
+        refresh_display()
         with bpy.context.temp_override(area=area):
             bpy.ops.screen.screenshot_area(filepath=path)
         return encode_png(path, max_size)
@@ -39,20 +57,24 @@ def capture_area(area, max_size, fit_all=False):
 
 
 def encode_png(path, max_size):
-    """A PNG file scaled to max_size pixels at most, as image data for an attachment."""
-    image = None
+    """A PNG file scaled to max_size pixels at most, as image data for an attachment.
+
+    Scaled with imbuf, outside bpy.data: a temporary image datablock would change the document and
+    advance its revision at Blender's next evaluation, after the read has returned."""
+    image = imbuf.load(path)
     try:
-        image = bpy.data.images.load(path)
         width, height = image.size
         limit = max(16, int(max_size))
         if max(width, height) > limit:
             scale = limit / max(width, height)
             width, height = max(1, int(width * scale)), max(1, int(height * scale))
-            image.scale(width, height)
-            image.save()
-        with open(path, "rb") as handle:
-            data = base64.b64encode(handle.read()).decode("ascii")
+            image.resize((width, height), method="BILINEAR")
+            imbuf.write(image, filepath=path)
     finally:
-        if image is not None:
-            bpy.data.images.remove(image)
-    return {"width": width, "height": height, "image": {"mime": "image/png", "data": data}}
+        image.free()
+    with open(path, "rb") as handle:
+        data = base64.b64encode(handle.read()).decode("ascii")
+    from .. import resources
+
+    return {"width": width, "height": height, "resources": resources.snapshot(gpu=False),
+            "image": {"mime": "image/png", "data": data}}

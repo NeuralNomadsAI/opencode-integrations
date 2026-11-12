@@ -15,13 +15,14 @@ import json
 import secrets
 import socket
 import threading
+from . import limits
 
 HOST = "127.0.0.1"
-MAX_REQUEST_BYTES = 1024 * 1024
-MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-READ_TIMEOUT = 10.0
-MAX_CONNECTIONS = 8
-MESSAGE_MAX = 300
+MAX_REQUEST_BYTES = limits.value("request_bytes")
+MAX_RESPONSE_BYTES = limits.value("response_bytes")
+READ_TIMEOUT = limits.value("read_timeout_s")
+MAX_CONNECTIONS = limits.value("connections")
+MESSAGE_MAX = limits.value("message_chars")
 
 ERROR_CODES = (
     "unauthorized",

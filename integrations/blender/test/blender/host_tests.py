@@ -1,9 +1,10 @@
-"""Host tests of OpenCode Link inside a background Blender 5.2 (run by blender.test.ts).
+"""Host tests of OpenCode Link inside a background Blender >= 5.3.0 (run by blender.test.ts).
 
 Covers the background part of the acceptance criteria: the authenticated loopback listener,
 apply requirements and replay, Object mode only, one undo step per apply with rollback model B,
 quarantine, expectations, revisions, every read and operation of the catalog, captures as image
-data, the code-execution gate and the consent switch. Prints one line: RESULT <json>.
+data, the code-execution gate and the consent switch, and every bundled Blender Lab tool run by name
+(lab_tool). Prints one line: RESULT <json>.
 Usage: blender -b --factory-startup --python host_tests.py -- <scratch folder>
 """
 
@@ -25,12 +26,18 @@ addon_utils.enable(MODULE, default_set=True, handle_error=None)
 addon = importlib.import_module(MODULE + ".addon")
 wire = importlib.import_module(MODULE + ".wire")
 core_module = importlib.import_module(MODULE + ".core")
+lab_module = importlib.import_module(MODULE + ".lab_tools")
 session = addon.session()
 core = session.core
 app = session.app
 prefs = addon.preferences()
+# Enabled, the add-on offers the session at once; recorded here, then stopped: every other test starts
+# without a listener and opens its own.
+DEFAULTS = {"listening": bool(session.listener and session.listener.running),
+            "code": "execute_code" in core.capabilities()["methods"]}
+session.stop()
 
-results = {"passed": [], "failed": [], "coverage": {}}
+results = {"passed": [], "failed": [], "coverage": {}, "lab": {}}
 TESTS = []
 
 
@@ -117,7 +124,13 @@ def request(port, payload, timeout=5.0):
 
 # -- hello and the listener --------------------------------------------------------------------
 @test
-def hello_is_valid_and_code_execution_absent_by_default():
+def an_enabled_add_on_offers_the_session_with_code_execution():
+    check(DEFAULTS == {"listening": True, "code": True}, "enabled add-on: %s" % DEFAULTS)
+    check(not hasattr(prefs, "offer_session") and not hasattr(prefs, "allow_code_execution"), "no consent settings")
+
+
+@test
+def hello_is_valid_and_lists_code_execution():
     hello = core._hello({})
     check(hello["protocol"] == 1, "protocol 1")
     check(hello["host_version"] == core_module.manifest_version(os.path.dirname(core_module.__file__)), "version from manifest")
@@ -125,14 +138,8 @@ def hello_is_valid_and_code_execution_absent_by_default():
     check(hello["capabilities"]["undo"] == "grouped_best_effort", "undo level")
     check(hello["capabilities"]["background"] is True, "background flag")
     check(hello["app_version"] == bpy.app.version_string, "app version")
-    check("execute_code" not in hello["capabilities"]["methods"], "execute_code absent by default")
-    check("execute_code" not in core._hello({"code_execution": True})["capabilities"]["methods"], "absent without the preference")
-    prefs.allow_code_execution = True
-    try:
-        check("execute_code" in core._hello({"code_execution": True})["capabilities"]["methods"], "present with both")
-        check("execute_code" not in core._hello({})["capabilities"]["methods"], "absent without the plugin option")
-    finally:
-        prefs.allow_code_execution = False
+    check("execute_code" in hello["capabilities"]["methods"], "execute_code listed")
+    check(core._hello({"code_execution": False})["capabilities"] == hello["capabilities"], "the old flag gates nothing")
 
 
 @test
@@ -301,6 +308,12 @@ def every_read_and_operation_is_exercised():
         message = result.get("message", "")
         if absent:
             check(not ok and any(text in message for text in ABSENT_ADDON), "%s: absent add-on reported (%s)" % (name, message))
+            if core.operations[name].get("undoable"):
+                # Unknown legacy effects have no complete restoration proof, including absent add-ons.
+                check(result["restored"] is False and core.quarantined, "%s: unqualified restoration quarantines" % name)
+                check(result["verification"]["complete"] is False, "%s: no false proof" % name)
+                check(result["verification"]["reason"] == "legacy_effect_scope_unqualified", "%s: scope reason" % name)
+                bpy.ops.opencode_link.reset()  # Explicit acknowledgement inside this private factory scene.
             coverage[name] = "absent add-on path"
         else:
             check(ok == expect_ok, "%s: %s %s" % (name, result["status"], message))
@@ -308,7 +321,12 @@ def every_read_and_operation_is_exercised():
         return result
 
     def run_read(name, /, expect_ok=True, absent=False, contains=None, **args):
+        bpy.context.view_layer.update()  # settle earlier changes
+        revision = app.revision()
         output = core._context(dict(state(), reads=[{"name": name, "args": args}]))["results"][0]
+        # Blender's next evaluation, outside the read: a read leaves the document and its revision unchanged.
+        bpy.context.view_layer.update()
+        check(app.revision() == revision, "%s advanced the revision %d -> %d" % (name, revision, app.revision()))
         if absent:
             check(not output["ok"] and any(text in output["error"] for text in ABSENT_ADDON), "%s: %s" % (name, output.get("error")))
             coverage[name] = "absent add-on path"
@@ -327,17 +345,30 @@ def every_read_and_operation_is_exercised():
     run_op("scene.set_active_camera", name="OC_Camera")
     run_op("scene.delete_object", name="OC_Sphere")
     run_read("scene.get_scene_info")
-    run_read("scene.get_full_scene_hierarchy")
-    check(run_read("scene.get_object_info", name="OC_Cube")["location"] == [1.0, 2.0, 3.0], "object info")
     run_read("scene.get_object_modifiers", name="OC_Cube")
-    run_read("scene.get_viewport_screenshot", contains="background")
     run_read("scene.get_node_editor_screenshot", contains="background")
     run_read("shader.get_shader_editor_screenshot", contains="background")
+    run_read("scene.get_evaluated_bounds", objects=["OC_Cube"])
+    run_read("scene.capture_view", contains="interface", objects=["OC_Cube"])
+    run_read("scene.contact_sheet", frames=[1], camera="OC_Camera", width=32)
 
     run_op("animation.set_timeline_settings", frame_start=1, frame_end=48, fps=24)
     run_op("animation.keyframe_object_transform", name="OC_Cube", frame=1, location=[0, 0, 0])
     run_op("animation.create_turntable_animation", object_name="OC_Cylinder")
     run_read("animation.get_object_animation_info", name="OC_Cube")
+    rig = bpy.data.objects.new("OC_CovRig", bpy.data.armatures.new("OC_CovRig"))
+    bpy.context.scene.collection.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    rig.data.edit_bones.new("Bone").tail = (0, 0, 1)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    run_read("animation.get_rig_info", armature="OC_CovRig")
+    run_op("animation.aim_bone", armature="OC_CovRig", bone="Bone", direction=[1, 0, 0])
+    run_op("animation.edit_keyframes", name="OC_Cube", operation="delete", frame_start=1, frame_end=1, data_path="location")
+    run_op("animation.attach_to_bone", name="OC_Empty", armature="OC_CovRig", bone="Bone")
+    run_op("scene.place_on_ground", name="OC_Cone", height=1.0)
+    run_op("scene.duplicate_hierarchy", name="OC_CovRig")
+    run_op("render.render_animation", expect_ok=False)  # never saved: refused, nothing started
 
     run_op("shader.create_material", name="OC_Mat")
     run_op("shader.create_shader_material_from_template", name="OC_Tpl", base_color=[0.2, 0.4, 0.8, 1.0])
@@ -383,6 +414,10 @@ def every_read_and_operation_is_exercised():
     run_read("assets.list_current_file_assets")
     run_op("assets.clear_asset", asset_type="MATERIAL", name="OC_Mat")
     run_op("assets.import_blend_asset", filepath=library, asset_type="MATERIAL", name="LibMat")
+    glb = os.path.join(SCRATCH, "coverage.glb")
+    bpy.ops.export_scene.gltf(filepath=glb, export_format="GLB")
+    imported = run_op("assets.import_file", source=glb)["results"][0]["result"]["task"]
+    check(imported["state"] == "done" and imported["created"], "import_file: %s" % imported)
     run_read("assets.list_asset_libraries")
     run_read("assets.list_library_blend_files")
     run_read("assets.list_blend_file_assets", filepath=library)
@@ -434,10 +469,52 @@ def capture_results_carry_image_data():
     image.file_format = "PNG"
     image.save()
     bpy.data.images.remove(image)
+    bpy.context.view_layer.update()  # settle the fixture
+    revision, images = app.revision(), len(bpy.data.images)
     encoded = captures.encode_png(path, 16)
     data = __import__("base64").b64decode(encoded["image"]["data"])
     check(encoded["image"]["mime"] == "image/png" and data[:4] == b"\x89PNG", "PNG image data")
     check((encoded["width"], encoded["height"]) == (16, 8), "scaled to max_size")
+    # The encoder never adds data to the document: the next evaluation reports no change.
+    bpy.context.view_layer.update()
+    check(len(bpy.data.images) == images, "no image datablock left")
+    check(app.revision() == revision, "encoding a capture advanced the revision %d -> %d" % (revision, app.revision()))
+
+
+@test
+def reload_is_offered_and_refused_outside_object_mode_or_during_an_apply():
+    check("reload" in core.capabilities()["methods"], "the add-on offers its hot reload")
+    scheduled, original = [], app.reload_request
+    app.reload_request = lambda: scheduled.append(True)
+    try:
+        app.mode = lambda: "EDIT_MESH"
+        check(code_of(lambda: core._reload(state())) == "mode_conflict", "refused outside Object mode")
+        del app.mode
+        core.busy = lambda: True
+        check(code_of(lambda: core._reload(state())) == "busy", "refused while an apply runs")
+        del core.busy
+        check(code_of(lambda: core._reload(dict(state(), script_handle="blend-other"))) == "stale_handle", "same document only")
+        revision = app.revision()
+        check(core._reload(state()) == {"outcome": "scheduled", "host_version": core.version}, "scheduled")
+        check(scheduled == [True] and app.revision() == revision, "scheduled once, nothing changed")
+    finally:
+        app.reload_request = original
+
+
+@test
+def document_changes_outside_opencode_advance_the_revision():
+    obj = bpy.data.objects.new("OC_UserEdit", None)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.update()
+    for label, change in (("move", lambda: setattr(obj, "location", (4.0, 5.0, 6.0))),
+                          ("rename", lambda: setattr(obj, "name", "OC_UserEdited")),
+                          ("select", lambda: obj.select_set(not obj.select_get()))):
+        revision = app.revision()
+        change()
+        bpy.context.view_layer.update()
+        check(app.revision() > revision, "%s did not advance the revision" % label)
+    bpy.data.objects.remove(obj)
+    bpy.context.view_layer.update()
 
 
 @test
@@ -497,12 +574,9 @@ def a_failure_after_the_operations_is_rolled_back_too():
 
 @test
 def supplied_code_cannot_quit_blender():
-    prefs.allow_code_execution = True
-    try:
-        result = core.handle("execute_code", {"script_handle": app.script_handle(), "code": "raise SystemExit(3)", "code_execution": True})
-        check(result["status"] == "failed" and "SystemExit" in result["message"], "SystemExit caught")
-    finally:
-        prefs.allow_code_execution = False
+    result = core.handle("execute_code", {"script_handle": app.script_handle(), "code": "raise SystemExit(3)"})
+    check(result["status"] == "failed" and "SystemExit" in result["message"], "SystemExit caught")
+    check("SystemExit" in result["traceback"] and result["changed"] is False, "traceback, nothing changed")
 
 
 def _raises(fn):
@@ -514,34 +588,146 @@ def _raises(fn):
 
 
 @test
-def code_execution_is_absent_and_refused_by_default():
+def code_runs_report_output_and_group_their_changes():
     marker = os.path.join(SCRATCH, "executed.txt")
-    code = "open(%r, 'w').write('ran')" % marker
-    params = {"script_handle": app.script_handle(), "code": code, "code_execution": True}
-    check(code_of(lambda: core.handle("execute_code", params)) == "method_disabled", "refused by default")
-    check(not os.path.exists(marker), "nothing executed")
-    prefs.allow_code_execution = True
+    run = lambda code: core.handle("execute_code", {"script_handle": app.script_handle(), "code": code})  # noqa: E731
+    revision = app.revision()
+    quiet = run("open(%r, 'w').write('ran')\nprint(len(bpy.data.objects) > 0)\nimport sys; print('warn', file=sys.stderr)" % marker)
+    check(quiet["status"] == "executed" and os.path.exists(marker), "runs: %s" % quiet)
+    check(quiet["stdout"].strip() == "True" and quiet["stderr"].strip() == "warn", "stdout and stderr returned")
+    check(quiet["changed"] is False and "undo_step" not in quiet, "no document change, no step")
+    check(quiet["revision_before"] == quiet["revision_after"] == revision == app.revision(), "revision kept")
+    pushes, original = [], app.undo_push
+    app.undo_push = lambda message: (pushes.append(message), original(message))[1]
     try:
-        check(code_of(lambda: core.handle("execute_code", dict(params, code_execution=False))) == "method_disabled", "needs the plugin flag")
-        check(not os.path.exists(marker), "still nothing executed")
-        result = core.handle("execute_code", params)
-        check(result["status"] == "executed" and os.path.exists(marker), "runs with both settings")
-        printed = core.handle("execute_code", dict(params, code="print(len(bpy.data.objects) > 0)"))
-        check(printed["stdout"].strip() == "True", "stdout returned")
+        made = run("bpy.data.objects.new('OC_Coded', None)\nbpy.context.scene.collection.objects.link(bpy.data.objects['OC_Coded'])")
+        check(made["status"] == "executed" and made["changed"] is True and "OC_Coded" in objects(), "a change: %s" % made)
+        check(made["undo_step"] == "OpenCode: code" and pushes[-1] == "OpenCode: code", "one named step: %s" % pushes)
+        check(made["revision_after"] == made["revision_before"] + 1, "revision advanced once")
+        before = objects()
+        failed = run("bpy.data.objects.new('OC_Half', None)\nbpy.context.scene.collection.objects.link(bpy.data.objects['OC_Half'])\nraise ValueError('late')")
+        check(failed["status"] == "failed" and "ValueError: late" in failed["traceback"], "traceback: %s" % failed)
+        check(failed["changed"] is True and failed["restored"] is True and objects() == before, "restored to the barrier")
+        check(not core.quarantined, "no quarantine after a proven restoration")
     finally:
-        prefs.allow_code_execution = False
+        app.undo_push = original
+
+
+# -- Blender Lab tools (lab_tool) ---------------------------------------------------------------
+# Sample arguments by name; a required argument without one fails the test (a new Lab tool needs one).
+LAB_SAMPLES = {"name": "OC_Lab", "output_path": "opencode_lab.png", "area_ui_type": "VIEW_3D", "space_type": "VIEW_3D"}
+
+
+def lab(tool, **args):
+    return core.handle("lab_tool", {"script_handle": app.script_handle(), "tool": tool, "args": args})
+
+
+def lab_args(tool):
+    args = {}
+    for name, spec in tool["args"].items():
+        if name in LAB_SAMPLES:
+            args[name] = LAB_SAMPLES[name]
+        elif spec.get("required"):
+            raise Failure("no sample for %s.%s: add one to LAB_SAMPLES" % (tool["name"], name))
+    return args
 
 
 @test
-def consent_starts_and_stops_the_listener():
-    check(session.listener is None, "no listener before consent")
-    prefs.offer_session = True
+def every_bundled_lab_tool_runs_by_name():
+    with open(os.path.join(os.path.dirname(core_module.__file__), "lab", "tools.json"), encoding="utf-8") as handle:
+        listed = sorted(tool["name"] for tool in json.load(handle)["tools"])
+    capabilities = core.capabilities()
+    check("lab_tool" in capabilities["methods"] and listed == sorted(core.lab.tools), "listed")
+    obj = bpy.data.objects.new("OC_Lab", bpy.data.meshes.new("OC_Lab"))
+    bpy.context.scene.collection.objects.link(obj)
+    # Lab's renders use the scene's engine: on a runner without a GPU, EEVEE renders in software for minutes
+    # (Lab lowers EEVEE's samples only for Blender 4's BLENDER_EEVEE_NEXT). The tools run the same with Workbench.
+    bpy.context.scene.render.engine = "BLENDER_WORKBENCH"
+    for name in listed:
+        tool = core.lab.tools[name]
+        response = lab(name, **lab_args(tool))
+        expected = "error" if tool["interface"] else "ok"
+        check(response["status"] == expected and isinstance(response.get("revision"), int), "%s: %s" % (name, response))
+        result = response["result"]
+        if tool["interface"]:
+            check(result.get("status") == "error" and "background" in str(result.get("message")).lower(),
+                  "%s refuses background mode: %s" % (name, result))
+            results["lab"][name] = "refused in background (needs a window)"
+        else:
+            check(result.get("status", "ok") == "ok", "%s: %s" % (name, result))
+            results["lab"][name] = "ran"
+    check(lab("get_object_detail_summary", name="OC_Lab")["result"]["name"] == "OC_Lab", "object detail")
+    check(lab("get_object_detail_summary", name="OC_Nothing")["result"]["status"] == "error", "Lab reports a missing object")
+    thumb = lab("render_thumbnail_to_path", output_path="opencode_thumb.png")["result"]
+    check(os.path.isfile(thumb["filepath"]) and thumb["filepath"].startswith(bpy.app.tempdir), "thumbnail: %s" % thumb)
+
+
+@test
+def lab_tool_refuses_unknown_tools_arguments_and_code():
+    check(code_of(lambda: lab("execute_blender_code", code="print(1)")) == "invalid_args", "no code tool by name")
+    check(code_of(lambda: lab("nope")) == "invalid_args", "unknown tool")
+    check(code_of(lambda: lab("get_object_detail_summary")) == "invalid_args", "missing argument")
+    check(code_of(lambda: lab("get_object_detail_summary", name=3)) == "invalid_args", "argument type")
+    check(code_of(lambda: lab("get_object_detail_summary", name="x", code="print(1)")) == "invalid_args", "extra argument")
+    check(code_of(lambda: lab("get_screenshot_of_area_as_image", area_ui_type="NOPE")) == "invalid_args", "enum")
+    stale = {"script_handle": "stale", "tool": "get_objects_summary", "args": {}}
+    check(code_of(lambda: core.handle("lab_tool", stale)) == "stale_handle", "the open document's handle only")
+
+
+@test
+def a_changing_lab_tool_is_one_undo_step_and_a_failing_one_is_undone():
+    folder = os.path.join(SCRATCH, "labfake")
+    os.makedirs(os.path.join(folder, "lab"), exist_ok=True)
+    tools = [{"name": "make", "title": "Make", "runs": "toolcode", "file": "make_toolcode.py", "call_params": ["name"],
+              "read_only": False, "interface": False, "deferred": False, "image": False,
+              "args": {"name": {"type": "string", "required": True}}},
+             {"name": "boom", "title": "Boom", "runs": "toolcode", "file": "boom_toolcode.py", "call_params": [],
+              "read_only": False, "interface": False, "deferred": False, "image": False, "args": {}}]
+    sources = {
+        "make_toolcode.py": "from typing import NamedTuple\nclass Params(NamedTuple):\n    name: str\nclass Result(NamedTuple):\n    status: str\n    name: str\ndef main(params):\n    import bpy\n    obj = bpy.data.objects.new(params.name, None)\n    bpy.context.scene.collection.objects.link(obj)\n    print('made')\n    return Result('ok', obj.name)\n",
+        "boom_toolcode.py": "def main(params):\n    import bpy\n    bpy.context.scene.collection.objects.link(bpy.data.objects.new('OC_Boom', None))\n    raise ValueError('late')\n",
+    }
+    with open(os.path.join(folder, "lab", "tools.json"), "w", encoding="utf-8") as handle:
+        json.dump({"tools": tools}, handle)
+    for name, text in sources.items():
+        with open(os.path.join(folder, "lab", name), "w", encoding="utf-8") as handle:
+            handle.write(text)
+    real = core.lab
+    core.lab = lab_module.LabTools(folder)
+    try:
+        revision = app.revision()
+        made = lab("make", name="OC_LabMade")
+        check(made["status"] == "ok" and made["result"] == {"status": "ok", "name": "OC_LabMade"}, "made: %s" % made)
+        check(made["stdout"].strip() == "made" and made["undo_step"] == "OpenCode: Make", "output and one named step")
+        check(made["changed"] is True and made["revision"] == revision + 1, "revision advanced once")
+        before = objects()
+        boom = lab("boom")
+        check(boom["status"] == "error" and "ValueError: late" in boom["message"], "Lab's error envelope: %s" % boom)
+        check(boom["restored"] is True and objects() == before and not core.quarantined, "undone to the barrier")
+    finally:
+        core.lab = real
+
+
+@test
+def code_runs_return_the_result_variable():
+    run = lambda code: core.handle("execute_code", {"script_handle": app.script_handle(), "code": code})  # noqa: E731
+    done = run("result = {'count': len(bpy.data.objects), 'first': bpy.data.objects[0]}")
+    check(done["status"] == "executed" and isinstance(done["result"]["count"], int), "result: %s" % done)
+    check(done["result"]["first"].startswith("bpy.data.objects["), "values JSON cannot hold become their repr")
+    deferred = run("check_is_finished = lambda: {'done': True}")
+    check(deferred["status"] == "failed" and "interface" in deferred["message"], "deferred needs the interface")
+
+
+@test
+def stopping_the_offer_closes_the_listener():
+    check(session.listener is None, "stopped at the top of these tests")
+    session.start(prefs)
     try:
         listener = session.listener
         check(listener is not None and listener.running, "listener while offered")
         port = listener.port
     finally:
-        prefs.offer_session = False
+        session.stop()
     check(session.listener is None and not listener.running and listener.token is None, "closed and token invalidated")
     refused = socket.socket()
     refused.settimeout(1.0)

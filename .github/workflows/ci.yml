@@ -92,8 +92,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - blender: 5.2.3
-            sha256: 78486c018b4443efe5e75ab54c290ed8c15abafd249b862c2c9ce2530a918eec
+          - blender: 5.3.0
+            sha256: dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -122,7 +122,7 @@ jobs:
       - name: Libraries for background Blender
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
       - run: npm ci
-      - name: Host tests and conformance against the add-on in Blender
+      - name: Add-on tests, plugin tools and conformance against the add-on in Blender
         run: |
           export BLENDER_TEST_BIN="$HOME/blender-${{ matrix.blender }}/blender"
           "$BLENDER_TEST_BIN" --version

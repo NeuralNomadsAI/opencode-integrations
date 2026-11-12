@@ -14,17 +14,81 @@ from __future__ import annotations
 import addon_utils
 import json
 from pathlib import Path
+import shutil
+import sys
+import time
 import urllib.parse
 import urllib.request
 
 import bpy
+
+from .. import limits, resources
+from .. import tasks as tasks_module
+from ..tasks import TaskFailure
+from . import imports
 
 from .shader import assign_material, get_material_info
 from .node_utils import serialize_node_tree
 from .scene import new_primitive_object
 
 
-HTTP_TIMEOUT = 10
+HTTP_TIMEOUT = limits.value("http_timeout_s")
+SKETCHFAB_API = "https://api.sketchfab.com/v3"
+SKETCHFAB_MAX_BYTES = limits.value("sketchfab_max_bytes")
+BLENDERKIT_TIMEOUT = limits.value("blenderkit_timeout_s")
+# No change in BlenderKit's download progress for this long fails the task (BlenderKit itself gives up at 20 s
+# without a status report).
+BLENDERKIT_STALL = limits.value("blenderkit_stall_s")
+BLENDERKIT_CLIENT_GRACE = limits.value("blenderkit_client_grace_s")
+
+
+def _blenderkit_state(asset_id, base_id, known_reports):
+    """Main thread: BlenderKit's own view of a download (its task entry, client and new error reports)."""
+    module = _addon_module("blenderkit") or ""
+    download = sys.modules.get(module + ".download")
+    global_vars = sys.modules.get(module + ".global_vars")
+    reports = sys.modules.get(module + ".reports")
+    entry = None
+    for task in list(getattr(download, "download_tasks", {}).values()):
+        data = task.get("asset_data") or {}
+        if (asset_id and data.get("id") == asset_id) or (base_id and data.get("assetBaseId") == base_id):
+            entry = {"progress": task.get("progress"), "text": task.get("text")}
+            break
+    errors = [report.text for report in list(getattr(reports, "reports", []))
+              if id(report) not in known_reports and getattr(report, "color", None) == getattr(getattr(reports, "colors", None), "RED", object())]
+    return {
+        "download": entry,
+        "client_running": getattr(global_vars, "CLIENT_RUNNING", None),
+        "client_accessible": getattr(global_vars, "CLIENT_ACCESSIBLE", None),
+        "errors": errors,
+    }
+
+
+def _blenderkit_report_ids():
+    module = _addon_module("blenderkit") or ""
+    return {id(report) for report in list(getattr(sys.modules.get(module + ".reports"), "reports", []))}
+
+
+def _sketchfab_session():
+    """The Sketchfab add-on's API, activated when its session is not (its "Activate addon" button after a
+    Blender restart). Returns (api, activated); fails when activation does not restore a logged-in session."""
+    browser = bpy.context.window_manager.sketchfab_browser
+    api = browser.skfb_api
+    if api.is_user_logged():
+        return api, False
+    try:
+        bpy.ops.wm.skfb_enable()
+    except Exception as error:  # noqa: BLE001 - reported below with the state
+        detail = str(error).strip().splitlines()[-1][:200] if str(error).strip() else ""
+    else:
+        detail = ""
+    api = bpy.context.window_manager.sketchfab_browser.skfb_api
+    if api.is_user_logged():
+        return api, True
+    raise ValueError(
+        "The Sketchfab add-on is not logged in, and activating it (wm.skfb_enable) did not restore a session%s: "
+        "ask the user to log in again in the Sketchfab panel (3D Viewport sidebar ▸ Sketchfab)." % (" (%s)" % detail if detail else "")
+    )
 
 
 def _http_get_json(url, headers=None):
@@ -216,12 +280,18 @@ def get_addon_status(addon_name=None):
     if supported["sketchfab"]["enabled"]:
         browser = bpy.context.window_manager.sketchfab_browser
         api = browser.skfb_api
+        logged = api.is_user_logged()
         supported["sketchfab"].update(
             {
-                "logged_in": api.is_user_logged(),
+                "logged_in": logged,
                 "search_domain": browser.search_domain,
             }
         )
+        if not logged:
+            supported["sketchfab"]["action"] = (
+                "Not active: imports activate it (wm.skfb_enable); if that does not log it in, the user must log in "
+                "again in the Sketchfab panel."
+            )
 
     if supported["bradley_presets"]["enabled"]:
         root = _find_addon_root("Bradley-Presets", addon_display_name="Bradley's Geo Node Presets")
@@ -335,16 +405,58 @@ def import_blenderkit_asset(
         node_y=int(node_y),
     )
 
-    matches = _find_blenderkit_matches(
-        asset_base_id=asset_data.get("assetBaseId"),
-        asset_id=asset_data.get("id"),
-    )
-    return {
-        "started": bool(started),
-        "asset": _simplify_blenderkit_result(asset_data),
-        "matches": matches,
-        "imported": bool(matches),
-    }
+    asset = _simplify_blenderkit_result(asset_data)
+    base_id, item_id = asset_data.get("assetBaseId"), asset_data.get("id")
+    tasks = tasks_module.current()
+    # Taken now, on the main thread: what exists before the task (anything added later is the task's).
+    before = tasks.names()
+    known = _blenderkit_report_ids()
+
+    def run(task, tasks):
+        # BlenderKit downloads (through its local client) and appends on its own timers: the task follows
+        # its download entry, client and error reports until the asset is in the file.
+        task.update("Waiting for BlenderKit to start the download")
+        state = {"seen": False, "progress": None, "changed": time.monotonic(), "client_down": None}
+
+        def arrived():
+            matches = _find_blenderkit_matches(asset_base_id=base_id, asset_id=item_id)
+            if matches:
+                return matches
+            now = time.monotonic()
+            info = _blenderkit_state(item_id, base_id, known)
+            if info["errors"]:
+                raise TaskFailure("BlenderKit reported: %s" % " | ".join(error.replace("\n", " ") for error in info["errors"][-3:]))
+            if info["download"] is not None:
+                state["seen"] = True
+                if info["download"]["progress"] != state["progress"]:
+                    state["progress"], state["changed"] = info["download"]["progress"], now
+                task.update("BlenderKit: %s" % (info["download"]["text"] or "downloading"),
+                            {"percent": info["download"]["progress"]})
+            elif state["seen"]:
+                raise TaskFailure("BlenderKit dropped the download without adding the asset (cancelled or failed); "
+                                  "its message is in blender_reports.")
+            if info["client_running"] is False or info["client_accessible"] is False:
+                state["client_down"] = state["client_down"] or now
+                task.update("BlenderKit's local client is not running or not reachable")
+                if now - state["client_down"] > BLENDERKIT_CLIENT_GRACE:
+                    raise TaskFailure("BlenderKit's local client is not running or not reachable: restart Blender, or see "
+                                      "Preferences ▸ Add-ons ▸ BlenderKit ▸ Client log.")
+            else:
+                state["client_down"] = None
+            if now - state["changed"] > BLENDERKIT_STALL:
+                raise TaskFailure("No progress from BlenderKit for %d s (last status: %s, %s%%)." % (
+                    BLENDERKIT_STALL, task.message, state["progress"] if state["progress"] is not None else 0))
+            return None
+
+        matches = tasks.watch(task, arrived, BLENDERKIT_TIMEOUT)
+        # BlenderKit appends on its own: one undo step and a modified file, so nothing is lost on close.
+        tasks.on_main(lambda: tasks.finish_change(task, before, "BlenderKit %s" % (asset.get("name") or "asset")))
+        return {"matches": matches, "resources": resources.snapshot()}
+
+    task = tasks.start("blenderkit", asset.get("name") or "BlenderKit asset", run)
+    if not started:
+        task.update("BlenderKit did not report a started download; following it anyway")
+    return {"started": bool(started), "asset": asset, "task": task.snapshot()}
 
 
 def get_blenderkit_import_status(asset_base_id=None, asset_id=None):
@@ -405,23 +517,64 @@ def search_sketchfab_models(query=None, page_size=12, page=1, downloadable=True,
 
 
 def import_sketchfab_model(uid, model_url=None):
-    """Start importing a Sketchfab model through the installed addon."""
+    """Import a Sketchfab model with the Sketchfab add-on's logged-in account, as a task.
+
+    The add-on's own download runs on the calling thread and its import waits for a window event, with
+    errors shown only in popups. The task instead asks Sketchfab for the download with the add-on's account,
+    downloads and unpacks the glTF archive on its own thread (progress on the task), imports it on the main
+    thread as one undo step, and names the hierarchy like the add-on does."""
+    del model_url  # the uid names the model; kept for older callers
     if not _is_addon_enabled("sketchfab"):
         raise ValueError("Sketchfab addon is not enabled")
+    api, activated = _sketchfab_session()
+    headers = dict(getattr(api, "headers", None) or {})
+    module = sys.modules.get(_addon_module("sketchfab") or "", None)
+    utils = getattr(module, "Utils", None)
+    download_url = SKETCHFAB_API + "/models/%s/download" % urllib.parse.quote(uid)
+    try:
+        download_url = utils.build_download_url(uid, api.use_org_profile, api.active_org)
+    except Exception:  # noqa: BLE001 - the public endpoint is the default
+        pass
+    title = None
+    try:
+        model = module.get_sketchfab_model(uid)
+        title = model.title if model is not None else None
+    except Exception:  # noqa: BLE001
+        pass
+    clean = getattr(utils, "clean_node_hierarchy", None)
 
-    browser = bpy.context.window_manager.sketchfab_browser
-    api = browser.skfb_api
-    if not api.is_user_logged():
-        raise ValueError("Sketchfab import requires a logged-in addon session")
+    def run(task, tasks):
+        task.update("Requesting the download from Sketchfab")
+        status, body = imports.request_json(download_url, headers)
+        if status != 200 or "gltf" not in body:
+            detail = body.get("detail") or body.get("error") or ""
+            raise TaskFailure(
+                "Sketchfab refused the download (HTTP %d%s): the model may not be downloadable with this account, "
+                "or the Sketchfab add-on's login has expired." % (status, (": " + str(detail)[:200]) if detail else "")
+            )
+        name = title
+        if not name:
+            info_status, info = imports.request_json(SKETCHFAB_API + "/models/%s" % urllib.parse.quote(uid), headers)
+            name = info.get("name") if info_status == 200 else None
+        name = name or "Sketchfab Model"
+        task.title = name
+        gltf = body["gltf"]
+        folder = imports._folder(task)
+        try:
+            archive = imports.download(task, gltf["url"], folder, SKETCHFAB_MAX_BYTES, name=uid + ".zip")
+            path = imports.unpack(task, archive, folder)
+            after = (lambda objects: clean(objects, name)) if clean else None
+            result = imports.import_downloaded(task, tasks, "gltf", path, name, after)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        result.update(uid=uid, size_bytes=gltf.get("size"))
+        return result
 
-    browser.manualImportPath = model_url or f"https://sketchfab.com/3d-models/model-{uid}"
-    api.download_model(uid)
-    return {
-        "started": True,
-        "uid": uid,
-        "model_url": browser.manualImportPath,
-        "logged_in": True,
-    }
+    task = tasks_module.current().start("sketchfab", title or uid, run)
+    output = {"uid": uid, "task": task.snapshot()}
+    if activated:
+        output["activated"] = "The Sketchfab add-on was activated (wm.skfb_enable) to restore its session."
+    return output
 
 
 def _get_bradley_root():

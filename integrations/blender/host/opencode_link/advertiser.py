@@ -10,18 +10,33 @@ the daemon password nor the host token.
 """
 
 import os
+import re
 import secrets
 import threading
 
 from . import opencode_service
+from .process import state as process_state
+from . import limits
 
 RPC_ID = "neuralnomads.blender"
 PROTOCOL = 1
-RENEW_SECONDS = 5.0
-LABEL_MAX = 120
+RENEW_SECONDS = limits.value("renew_s")
+# While the host is not ready (its document unknown), the first offer is retried this often.
+READY_POLL = limits.value("ready_poll_s")
+LABEL_MAX = limits.value("label_chars")
 
-# Stable for the life of the Blender process (HST-13).
-OFFER_KEY = "blender-%d-%s" % (os.getpid(), secrets.token_hex(4))
+# Stable for the life of the Blender process (HST-13), hot reloads of the add-on included: the
+# service recognises the reloaded add-on's offer as the same host.
+def _launch_key():
+    """A Blender started by OpenCode (launch or relaunch) offers itself under the key OpenCode chose, so the
+    conversation that asked for it attaches again by itself."""
+    key = os.environ.get("OPENCODE_LINK_OFFER_KEY", "")
+    return key if re.fullmatch(r"blender-launch-[0-9a-f]{32}", key) else None
+
+
+OFFER_KEY = (getattr(process_state(), "offer_key", None) or _launch_key()
+             or "blender-%d-%s" % (os.getpid(), secrets.token_hex(8)))
+process_state().offer_key = OFFER_KEY
 
 
 def offer_label(document):
@@ -56,7 +71,7 @@ class Advertiser(object):
     def advertise_once(self):
         port, token, script_handle, label = self._snapshot()
         if token is None:
-            return []
+            return None  # not ready yet: tried again shortly
         offer = {
             "host": "127.0.0.1",
             "port": port,
@@ -78,8 +93,8 @@ class Advertiser(object):
 
     def _loop(self):
         while not self._stop.is_set():
-            self.advertise_once()
-            self._stop.wait(self._interval)
+            ready = self.advertise_once() is not None
+            self._stop.wait(self._interval if ready else min(self._interval, READY_POLL))
 
     def stop(self, token, withdraw=True):
         """Stops renewing; withdraws the offer from every service with the token it was announced with."""

@@ -75,7 +75,7 @@ export function installHost(marker: IntegrationMarker, target: ExtensionsDir | n
   if (!target || !existsSync(target.base)) {
     return {
       outcome: "refused",
-      detail: "No Blender 5.2 user folder was found: start Blender 5.2 once, or set the hostInspectionDir option.",
+      detail: "No Blender 5.3 user folder was found: start Blender 5.3 once, or set the hostInspectionDir option.",
     }
   }
   const archive = readFileSync(join(packageRoot, ...host.payload.split("/")))

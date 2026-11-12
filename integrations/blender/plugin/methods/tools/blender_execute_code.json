@@ -1,20 +1,24 @@
 {
   "name": "blender_execute_code",
   "domain": "tools",
-  "description": "DANGEROUS: run Python code in the attached Blender. Present only when both the add-on preference 'Allow code execution' and the plugin option allowCodeExecution are on; every run asks permission. Prefer blender_apply operations.",
+  "description": "DANGEROUS: run Python in the attached Blender (bpy). Assign a JSON-able dict to `result`; print() output is returned. A run that changes the scene is one undo step; a failing one is undone. Every run asks permission. Prefer blender_apply.",
   "kind": "host-backed",
   "risk": "destructive",
   "dangerous": true,
   "args": {
-    "script_handle": {
-      "type": "string",
-      "required": true,
-      "description": "From blender_context."
-    },
     "code": {
       "type": "string",
-      "required": true,
-      "description": "Python code; print() output is returned."
+      "description": "Python code.",
+      "required": true
+    },
+    "read_only": {
+      "type": "boolean",
+      "description": "Inspection: no undo step."
+    },
+    "timeout_s": {
+      "type": "integer",
+      "description": "Longest wait in seconds (1 to 3600).",
+      "default": 120
     }
   },
   "execution": {
