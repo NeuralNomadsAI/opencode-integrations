@@ -1,6 +1,6 @@
 // CNF-1: the conformance behaviour checks against this integration's own plugin and host. The
 // host is the add-on's wire and core under the system Python (stub application), and also the
-// real add-on in a background Blender when BLENDER_TEST_BIN names a Blender 5.2 executable.
+// real add-on in a background Blender when BLENDER_TEST_BIN names a Blender 5.3 executable.
 
 import assert from "node:assert/strict"
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
@@ -9,15 +9,13 @@ import { join } from "node:path"
 import { after, describe, it } from "node:test"
 
 import {
-  type CodeExecutionSettings,
   checkCodeExecutionGate,
   checkHostListener,
   type ManifestLike,
   runSentinelScenario,
 } from "../../../packages/conformance/src/index.ts"
-import { helloParams, readPackage } from "../plugin/src/integration.ts"
-import { HostError, requestHost } from "../plugin/src/kit.ts"
-import { readOptions } from "../plugin/src/options.ts"
+import { readPackage } from "../plugin/src/integration.ts"
+import { requestHost } from "../plugin/src/kit.ts"
 import { methodsDir } from "../plugin/src/paths.ts"
 import { blenderBin, installAddon, isolatedRoot, runBlender } from "./helpers/blender.ts"
 import { announcement, type HostProcess, loadPlugin, startStubHost } from "./helpers/plugin.ts"
@@ -35,16 +33,17 @@ function manifests(dir = methodsDir): ManifestLike[] {
   )
 }
 
-type HostFactory = { name: string; start(allowCode: boolean): Promise<HostProcess & { scriptHandle: string }> }
+type HostFactory = { name: string; start(): Promise<HostProcess & { scriptHandle: string }> }
 
+// The add-on lists its code execution while it is enabled (SEC-3 2b): the stub app allows it.
 const stub: HostFactory = {
   name: "add-on core (system Python)",
-  start: async (allowCode) => ({ ...(await startStubHost(allowCode)), scriptHandle: "stub-document" }),
+  start: async () => ({ ...(await startStubHost(true)), scriptHandle: "stub-document" }),
 }
 
 const blender: HostFactory = {
   name: "add-on in Blender (background)",
-  async start(allowCode) {
+  async start() {
     const iso = isolatedRoot("blender-cnf-")
     installAddon(iso)
     const stopFile = join(iso.root, "stop")
@@ -54,7 +53,6 @@ const blender: HostFactory = {
       "120",
       "--stop-file",
       stopFile,
-      ...(allowCode ? ["--allow-code"] : []),
     ])
     const line = await new Promise<string>((resolve, reject) => {
       const timer = setInterval(() => {
@@ -86,11 +84,12 @@ const blender: HostFactory = {
 }
 
 const hosts = blenderBin ? [stub, blender] : [stub]
+const cleanups: Array<() => Promise<void>> = []
 
 for (const factory of hosts) {
   describe(`conformance against the ${factory.name}`, () => {
     it("checkHostListener: loopback only, token required, valid hello", async () => {
-      const host = await factory.start(false)
+      const host = await factory.start()
       try {
         const report = await checkHostListener(host.endpoint)
         assert.deepEqual(report.errors, [])
@@ -99,33 +98,20 @@ for (const factory of hosts) {
       }
     })
 
-    it("checkCodeExecutionGate: absent by default, both settings needed, asked on every call", async () => {
+    it("checkCodeExecutionGate: declared dangerous, listed while enabled, asked on every call", async () => {
       let marker = 0
       const errors = await checkCodeExecutionGate({
         app: "blender",
         manifests: manifests(),
-        defaults: {
-          appPreference: false,
-          pluginOption: readOptions(undefined, {}).allowCodeExecution,
-        },
-        async probe(settings: CodeExecutionSettings) {
-          const host = await factory.start(settings.appPreference)
+        async probe() {
+          const host = await factory.start()
           let answer: "allow" | "deny" = "allow"
-          const plugin = await loadPlugin({
-            options: { allowCodeExecution: settings.pluginOption },
-            answer: () => answer,
-          })
+          const plugin = await loadPlugin({ answer: () => answer })
           const advertised = await plugin.rpc("advertise", announcement(host.endpoint, host.scriptHandle))
           assert.deepEqual(advertised, { outcome: "accepted" })
           const offerID = plugin.registry.hosts().offers[0]?.offerID as string
           assert.deepEqual(plugin.registry.attach(offerID, "ses_test"), { outcome: "attached" })
-          const hello = (await requestHost(
-            host.endpoint,
-            "hello",
-            helloParams(readOptions({ allowCodeExecution: settings.pluginOption }, {})),
-          )) as {
-            capabilities: { methods: string[] }
-          }
+          const hello = (await requestHost(host.endpoint, "hello", {})) as { capabilities: { methods: string[] } }
           const toolNames = plugin.toolNames()
           cleanups.push(async () => {
             await plugin.cleanup()
@@ -142,18 +128,9 @@ for (const factory of hosts) {
               const asked = plugin.permissions.length
               let error: string | undefined
               try {
-                if (toolNames.includes("blender_execute_code")) {
-                  await plugin.tool("blender_execute_code", { script_handle: host.scriptHandle, code })
-                } else {
-                  await plugin.internals.executeCode({ script_handle: host.scriptHandle, code }, plugin.context())
-                }
+                await plugin.tool("blender_execute_code", { code })
               } catch (thrown) {
-                error =
-                  thrown instanceof HostError
-                    ? thrown.code
-                    : /Code execution is disabled/.test(String(thrown))
-                      ? "method_disabled"
-                      : String(thrown)
+                error = String(thrown)
               }
               return {
                 executed: existsSync(file),
@@ -170,8 +147,6 @@ for (const factory of hosts) {
   })
 }
 
-const cleanups: Array<() => Promise<void>> = []
-
 describe("conformance of the plugin's RPC handlers", () => {
   it("runSentinelScenario: no token, port, script handle or offer key in outputs or events", async () => {
     const plugin = await loadPlugin()
@@ -181,7 +156,7 @@ describe("conformance of the plugin's RPC handlers", () => {
           call: (method, input) => plugin.rpc(method, input),
           events: plugin.events,
         },
-        { sessionID: "ses_test", hostVersion: readPackage().version },
+        { sessionID: "ses_test", hostVersion: readPackage().version, appVersion: "5.3.0" },
       )
       assert.deepEqual(report.errors, [])
     } finally {

@@ -5,7 +5,9 @@ export type {
   CodeExecutionDriver,
   CodeExecutionProbe,
   CodeExecutionSettings,
+  GatedCodeExecutionDriver,
   ManifestLike,
+  PresentCodeExecutionDriver,
 } from "./code-execution.ts"
 export {
   CODE_EXECUTION_NAME,

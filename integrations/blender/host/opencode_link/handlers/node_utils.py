@@ -185,10 +185,36 @@ def resolve_socket(sockets, query, socket_kind, node_name):
     raise ValueError(f"{socket_kind} socket '{query}' not found on '{node_name}'")
 
 
+# The bpy.data collection of each datablock type a socket or modifier input may point to.
+_ID_COLLECTIONS = {"Material": "materials", "Object": "objects", "Collection": "collections", "Image": "images",
+                   "Texture": "textures", "VectorFont": "fonts", "Scene": "scenes", "NodeTree": "node_groups",
+                   "GeometryNodeTree": "node_groups", "ShaderNodeTree": "node_groups", "Mask": "masks"}
+
+
+def datablock_value(holder, prop_name, value):
+    """A datablock's name given for a pointer property becomes that datablock; an unknown name names what exists."""
+    prop = holder.bl_rna.properties.get(prop_name)
+    if prop is None or prop.type != "POINTER" or not isinstance(value, str):
+        return value
+    import bpy
+
+    kind = prop.fixed_type.identifier
+    collection = getattr(bpy.data, _ID_COLLECTIONS.get(kind, ""), None)
+    if collection is None:
+        raise ValueError(f"'{prop_name}' points to a {kind}: a name cannot be resolved for it")
+    found = collection.get(value)
+    if found is None:
+        names = ", ".join(sorted(item.name for item in collection)) or "none"
+        raise ValueError(f"No {kind} named '{value}' (existing: {names})")
+    return found
+
+
 def set_socket_default_value(socket, value):
-    """Set a socket default value with light coercion for vectors/colors."""
+    """Set a socket default value with light coercion for vectors/colors, and a datablock by name for pointer
+    sockets (Material, Object, Collection, Image...)."""
     if not hasattr(socket, "default_value"):
         raise ValueError(f"Socket '{socket.name}' has no default_value")
+    value = datablock_value(socket, "default_value", value)
 
     try:
         socket.default_value = value
@@ -212,6 +238,7 @@ def modifier_input_get(modifier, identifier):
 def modifier_input_set(modifier, identifier, value):
     properties = getattr(modifier, "properties", None)
     if properties is not None and hasattr(properties, "inputs"):
-        getattr(properties.inputs, identifier).value = value
+        holder = getattr(properties.inputs, identifier)
+        holder.value = datablock_value(holder, "value", value)
     else:
         modifier[identifier] = value

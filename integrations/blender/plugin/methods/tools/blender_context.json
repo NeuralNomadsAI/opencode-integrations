@@ -1,24 +1,41 @@
 {
   "name": "blender_context",
   "domain": "tools",
-  "description": "Read the Blender session attached to this conversation. Returns script_handle, revision, document and mode, plus the result of each named read (at most 20 per call). Captures come back as image attachments. Read names and arguments: blender_catalog, or the blender-* skills.",
+  "description": "Compact read of the attached Blender scene: revision, scene settings, collections, markers, a page of objects (name, type, parent, collections, location, rotation with its mode, scale). ref = one object in detail (world bounds; pose bones with head, world direction, rotation). Call first; pass revision to blender_apply.",
   "kind": "host-backed",
   "risk": "read",
   "args": {
-    "reads": {
+    "ref": {
+      "type": "string",
+      "description": "One object, in detail."
+    },
+    "match": {
+      "type": "string",
+      "description": "Glob on object names."
+    },
+    "types": {
       "type": "array",
       "items": {
-        "type": "object",
-        "description": "{ name: '<read name>', args: { ... } }"
+        "type": "string"
       },
-      "description": "Named reads; omit to read the state only."
+      "description": "Object types (MESH, CAMERA, LIGHT...)."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Objects per page (1 to 100).",
+      "default": 50
+    },
+    "offset": {
+      "type": "integer",
+      "description": "First object of the page.",
+      "default": 0
     }
   },
   "execution": {
     "strategy": "host_method",
-    "method": "context"
+    "method": "scene"
   },
   "requires": {
-    "hostMethods": ["context"]
+    "hostMethods": ["scene"]
   }
 }

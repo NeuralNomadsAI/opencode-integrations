@@ -1,109 +1,137 @@
 # Method inventory
 
-Every method of the earlier Blender bundle (89), its class and where it lives now. Reads run through
-`blender_context`, operations through `blender_apply` (one undo step per apply), side effects through
-`blender_apply` as the only operation of their apply. Each entry names the test that exercises it;
-methods that need a third-party add-on (BlenderKit, Sketchfab, Bradley presets, Shot Manager) are tested
-on the path where that add-on is absent, and captures on the background path (they need the interface,
-see `test/MANUAL.md`).
+What OpenCode for Blender 0.4.0 keeps, replaces and retires from 0.2.0. The 0.2.0 sources stay in Git at
+`ec99ef2` (the last `main` commit with them), from which each retired part can be reintroduced (see the end).
 
-| Class       | Count  |
-| ----------- | ------ |
-| read        | 30     |
-| operation   | 41     |
-| side effect | 8      |
-| host-less   | 7      |
-| retired     | 3      |
-| **total**   | **89** |
+## Tools
 
-| Domain         | Earlier method                           | Class       | Now                                                                                                                                                                       | Test                                                        |
-| -------------- | ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| addons         | `ensure_bradley_asset_library`           | side effect | `blender_apply` operation `addons.ensure_bradley_asset_library`, alone, not undoable                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `get_addon_status`                       | read        | `blender_context` read `addons.get_addon_status`                                                                                                                          | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `get_blenderkit_import_status`           | read        | `blender_context` read `addons.get_blenderkit_import_status`                                                                                                              | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `import_blenderkit_asset`                | side effect | `blender_apply` operation `addons.import_blenderkit_asset`, alone, not undoable, network (asks permission)                                                                | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `import_bradley_preset`                  | operation   | `blender_apply` operation `addons.import_bradley_preset`                                                                                                                  | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `import_sketchfab_model`                 | side effect | `blender_apply` operation `addons.import_sketchfab_model`, alone, not undoable, network (asks permission)                                                                 | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `list_bradley_assets`                    | read        | `blender_context` read `addons.list_bradley_assets`                                                                                                                       | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `search_blenderkit_assets`               | side effect | `blender_apply` operation `addons.search_blenderkit_assets`, alone, not undoable, network (asks permission)                                                               | host_tests.py (every_read_and_operation_is_exercised)       |
-| addons         | `search_sketchfab_models`                | side effect | `blender_apply` operation `addons.search_sketchfab_models`, alone, not undoable, network (asks permission)                                                                | host_tests.py (every_read_and_operation_is_exercised)       |
-| animation      | `create_turntable_animation`             | operation   | `blender_apply` operation `animation.create_turntable_animation`                                                                                                          | host_tests.py (every_read_and_operation_is_exercised)       |
-| animation      | `get_object_animation_info`              | read        | `blender_context` read `animation.get_object_animation_info`                                                                                                              | host_tests.py (every_read_and_operation_is_exercised)       |
-| animation      | `keyframe_object_transform`              | operation   | `blender_apply` operation `animation.keyframe_object_transform`                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| animation      | `set_timeline_settings`                  | operation   | `blender_apply` operation `animation.set_timeline_settings`                                                                                                               | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `clear_asset`                            | operation   | `blender_apply` operation `assets.clear_asset`                                                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `get_asset_info`                         | read        | `blender_context` read `assets.get_asset_info`                                                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `import_blend_asset`                     | operation   | `blender_apply` operation `assets.import_blend_asset`                                                                                                                     | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `list_asset_libraries`                   | read        | `blender_context` read `assets.list_asset_libraries`                                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `list_blend_file_assets`                 | read        | `blender_context` read `assets.list_blend_file_assets`                                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `list_current_file_assets`               | read        | `blender_context` read `assets.list_current_file_assets`                                                                                                                  | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `list_library_blend_files`               | read        | `blender_context` read `assets.list_library_blend_files`                                                                                                                  | host_tests.py (every_read_and_operation_is_exercised)       |
-| assets         | `mark_asset`                             | operation   | `blender_apply` operation `assets.mark_asset`                                                                                                                             | host_tests.py (every_read_and_operation_is_exercised)       |
-| audit          | `get_blendfile_summary_datablocks`       | host-less   | `blender_audit` action `datablocks` (asks permission)                                                                                                                     | blender.test.ts (audit)                                     |
-| audit          | `get_blendfile_summary_linked_libraries` | host-less   | `blender_audit` action `linked_libraries` (asks permission)                                                                                                               | blender.test.ts (audit)                                     |
-| audit          | `get_blendfile_summary_missing_files`    | host-less   | `blender_audit` action `missing_files` (asks permission)                                                                                                                  | blender.test.ts (audit)                                     |
-| audit          | `get_blendfile_summary_path_info`        | host-less   | `blender_audit` action `path_info`                                                                                                                                        | plugin.test.ts                                              |
-| core           | `execute_code`                           | retired     | The `dangerous` method `blender_execute_code`: absent unless the add-on preference and the plugin option `allowCodeExecution` are both on; asks permission on every call. | conformance.test.ts (checkCodeExecutionGate), host_tests.py |
-| core           | `get_capabilities`                       | retired     | Replaced by `hello.capabilities` and the `blender_catalog` tool.                                                                                                          | conformance.test.ts, plugin.test.ts                         |
-| core           | `ping`                                   | retired     | Replaced by the host's `hello` (protocol, versions, capabilities).                                                                                                        | conformance.test.ts (checkHostListener)                     |
-| docs           | `get_blender_api_docs`                   | host-less   | `blender_docs` action `get_api`                                                                                                                                           | plugin.test.ts                                              |
-| docs           | `search_blender_api_docs`                | host-less   | `blender_docs` action `search_api`                                                                                                                                        | plugin.test.ts                                              |
-| docs           | `search_blender_manual`                  | host-less   | `blender_docs` action `search_manual`                                                                                                                                     | plugin.test.ts                                              |
-| geometry_nodes | `add_geometry_node`                      | operation   | `blender_apply` operation `geometry_nodes.add_geometry_node`                                                                                                              | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `add_node_tree_socket`                   | operation   | `blender_apply` operation `geometry_nodes.add_node_tree_socket`                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `attach_geometry_node_tree`              | operation   | `blender_apply` operation `geometry_nodes.attach_geometry_node_tree`                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `connect_geometry_nodes`                 | operation   | `blender_apply` operation `geometry_nodes.connect_geometry_nodes`                                                                                                         | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `create_geometry_node_tree`              | operation   | `blender_apply` operation `geometry_nodes.create_geometry_node_tree`                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `create_gn_from_template`                | operation   | `blender_apply` operation `geometry_nodes.create_gn_from_template`                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `disconnect_geometry_nodes`              | operation   | `blender_apply` operation `geometry_nodes.disconnect_geometry_nodes`                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `get_geometry_node_tree`                 | read        | `blender_context` read `geometry_nodes.get_geometry_node_tree`                                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `list_available_node_types`              | read        | `blender_context` read `geometry_nodes.list_available_node_types`                                                                                                         | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `list_geometry_node_trees`               | read        | `blender_context` read `geometry_nodes.list_geometry_node_trees`                                                                                                          | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `list_geometry_nodes_modifiers`          | read        | `blender_context` read `geometry_nodes.list_geometry_nodes_modifiers`                                                                                                     | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `list_gn_templates`                      | read        | `blender_context` read `geometry_nodes.list_gn_templates`                                                                                                                 | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `remove_geometry_node`                   | operation   | `blender_apply` operation `geometry_nodes.remove_geometry_node`                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `rename_geometry_node`                   | operation   | `blender_apply` operation `geometry_nodes.rename_geometry_node`                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `set_geometry_node_location`             | operation   | `blender_apply` operation `geometry_nodes.set_geometry_node_location`                                                                                                     | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `set_modifier_input`                     | operation   | `blender_apply` operation `geometry_nodes.set_modifier_input`                                                                                                             | host_tests.py (every_read_and_operation_is_exercised)       |
-| geometry_nodes | `set_node_input`                         | operation   | `blender_apply` operation `geometry_nodes.set_node_input`                                                                                                                 | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `create_object`                          | operation   | `blender_apply` operation `scene.create_object`                                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `delete_object`                          | operation   | `blender_apply` operation `scene.delete_object`                                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_full_scene_hierarchy`               | read        | `blender_context` read `scene.get_full_scene_hierarchy`                                                                                                                   | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_node_editor_screenshot`             | read        | `blender_context` read `scene.get_node_editor_screenshot`                                                                                                                 | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_object_info`                        | read        | `blender_context` read `scene.get_object_info`                                                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_object_modifiers`                   | read        | `blender_context` read `scene.get_object_modifiers`                                                                                                                       | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_scene_info`                         | read        | `blender_context` read `scene.get_scene_info`                                                                                                                             | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `get_viewport_screenshot`                | read        | `blender_context` read `scene.get_viewport_screenshot`                                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `set_active_camera`                      | operation   | `blender_apply` operation `scene.set_active_camera`                                                                                                                       | host_tests.py (every_read_and_operation_is_exercised)       |
-| scene          | `transform_object`                       | operation   | `blender_apply` operation `scene.transform_object`                                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `add_shader_node`                        | operation   | `blender_apply` operation `shader.add_shader_node`                                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `add_shader_node_group_socket`           | operation   | `blender_apply` operation `shader.add_shader_node_group_socket`                                                                                                           | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `analyze_vrscene_file`                   | read        | `blender_context` read `shader.analyze_vrscene_file`                                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `assign_material`                        | operation   | `blender_apply` operation `shader.assign_material`                                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `connect_shader_nodes`                   | operation   | `blender_apply` operation `shader.connect_shader_nodes`                                                                                                                   | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `convert_vrscene_file`                   | side effect | `blender_apply` operation `shader.convert_vrscene_file`, alone, not undoable                                                                                              | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `convert_vrscene_folder`                 | side effect | `blender_apply` operation `shader.convert_vrscene_folder`, alone, not undoable                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `create_material`                        | operation   | `blender_apply` operation `shader.create_material`                                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `create_shader_material_from_template`   | operation   | `blender_apply` operation `shader.create_shader_material_from_template`                                                                                                   | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `delete_material`                        | operation   | `blender_apply` operation `shader.delete_material`                                                                                                                        | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `disconnect_shader_nodes`                | operation   | `blender_apply` operation `shader.disconnect_shader_nodes`                                                                                                                | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `get_material_info`                      | read        | `blender_context` read `shader.get_material_info`                                                                                                                         | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `get_shader_editor_screenshot`           | read        | `blender_context` read `shader.get_shader_editor_screenshot`                                                                                                              | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `get_shader_node_group_info`             | read        | `blender_context` read `shader.get_shader_node_group_info`                                                                                                                | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `list_materials`                         | read        | `blender_context` read `shader.list_materials`                                                                                                                            | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `list_shader_node_groups`                | read        | `blender_context` read `shader.list_shader_node_groups`                                                                                                                   | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `list_shader_node_types`                 | read        | `blender_context` read `shader.list_shader_node_types`                                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `remove_shader_node`                     | operation   | `blender_apply` operation `shader.remove_shader_node`                                                                                                                     | host_tests.py (every_read_and_operation_is_exercised)       |
-| shader         | `set_shader_node_input`                  | operation   | `blender_apply` operation `shader.set_shader_node_input`                                                                                                                  | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `create_shot`                            | operation   | `blender_apply` operation `shot_manager.create_shot`                                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `enable_disable_shots`                   | operation   | `blender_apply` operation `shot_manager.enable_disable_shots`                                                                                                             | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `get_shot_details`                       | read        | `blender_context` read `shot_manager.get_shot_details`                                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `get_shot_list`                          | read        | `blender_context` read `shot_manager.get_shot_list`                                                                                                                       | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `get_shot_manager_status`                | read        | `blender_context` read `shot_manager.get_shot_manager_status`                                                                                                             | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `launch_batch_render`                    | side effect | `blender_apply` operation `shot_manager.launch_batch_render`, alone, not undoable                                                                                         | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `modify_shot`                            | operation   | `blender_apply` operation `shot_manager.modify_shot`                                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| shot_manager   | `set_shot_manager_render_path`           | operation   | `blender_apply` operation `shot_manager.set_shot_manager_render_path`                                                                                                     | host_tests.py (every_read_and_operation_is_exercised)       |
-| workflows      | `apply_library_material_to_object`       | operation   | `blender_apply` operation `workflows.apply_library_material_to_object`                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
-| workflows      | `create_material_and_assign`             | operation   | `blender_apply` operation `workflows.create_material_and_assign`                                                                                                          | host_tests.py (every_read_and_operation_is_exercised)       |
-| workflows      | `create_string_to_curves_object`         | operation   | `blender_apply` operation `workflows.create_string_to_curves_object`                                                                                                      | host_tests.py (every_read_and_operation_is_exercised)       |
-| workflows      | `scatter_library_asset_on_surface`       | operation   | `blender_apply` operation `workflows.scatter_library_asset_on_surface`                                                                                                    | host_tests.py (every_read_and_operation_is_exercised)       |
+| Tool (0.2.0)           | Status   | In 0.4.0                                                                                                                                          |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `blender_hosts`        | kept     | Lists the offered Blenders with their attachment and the add-on's install state; `attach` (asks `blender_attach`) and `detach` are its arguments. |
+| `blender_attach`       | replaced | `blender_hosts` with `attach`; the only offered Blender nobody uses attaches itself at the first Blender call.                                    |
+| `blender_detach`       | replaced | `blender_hosts` with `detach`; clients use the RPC `detachHost`.                                                                                  |
+| `blender_status`       | replaced | `blender_hosts` returns the host state; the RPC `status` is unchanged.                                                                            |
+| `blender_install_host` | kept     | Installs OpenCode Link 0.4.0 (asks `blender_install_host`).                                                                                       |
+| `blender_context`      | kept     | The add-on's compact typed scene read (`scene`) instead of named catalog reads.                                                                   |
+| `blender_apply`        | kept     | The add-on's typed edit operations (`host/ops.json`) instead of catalog operations.                                                               |
+| `blender_catalog`      | retired  | The operations are in `blender_apply`'s description and `host/ops.json`.                                                                          |
+| `blender_execute_code` | kept     | Listed while the add-on is enabled; every run asks `blender_execute_code` (SEC-3).                                                                |
+| `blender_docs`         | retired  | `blender_inspect` reads the running Blender's own API and links the official documentation of its version; no documentation is bundled.           |
+| `blender_audit`        | retired  | `blender_lab` `get_blendfile_summary_*` summarise the open file; no background Blender is started for a closed one.                               |
+
+New in 0.4.0:
+
+| Tool              | What it does                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `blender_lab`     | Blender Lab's tools, run by the add-on (their code is part of it).                                  |
+| `blender_inspect` | A type, operator or live data of the running Blender, with its documentation links (fixed program). |
+| `blender_verify`  | A low-resolution render of the final output with facts (fixed program).                             |
+| `blender_render`  | A render in a separate background Blender to an exact output, followed as a task (fixed program).   |
+| `blender_save`    | Save, save as or save a copy (fixed program).                                                       |
+
+## Catalog reads and operations
+
+The 30 reads and 49 operations of 0.2.0 (`methods/host`) are **retired from the plugin**: no tool sends them. The add-on still
+answers 76 of them on its host methods `context` and `apply` (`test/blender/host_tests.py` exercises its whole
+catalog), so a plugin can expose them again; 3 left the add-on in 0.3. In 0.4.0 the typed operations of `blender_apply` and the fixed programs cover
+what the trials needed; anything else goes through `blender_execute_code`.
+
+| Domain         | Name                                           | Kind      | In the 0.4.0 add-on |
+| -------------- | ---------------------------------------------- | --------- | ------------------- |
+| addons         | `addons.ensure_bradley_asset_library`          | operation | yes                 |
+| addons         | `addons.get_addon_status`                      | read      | yes                 |
+| addons         | `addons.get_blenderkit_import_status`          | read      | yes                 |
+| addons         | `addons.import_blenderkit_asset`               | operation | yes                 |
+| addons         | `addons.import_bradley_preset`                 | operation | yes                 |
+| addons         | `addons.import_sketchfab_model`                | operation | yes                 |
+| addons         | `addons.list_bradley_assets`                   | read      | yes                 |
+| addons         | `addons.search_blenderkit_assets`              | operation | yes                 |
+| addons         | `addons.search_sketchfab_models`               | operation | yes                 |
+| animation      | `animation.create_turntable_animation`         | operation | yes                 |
+| animation      | `animation.get_object_animation_info`          | read      | yes                 |
+| animation      | `animation.keyframe_object_transform`          | operation | yes                 |
+| animation      | `animation.set_timeline_settings`              | operation | yes                 |
+| assets         | `assets.clear_asset`                           | operation | yes                 |
+| assets         | `assets.get_asset_info`                        | read      | yes                 |
+| assets         | `assets.import_blend_asset`                    | operation | yes                 |
+| assets         | `assets.list_asset_libraries`                  | read      | yes                 |
+| assets         | `assets.list_blend_file_assets`                | read      | yes                 |
+| assets         | `assets.list_current_file_assets`              | read      | yes                 |
+| assets         | `assets.list_library_blend_files`              | read      | yes                 |
+| assets         | `assets.mark_asset`                            | operation | yes                 |
+| geometry_nodes | `geometry_nodes.add_geometry_node`             | operation | yes                 |
+| geometry_nodes | `geometry_nodes.add_node_tree_socket`          | operation | yes                 |
+| geometry_nodes | `geometry_nodes.attach_geometry_node_tree`     | operation | yes                 |
+| geometry_nodes | `geometry_nodes.connect_geometry_nodes`        | operation | yes                 |
+| geometry_nodes | `geometry_nodes.create_geometry_node_tree`     | operation | yes                 |
+| geometry_nodes | `geometry_nodes.create_gn_from_template`       | operation | yes                 |
+| geometry_nodes | `geometry_nodes.disconnect_geometry_nodes`     | operation | yes                 |
+| geometry_nodes | `geometry_nodes.get_geometry_node_tree`        | read      | yes                 |
+| geometry_nodes | `geometry_nodes.list_available_node_types`     | read      | yes                 |
+| geometry_nodes | `geometry_nodes.list_geometry_node_trees`      | read      | yes                 |
+| geometry_nodes | `geometry_nodes.list_geometry_nodes_modifiers` | read      | yes                 |
+| geometry_nodes | `geometry_nodes.list_gn_templates`             | read      | yes                 |
+| geometry_nodes | `geometry_nodes.remove_geometry_node`          | operation | yes                 |
+| geometry_nodes | `geometry_nodes.rename_geometry_node`          | operation | yes                 |
+| geometry_nodes | `geometry_nodes.set_geometry_node_location`    | operation | yes                 |
+| geometry_nodes | `geometry_nodes.set_modifier_input`            | operation | yes                 |
+| geometry_nodes | `geometry_nodes.set_node_input`                | operation | yes                 |
+| scene          | `scene.create_object`                          | operation | yes                 |
+| scene          | `scene.delete_object`                          | operation | yes                 |
+| scene          | `scene.get_full_scene_hierarchy`               | read      | no (removed in 0.3) |
+| scene          | `scene.get_node_editor_screenshot`             | read      | yes                 |
+| scene          | `scene.get_object_info`                        | read      | no (removed in 0.3) |
+| scene          | `scene.get_object_modifiers`                   | read      | yes                 |
+| scene          | `scene.get_scene_info`                         | read      | yes                 |
+| scene          | `scene.get_viewport_screenshot`                | read      | no (removed in 0.3) |
+| scene          | `scene.set_active_camera`                      | operation | yes                 |
+| scene          | `scene.transform_object`                       | operation | yes                 |
+| shader         | `shader.add_shader_node`                       | operation | yes                 |
+| shader         | `shader.add_shader_node_group_socket`          | operation | yes                 |
+| shader         | `shader.analyze_vrscene_file`                  | read      | yes                 |
+| shader         | `shader.assign_material`                       | operation | yes                 |
+| shader         | `shader.connect_shader_nodes`                  | operation | yes                 |
+| shader         | `shader.convert_vrscene_file`                  | operation | yes                 |
+| shader         | `shader.convert_vrscene_folder`                | operation | yes                 |
+| shader         | `shader.create_material`                       | operation | yes                 |
+| shader         | `shader.create_shader_material_from_template`  | operation | yes                 |
+| shader         | `shader.delete_material`                       | operation | yes                 |
+| shader         | `shader.disconnect_shader_nodes`               | operation | yes                 |
+| shader         | `shader.get_material_info`                     | read      | yes                 |
+| shader         | `shader.get_shader_editor_screenshot`          | read      | yes                 |
+| shader         | `shader.get_shader_node_group_info`            | read      | yes                 |
+| shader         | `shader.list_materials`                        | read      | yes                 |
+| shader         | `shader.list_shader_node_groups`               | read      | yes                 |
+| shader         | `shader.list_shader_node_types`                | read      | yes                 |
+| shader         | `shader.remove_shader_node`                    | operation | yes                 |
+| shader         | `shader.set_shader_node_input`                 | operation | yes                 |
+| shot_manager   | `shot_manager.create_shot`                     | operation | yes                 |
+| shot_manager   | `shot_manager.enable_disable_shots`            | operation | yes                 |
+| shot_manager   | `shot_manager.get_shot_details`                | read      | yes                 |
+| shot_manager   | `shot_manager.get_shot_list`                   | read      | yes                 |
+| shot_manager   | `shot_manager.get_shot_manager_status`         | read      | yes                 |
+| shot_manager   | `shot_manager.launch_batch_render`             | operation | yes                 |
+| shot_manager   | `shot_manager.modify_shot`                     | operation | yes                 |
+| shot_manager   | `shot_manager.set_shot_manager_render_path`    | operation | yes                 |
+| workflows      | `workflows.apply_library_material_to_object`   | operation | yes                 |
+| workflows      | `workflows.create_material_and_assign`         | operation | yes                 |
+| workflows      | `workflows.create_string_to_curves_object`     | operation | yes                 |
+| workflows      | `workflows.scatter_library_asset_on_surface`   | operation | yes                 |
+
+## Skills and data
+
+The skills `blender-animation`, `blender-asset-browser`, `blender-audit`, `blender-docs`, `blender-geometry-nodes`, `blender-scene`, `blender-shader-editor`, `blender-shot-manager` and the bundled Blender documentation
+(`data/blender_docs`) are **retired**: they described the 0.2.0 catalog. The working method joins a conversation
+when it attaches a Blender (an instructions entry, `src/method.ts`), and `blender_inspect` reads the running
+Blender instead of a bundled copy of its documentation.
+
+## Reintroducing a retired part
+
+```sh
+git checkout ec99ef2 -- integrations/blender/plugin/methods/host     # catalog reads and operations
+git checkout ec99ef2 -- integrations/blender/plugin/skills           # skills (load them with ctx.skill.transform, PKG-2)
+git checkout ec99ef2 -- integrations/blender/plugin/src/audit.ts     # blender_audit (and its methods/tools manifest)
+```
+
+Then give each tool manifest an executor in `src/integration.ts` and a test. The catalog's manifests must match
+the add-on's `catalog.json`, which 0.4.0 keeps as a source file (it has entries 0.2.0 did not).

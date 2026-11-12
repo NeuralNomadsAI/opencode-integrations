@@ -1,20 +1,11 @@
-// Regenerates the host artifacts: catalog.json and opencode_service.py in the add-on, the payload
-// archive, and the marker's payload name and sha256. `--check` verifies them without writing.
+// Regenerates the host artifacts: opencode_service.py in the add-on (the kit's discovery client), the
+// payload archive, and the marker's payload name and sha256. `--check` verifies them without writing.
 // Usage: node scripts/build-host.ts [--check]
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
-import {
-  addonRoot,
-  addonVersion,
-  catalogBytes,
-  payloadBytes,
-  payloadName,
-  pluginRoot,
-  serviceBytes,
-  sha256,
-} from "./host-payload.ts"
+import { addonRoot, addonVersion, payloadBytes, payloadName, pluginRoot, serviceBytes, sha256 } from "./host-payload.ts"
 
 const check = process.argv.includes("--check")
 const packagePath = join(pluginRoot, "package.json")
@@ -26,7 +17,6 @@ if (pkg.version !== version) problems.push(`package version ${pkg.version} diffe
 
 const payload = payloadBytes()
 const targets: Array<[string, Buffer]> = [
-  [join(addonRoot, "catalog.json"), catalogBytes()],
   [join(addonRoot, "opencode_service.py"), serviceBytes()],
   [join(pluginRoot, ...payloadName(version).split("/")), payload],
 ]

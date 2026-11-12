@@ -1,10 +1,19 @@
 {
   "name": "blender_hosts",
   "domain": "tools",
-  "description": "List the Blender sessions offered to OpenCode on this computer (Blender: OpenCode Link, 'Offer this session to OpenCode'). Asks permission.",
+  "description": "List the Blenders offered to OpenCode on this computer (Blender with the OpenCode Link add-on enabled): label, document, Blender version, which one is attached to this conversation (and, when only one is offered, whether another conversation uses it), with the add-on's install state. attach: attach one (its offerID) to this conversation, which asks permission; detach: release this conversation's Blender. With one offered Blender that no conversation uses, the first Blender tool call attaches it.",
   "kind": "hostless",
-  "risk": "read",
-  "args": {},
+  "risk": "write",
+  "args": {
+    "attach": {
+      "type": "string",
+      "description": "An offerID from this list."
+    },
+    "detach": {
+      "type": "boolean",
+      "description": "Release this conversation's Blender."
+    }
+  },
   "execution": {
     "strategy": "plugin"
   }

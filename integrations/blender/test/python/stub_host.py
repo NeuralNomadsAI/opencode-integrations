@@ -13,7 +13,12 @@ import threading
 
 sys.path.insert(0, sys.argv[1])
 
-from opencode_link.core import HostCore  # noqa: E402
+from opencode_link.core import HERE, HostCore  # noqa: E402
+import os
+import tomllib
+
+with open(os.path.join(HERE, "blender_manifest.toml"), "rb") as manifest:
+    APP_VERSION = tomllib.load(manifest)["blender_version_min"] + " stub"
 from opencode_link.wire import Listener  # noqa: E402
 
 
@@ -26,7 +31,7 @@ class StubApp(object):
         self._revision = 0
 
     def app_version(self):
-        return "5.2.0 stub"
+        return APP_VERSION
 
     def script_handle(self):
         return "stub-document"
@@ -65,6 +70,12 @@ class StubApp(object):
 
     def fingerprint(self):
         return ()
+
+    def capture_for_apply(self, checked):
+        return ()
+
+    def evaluations(self):
+        return 0  # the stub document never changes
 
     def check_expect(self, clause):
         return None

@@ -1,0 +1,29 @@
+{
+  "name": "blender_verify",
+  "domain": "tools",
+  "description": "Render one frame at low resolution (the scene's final output: the sequencer when used, compositing when active) and return the image with facts: black or transparent, mean brightness, the camera actually used and why, sequencer strips at that frame, compositing state, evaluated instances per object. Render settings and the current frame are restored.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "scene": {
+      "type": "string",
+      "description": "Default: the active scene."
+    },
+    "frame": {
+      "type": "integer",
+      "description": "Default: the current frame."
+    },
+    "size": {
+      "type": "integer",
+      "description": "Longest side in pixels (64 to 640).",
+      "default": 320
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/verify.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

@@ -1,45 +1,38 @@
 {
   "name": "blender_apply",
   "domain": "tools",
-  "description": "Change the attached Blender document with up to 50 operations, applied atomically as one undo step named 'OpenCode: <summary>'. Needs the script_handle and the exact revision from blender_context, and a new command_id (replaying a command_id applies nothing). expect clauses are checked before anything runs. On failure the document is restored. Mutations run in Object mode only. Operations with side effects (render, downloads, file writes) must be alone in their apply and cannot be undone.",
+  "description": "Change the scene with up to 50 typed operations as ONE undo step. Everything is checked first (names, bones, aliases, expect, if_revision); a failure while applying restores what the batch changed. Result: what changed (before/after), created names, new revision. Without if_revision the batch applies to the document as it is now.\nRefs are object names; an object created or copied earlier in the batch is \"$alias\" (its \"as\"), and a rename or delete is visible to the later operations. Rotations: {euler_deg:[x,y,z], order?} or {quaternion:[w,x,y,z]}, in the holder's own rotation mode. Colours are linear RGB.\nset_transform {ref, location?, rotation?, scale?, delta?}; fit_height {ref, height?, ground?=true, ground_z?=0, children?=true, scale_axes?=z|uniform} (z stretches the height only; uniform keeps proportions); pose_bone {ref, bone, location?, rotation?, scale?}; aim_bone {ref, bone, target:{point}|{object, bone?}|{direction}, axis?=Y, tolerance_deg?} (reports error_deg);\ninsert_key {ref, bone?, paths:[location|rotation|scale], frame, interpolation?}; shift_keys {ref, bone?, paths?, frames?:[first,last], offset | delete:true} (moves or deletes keys);\ncreate_object {kind:empty|camera|light|mesh|text, name, as?, primitive? size? (mesh: size is a cube's edge, a plane's side, a sphere's diameter, a cylinder's diameter and height; also a text's font size), light_type? energy? (light), lens? (camera), body extrude? align_x? align_y? (text), location?, rotation?, collection?, parent?};\nduplicate {ref, as?, name?, suffix?, offset?, linked?=false, children?=true} (with its hierarchy); set_material {ref, material, color?, roughness?, metallic?, slot?} (creates the material when no material has that name);\nscene_settings {frame_start?, frame_end?, frame_current?, fps?}; rename {ref, name}; delete {refs}; link|unlink {ref, collection}; create_collection {name, parent?}; set_parent {ref, parent? (omitted or null: unparent), bone?, keep_transform?=true};\nadd_marker {name, frame, camera?}; set_camera {ref}; add_constraint {ref, type:TRACK_TO|DAMPED_TRACK|COPY_LOCATION|COPY_ROTATION|CHILD_OF, target, subtarget?, name?}.",
   "kind": "host-backed",
   "risk": "write",
   "args": {
-    "script_handle": {
-      "type": "string",
-      "required": true,
-      "description": "From blender_context."
-    },
     "if_revision": {
       "type": "integer",
-      "required": true,
-      "description": "The revision the operations are based on."
+      "description": "Revision from blender_context; refused if the scene changed since."
     },
     "command_id": {
       "type": "string",
-      "required": true,
-      "description": "A new unique ID for this change (letters, digits, . _ : -)."
+      "description": "Unique ID; replaying it applies nothing and returns the first result."
     },
     "summary": {
       "type": "string",
-      "description": "Short name of the undo step."
+      "description": "Undo step name."
     },
     "operations": {
       "type": "array",
       "required": true,
       "items": {
         "type": "object",
-        "description": "{ op: '<operation name>', args: { ... } }"
+        "description": "{ op: '<operation>', ...its fields }"
       },
-      "description": "At most 50 operations."
+      "description": "1 to 50 operations."
     },
     "expect": {
       "type": "array",
       "items": {
         "type": "object",
-        "description": "{ ref: 'object:Cube', predicate: 'exists' | 'absent' | 'equals', path?, value? }"
+        "description": "{ ref, exists? }"
       },
-      "description": "Preconditions checked before execution."
+      "description": "Preconditions checked before anything changes."
     }
   },
   "execution": {

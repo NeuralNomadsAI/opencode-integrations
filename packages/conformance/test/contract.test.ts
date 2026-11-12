@@ -246,6 +246,39 @@ describe("code execution gate", () => {
     assert.match(errors.join("\n"), /runs although the permission was denied/)
   })
 
+  // A method listed while the application part is enabled (no settings): present, asked on every call.
+  function present(behaviour: { listed?: boolean; registered?: boolean; asks?: boolean } = {}) {
+    const gated = driver({ asks: behaviour.asks })
+    const enabled = { appPreference: true, pluginOption: true }
+    return {
+      app: gated.app,
+      manifests: gated.manifests,
+      async probe() {
+        const probe = await gated.probe(enabled)
+        return {
+          ...probe,
+          helloMethods: behaviour.listed === false ? ["hello", "scene.list"] : probe.helloMethods,
+          toolNames: behaviour.registered === false ? ["demo_scene_list"] : probe.toolNames,
+        }
+      },
+    }
+  }
+
+  it("accepts a method listed while the application part is enabled and asked on every call", async () => {
+    assert.deepEqual(await checkCodeExecutionGate(present()), [])
+  })
+
+  it("fails such a method when hello or the plugin omits it, or a call is not asked", async () => {
+    assert.match((await checkCodeExecutionGate(present({ listed: false }))).join("\n"), /hello omits execute_code/)
+    assert.match(
+      (await checkCodeExecutionGate(present({ registered: false }))).join("\n"),
+      /the plugin omits demo_execute_code/,
+    )
+    const errors = (await checkCodeExecutionGate(present({ asks: false }))).join("\n")
+    assert.match(errors, /does not ask demo_execute_code/)
+    assert.match(errors, /runs although the permission was denied/)
+  })
+
   it("checks manifests statically", () => {
     assert.deepEqual(checkDangerousManifests("demo", [{ name: "demo_scene_list", risk: "read" }]), [])
     const errors = checkDangerousManifests("demo", [

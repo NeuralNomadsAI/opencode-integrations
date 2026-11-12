@@ -77,6 +77,7 @@ export async function loadPlugin(
   const handlers = new Map<string, (input: unknown, context: unknown) => Promise<unknown>>()
   const events: Array<{ name: string; data: unknown }> = []
   const permissions: Array<{ action: string; resources: string[] }> = []
+  const instructions: Array<{ sessionID: string; key: string; value: string }> = []
   const toolTransforms: Array<(editor: unknown) => void> = []
   let tools = new Map<string, Info>()
   const skills = new Map<string, { id: string; content: string }>()
@@ -104,6 +105,12 @@ export async function loadPlugin(
     options,
     location,
     session: {
+      // Instructions entries the plugin puts into conversations (its working method).
+      instructions: {
+        entry: {
+          put: async (entry: { sessionID: string; key: string; value: string }) => void instructions.push(entry),
+        },
+      },
       get:
         input.nativeGet === null
           ? undefined
@@ -175,6 +182,7 @@ export async function loadPlugin(
     cleanup,
     events,
     permissions,
+    instructions,
     skills,
     toolNames: () => [...tools.keys()].sort(),
     async rpc(method: string, payload: unknown = {}) {

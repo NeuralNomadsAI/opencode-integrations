@@ -1,0 +1,84 @@
+{
+  "name": "blender_render",
+  "domain": "tools",
+  "description": "Render in a separate background Blender (the open one stays usable), to the EXACT output you name: an image (still.png), frames with a # run (shots/shot_####.png gives shot_0001.png...) or an H.264 video (final.mp4). The scene's final output (sequencer when used; source scene or sequencer forces it), with the file's settings unless overridden for this render only: resolution [w, h], samples, engine. It reads the file as saved; with unsaved changes give unsaved save or copy. Returns a task: call again with task (and wait_s) for progress, or cancel. Relative paths are next to the .blend.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "output": {
+      "type": "string",
+      "description": "The exact output path."
+    },
+    "frame": {
+      "type": "integer",
+      "description": "One image (default: the current frame)."
+    },
+    "frame_start": {
+      "type": "integer"
+    },
+    "frame_end": {
+      "type": "integer",
+      "description": "Default: the scene's range."
+    },
+    "scene": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "description": "What to render.",
+      "enum": ["auto", "scene", "sequencer"],
+      "default": "auto"
+    },
+    "resolution": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "[width, height], 4 to 16384."
+    },
+    "samples": {
+      "type": "integer",
+      "description": "1 to 65536."
+    },
+    "engine": {
+      "type": "string",
+      "enum": ["workbench", "eevee", "cycles"]
+    },
+    "unsaved": {
+      "type": "string",
+      "description": "With unsaved changes.",
+      "enum": ["refuse", "save", "copy"],
+      "default": "refuse"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    },
+    "quality": {
+      "type": "string",
+      "description": "H.264 quality.",
+      "enum": ["LOWEST", "VERYLOW", "LOW", "MEDIUM", "HIGH", "PERC_LOSSLESS", "LOSSLESS"],
+      "default": "HIGH"
+    },
+    "task": {
+      "type": "string",
+      "description": "A task from an earlier call: its progress."
+    },
+    "wait_s": {
+      "type": "integer",
+      "description": "With task: wait up to this long for it to finish (0 to 120).",
+      "default": 0
+    },
+    "cancel": {
+      "type": "boolean",
+      "description": "With task: stop it."
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/render.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

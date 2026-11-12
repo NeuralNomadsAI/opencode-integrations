@@ -1,0 +1,37 @@
+{
+  "name": "blender_inspect",
+  "domain": "tools",
+  "description": "Ask THIS Blender what it really exposes, in one call: a type (properties with type, enum values, default, range; functions and parameters; subtypes; for a node type its real input and output sockets), an operator (parameters, poll) and/or live data (a bpy.data collection, a name and an optional RNA path, with current values; for a Geometry Nodes modifier, its inputs and which access to them works). Returns the Blender version and the links to the official API docs, manual and Python API release notes of this version. Read only.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "type": {
+      "type": "string",
+      "description": "bpy.types name, e.g. NodesModifier, Strip, GreasePencil, ActionChannelbag."
+    },
+    "operator": {
+      "type": "string",
+      "description": "e.g. sequencer.effect_strip_add."
+    },
+    "data": {
+      "type": "object",
+      "description": "Live data: {collection: \"objects\", name: \"Sol\", path?: 'modifiers[\"Scatter\"]'}."
+    },
+    "match": {
+      "type": "string",
+      "description": "Glob on property and function names."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "At most this many entries (1 to 200).",
+      "default": 60
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/inspect.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

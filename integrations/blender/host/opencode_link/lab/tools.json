@@ -1,0 +1,285 @@
+{
+  "origin": "https://projects.blender.org/lab/blender_mcp",
+  "tag": "v1.0.3",
+  "commit": "2cea8d566dde07fbac28a61d698909d69724e853",
+  "licence": "GPL-3.0-or-later",
+  "tools": [
+    {
+      "name": "get_blendfile_summary_datablocks",
+      "title": "Get Blend-File Data-blocks Summary",
+      "runs": "toolcode",
+      "file": "get_blendfile_summary_datablocks_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_blendfile_summary_missing_files",
+      "title": "Get Blend-File Missing Files Summary",
+      "runs": "toolcode",
+      "file": "get_blendfile_summary_missing_files_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_blendfile_summary_of_linked_libraries",
+      "title": "Get Blend-File Linked Library Summary",
+      "runs": "toolcode",
+      "file": "get_blendfile_summary_of_linked_libraries_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_blendfile_summary_path_info",
+      "title": "Get Blend-File Path Info Summary",
+      "runs": "toolcode",
+      "file": "get_blendfile_summary_path_info_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_blendfile_summary_usage_guess",
+      "title": "Get Blend-File Usage Summary",
+      "runs": "toolcode",
+      "file": "get_blendfile_summary_usage_guess_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_object_detail_summary",
+      "title": "Get Object Detail Summary",
+      "runs": "toolcode",
+      "file": "get_object_detail_summary_toolcode.py",
+      "call_params": ["name"],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "get_objects_summary",
+      "title": "Get Objects Summary",
+      "runs": "toolcode",
+      "file": "get_objects_summary_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": false,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "get_screenshot_of_area_as_image",
+      "title": "Get Area Screenshot",
+      "runs": "toolcode",
+      "file": "get_screenshot_of_area_as_image_toolcode.py",
+      "call_params": ["area_ui_type", "size_limit_in_bytes"],
+      "read_only": true,
+      "interface": true,
+      "deferred": false,
+      "image": true,
+      "args": {
+        "area_ui_type": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "VIEW_3D",
+            "IMAGE_EDITOR",
+            "UV",
+            "ShaderNodeTree",
+            "CompositorNodeTree",
+            "GeometryNodeTree",
+            "TextureNodeTree",
+            "SEQUENCE_EDITOR",
+            "CLIP_EDITOR",
+            "DOPESHEET_EDITOR",
+            "GRAPH_EDITOR",
+            "NLA_EDITOR",
+            "TEXT_EDITOR",
+            "CONSOLE",
+            "INFO",
+            "TOPBAR",
+            "STATUSBAR",
+            "OUTLINER",
+            "PROPERTIES",
+            "FILE_BROWSER",
+            "SPREADSHEET",
+            "PREFERENCES"
+          ]
+        },
+        "size_limit_in_bytes": {
+          "type": "integer",
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "get_screenshot_of_window_as_image",
+      "title": "Get Window Screenshot",
+      "runs": "toolcode",
+      "file": "get_screenshot_of_window_as_image_toolcode.py",
+      "call_params": ["size_limit_in_bytes"],
+      "read_only": true,
+      "interface": true,
+      "deferred": false,
+      "image": true,
+      "args": {
+        "size_limit_in_bytes": {
+          "type": "integer",
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "get_screenshot_of_window_as_json",
+      "title": "Get Screenshot as JSON",
+      "runs": "toolcode",
+      "file": "get_screenshot_of_window_as_json_toolcode.py",
+      "call_params": [],
+      "read_only": true,
+      "interface": true,
+      "deferred": false,
+      "image": false,
+      "args": {}
+    },
+    {
+      "name": "jump_to_tab_by_name",
+      "title": "Switch to Workspace",
+      "runs": "toolcode",
+      "file": "jump_to_tab_by_name_toolcode.py",
+      "call_params": ["name"],
+      "read_only": false,
+      "interface": true,
+      "deferred": false,
+      "image": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "jump_to_tab_by_space_type",
+      "title": "Switch to Matching Workspace",
+      "runs": "toolcode",
+      "file": "jump_to_tab_by_space_type_toolcode.py",
+      "call_params": ["space_type", "allow_edits"],
+      "read_only": false,
+      "interface": true,
+      "deferred": false,
+      "image": false,
+      "args": {
+        "space_type": {
+          "type": "string",
+          "required": true
+        },
+        "allow_edits": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "name": "jump_to_view3d_object_by_name",
+      "title": "Focus on Object",
+      "runs": "toolcode",
+      "file": "jump_to_view3d_object_by_name_toolcode.py",
+      "call_params": ["name", "allow_edits"],
+      "read_only": false,
+      "interface": true,
+      "deferred": false,
+      "image": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "allow_edits": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "name": "jump_to_view3d_object_data_by_name",
+      "title": "Focus on Object Data",
+      "runs": "toolcode",
+      "file": "jump_to_view3d_object_data_by_name_toolcode.py",
+      "call_params": ["name", "allow_edits"],
+      "read_only": false,
+      "interface": true,
+      "deferred": false,
+      "image": false,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "allow_edits": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "name": "render_thumbnail_to_path",
+      "title": "Render Thumbnail to Path",
+      "runs": "toolcode",
+      "file": "render_thumbnail_to_path_toolcode.py",
+      "call_params": ["output_path"],
+      "read_only": false,
+      "interface": false,
+      "deferred": true,
+      "image": false,
+      "args": {
+        "output_path": {
+          "type": "string",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "render_viewport_to_path",
+      "title": "Render Viewport to Path",
+      "runs": "toolcode",
+      "file": "render_viewport_to_path_toolcode.py",
+      "call_params": ["output_path"],
+      "read_only": true,
+      "interface": false,
+      "deferred": true,
+      "image": false,
+      "args": {
+        "output_path": {
+          "type": "string",
+          "required": true
+        }
+      }
+    }
+  ]
+}

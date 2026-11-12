@@ -1,7 +1,7 @@
 {
   "name": "@neuralnomads/opencode-blender",
-  "version": "0.2.0",
-  "description": "OpenCode for Blender: lets OpenCode inspect and edit an open Blender scene through an authenticated local host.",
+  "version": "0.4.0",
+  "description": "OpenCode for Blender: lets OpenCode read and change an open Blender scene through an authenticated local host, with typed edits, inspection, verification renders and background renders.",
   "license": "MIT AND GPL-3.0-or-later",
   "type": "module",
   "keywords": [
@@ -24,8 +24,7 @@
   "files": [
     "dist",
     "methods",
-    "skills",
-    "data",
+    "programs",
     "host",
     "README.md",
     "NOTICE.md",
@@ -61,10 +60,10 @@
     "host": {
       "app": "blender",
       "protocol": 1,
-      "range": "^0.2.0",
-      "appVersions": ">=5.2",
-      "payload": "host/blender/opencode_link-0.2.0.zip",
-      "sha256": "a1f7953fced143835bf162c6b33fc594329fcf28683b68e2f1a3858dc0c0c03e"
+      "range": "^0.4.0",
+      "appVersions": ">=5.3",
+      "payload": "host/blender/opencode_link-0.4.0.zip",
+      "sha256": "51973cb59dc2960b967beb11e5a064a2ff445db1006cdea581224132f5700e16"
     }
   }
 }

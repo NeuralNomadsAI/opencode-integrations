@@ -1,5 +1,6 @@
-// Generated host artifacts: the add-on's catalog.json (from methods/host), its vendored copy of
-// the kit's Python discovery client, and the deterministic payload archive named by the marker.
+// Generated host artifacts: the add-on's vendored copy of the kit's Python discovery client, and the
+// deterministic payload archive named by the marker. The add-on's own files (its catalog.json included)
+// are taken as they are.
 
 import { createHash } from "node:crypto"
 import { readdirSync, readFileSync } from "node:fs"
@@ -9,7 +10,8 @@ import { fileURLToPath } from "node:url"
 import { writeStoredZip } from "../src/zip.ts"
 
 export const pluginRoot = fileURLToPath(new URL("..", import.meta.url))
-export const addonRoot = join(pluginRoot, "..", "host", "opencode_link")
+export const hostRoot = join(pluginRoot, "..", "host")
+export const addonRoot = join(hostRoot, "opencode_link")
 export const kitServicePath = join(
   pluginRoot,
   "..",
@@ -21,8 +23,6 @@ export const kitServicePath = join(
   "opencode_service.py",
 )
 
-type Manifest = { name: string; kind: string; [key: string]: unknown }
-
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]))
@@ -31,37 +31,6 @@ function walk(dir: string): string[] {
 
 function lf(bytes: Buffer): Buffer {
   return Buffer.from(bytes.toString("utf8").replace(/\r\n/g, "\n"), "utf8")
-}
-
-// Fields of a host manifest the add-on needs to validate and run it.
-const HOST_FIELDS = [
-  "name",
-  "description",
-  "undoable",
-  "network",
-  "worker",
-  "sideEffect",
-  "capture",
-  "args",
-  "additionalArgs",
-]
-
-export function catalogBytes(): Buffer {
-  const manifests = walk(join(pluginRoot, "methods", "host"))
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => JSON.parse(readFileSync(file, "utf8")) as Manifest)
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  const pick = (manifest: Manifest) => {
-    const entry: Record<string, unknown> = {}
-    for (const field of HOST_FIELDS) if (manifest[field] !== undefined) entry[field] = manifest[field]
-    entry.execution = { handler: (manifest.execution as { handler: string }).handler }
-    return entry
-  }
-  const catalog = {
-    reads: manifests.filter((manifest) => manifest.kind === "host-read").map(pick),
-    operations: manifests.filter((manifest) => manifest.kind === "host-operation").map(pick),
-  }
-  return Buffer.from(`${JSON.stringify(catalog, null, 2)}\n`, "utf8")
 }
 
 export function serviceBytes(): Buffer {
@@ -75,17 +44,16 @@ export function addonVersion(): string {
   return match[1]
 }
 
-// The add-on files, with the generated files taken from their sources, at the archive root.
+// The add-on files, with the vendored discovery client taken from the kit, at the archive root.
 export function payloadEntries(): Array<{ name: string; data: Buffer }> {
-  const generated = new Map([
-    ["catalog.json", catalogBytes()],
-    ["opencode_service.py", serviceBytes()],
-  ])
   const files = walk(addonRoot)
     .map((file) => relative(addonRoot, file).split(sep).join("/"))
     .filter((name) => !name.split("/").includes("__pycache__") && !name.endsWith(".pyc"))
-  for (const name of generated.keys()) if (!files.includes(name)) files.push(name)
-  return files.sort().map((name) => ({ name, data: generated.get(name) ?? lf(readFileSync(join(addonRoot, name))) }))
+  if (!files.includes("opencode_service.py")) files.push("opencode_service.py")
+  return files.sort().map((name) => ({
+    name,
+    data: name === "opencode_service.py" ? serviceBytes() : lf(readFileSync(join(addonRoot, name))),
+  }))
 }
 
 export function payloadBytes(): Buffer {

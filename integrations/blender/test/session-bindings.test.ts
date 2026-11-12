@@ -18,17 +18,18 @@ const table = () =>
 const content = (result: { content?: unknown }) => JSON.parse(String(result.content))
 
 async function fixture(input: Parameters<typeof loadPlugin>[0] = {}) {
-  const loaded = await loadPlugin({ location: a, sessions: table(), ...input, options: { allowCodeExecution: true } })
+  const loaded = await loadPlugin({ location: a, sessions: table(), ...input })
   const host = await startFakeHost({
     hostVersion: readPackage().version,
+    appVersion: "5.3.0",
     capabilities: {
-      methods: ["hello", "context", "apply", "execute_code"],
+      methods: ["hello", "scene", "apply", "execute_code"],
       operations: [],
       undo: "grouped_best_effort",
       background: false,
     },
     methods: {
-      context: () => ({ results: [] }),
+      scene: () => ({ revision: 0, objects: [] }),
       apply: () => ({ status: "applied" }),
       execute_code: () => ({ ok: true }),
     },
@@ -63,17 +64,13 @@ describe("Blender exact-session RPC and TUI tools", () => {
       assert.deepEqual(await f.loaded.rpc("attachHost", { sessionID: "ses_b", offerID: f.offerID }), {
         outcome: "refused",
       })
-      assert.deepEqual(content(await f.loaded.tool("blender_attach", { offerID: f.offerID }, "ses_b")), {
-        outcome: "refused",
-      })
+      await assert.rejects(f.loaded.tool("blender_hosts", { attach: f.offerID }, "ses_b"), /unverifiable/)
       await assert.rejects(f.loaded.tool("blender_hosts", {}, "ses_b"), /unverifiable/)
       assert.equal(f.loaded.permissions.length, 0)
       assert.deepEqual(await f.loaded.rpc("attachHost", { sessionID: "ses_a", offerID: f.offerID }), {
         outcome: "attached",
       })
-      assert.deepEqual(content(await other.tool("blender_attach", { offerID: f.offerID }, "ses_b")), {
-        outcome: "attached",
-      })
+      assert.equal(content(await other.tool("blender_hosts", { attach: f.offerID }, "ses_b")).attached, "attached")
       const attached = await read(f.loaded, "ses_a")
       assert.equal((attached as { state: string }).state, "attached")
       assert.deepEqual(await read(other, "ses_b"), attached)
@@ -83,16 +80,16 @@ describe("Blender exact-session RPC and TUI tools", () => {
       sessions.set("ses_a", { id: "ses_a", location: b })
       assert.deepEqual(await read(f.loaded, "ses_a"), { state: "unknown" })
       await assert.rejects(f.loaded.rpc("detachHost", { sessionID: "ses_a" }), /unverifiable/)
-      await assert.rejects(f.loaded.tool("blender_detach", {}, "ses_a"), /unverifiable/)
-      await assert.rejects(f.loaded.tool("blender_context", {}, "ses_a"), /No verified application/)
+      await assert.rejects(f.loaded.tool("blender_hosts", { detach: true }, "ses_a"), /unverifiable/)
+      await assert.rejects(f.loaded.tool("blender_context", {}, "ses_a"), /unverifiable/)
       assert.deepEqual(await read(other, "ses_a"), attached, "the same session ID keeps its binding across a move")
       await other.tool("blender_context", {}, "ses_a")
       sessions.delete("ses_a")
       assert.deepEqual(await read(other, "ses_a"), { state: "unknown" })
-      await assert.rejects(other.tool("blender_context", {}, "ses_a"), /No verified application/)
-      assert.deepEqual(content(await other.tool("blender_detach", {}, "ses_b")), { outcome: "detached" })
+      await assert.rejects(other.tool("blender_context", {}, "ses_a"), /unverifiable/)
+      assert.equal(content(await other.tool("blender_hosts", { detach: true }, "ses_b")).detached, "detached")
       assert.equal(((await read(other, "ses_b")) as { state: string }).state, "none")
-      assert.equal(f.host.requests.filter((request) => request.method === "context").length, 3)
+      assert.equal(f.host.requests.filter((request) => request.method === "scene").length, 3)
     } finally {
       await other.cleanup()
       await f.close()
@@ -127,7 +124,7 @@ describe("Blender exact-session RPC and TUI tools", () => {
           outcome: "refused",
         })
         await assert.rejects(f.loaded.rpc("detachHost", { sessionID: "ses_a" }), /unverifiable/)
-        await assert.rejects(f.loaded.tool("blender_context", {}, "ses_a"), /No verified application/)
+        await assert.rejects(f.loaded.tool("blender_context", {}, "ses_a"), /unverifiable/)
         assert.equal(f.loaded.permissions.length, 0)
         assert.deepEqual(
           f.host.requests.map((request) => request.method),
@@ -182,7 +179,7 @@ describe("Blender exact-session RPC and TUI tools", () => {
 })
 
 describe("Blender permission fencing", () => {
-  for (const action of ["attach", "hosts", "network", "code"] as const) {
+  for (const action of ["attach", "code"] as const) {
     for (const mutation of ["label", "revoke", "replace", "retire", "move", "delete"] as const) {
       it(`${action}: ${mutation} while permission is pending never dispatches stale authority`, async () => {
         let enter!: () => void
@@ -200,24 +197,11 @@ describe("Blender permission fencing", () => {
           },
         })
         try {
-          if (action === "network" || action === "code") f.loaded.registry.attach(f.offerID, "ses_a")
+          if (action === "code") f.loaded.registry.attach(f.offerID, "ses_a")
           const pending =
             action === "attach"
-              ? f.loaded.tool("blender_attach", { offerID: f.offerID }, "ses_a")
-              : action === "hosts"
-                ? f.loaded.tool("blender_hosts", {}, "ses_a")
-                : action === "code"
-                  ? f.loaded.tool("blender_execute_code", { script_handle: f.host.scriptHandle, code: "pass" }, "ses_a")
-                  : f.loaded.tool(
-                      "blender_apply",
-                      {
-                        script_handle: f.host.scriptHandle,
-                        if_revision: 0,
-                        command_id: "race",
-                        operations: [{ op: "addons.search_sketchfab_models", args: { query: "chair" } }],
-                      },
-                      "ses_a",
-                    )
+              ? f.loaded.tool("blender_hosts", { attach: f.offerID }, "ses_a")
+              : f.loaded.tool("blender_execute_code", { code: "pass" }, "ses_a")
           // Observe rejection before releasing the deferred permission to avoid unhandled rejections.
           const settled = pending.then(
             (value) => ({ value }),
@@ -232,7 +216,7 @@ describe("Blender permission fencing", () => {
               await f.loaded.rpc("withdraw", { offer_key: f.offer.offer_key, token: f.offer.token })
               break
             case "replace": {
-              const replacement = await startFakeHost({ hostVersion: readPackage().version })
+              const replacement = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
               try {
                 await f.loaded.rpc("advertise", announcement(replacement.endpoint, replacement.scriptHandle))
               } finally {
@@ -252,12 +236,11 @@ describe("Blender permission fencing", () => {
           }
           allow("allow")
           const result = await settled
-          if (action === "attach")
-            assert.deepEqual(content((result as { value: { content: unknown } }).value), { outcome: "refused" })
-          else assert.match(String((result as { error: unknown }).error), /changed|unverifiable/)
+          assert.match(String((result as { error: unknown }).error), /changed|unverifiable/)
+          assert.equal(f.loaded.registry.binding("ses_a")?.offerID === f.offerID && action === "attach", false)
           assert.deepEqual(
             f.loaded.permissions.map((permission) => permission.action),
-            [action === "network" ? "blender_network" : action === "code" ? "blender_execute_code" : "blender_attach"],
+            [action === "code" ? "blender_execute_code" : "blender_attach"],
           )
           assert.deepEqual(
             f.host.requests.map((request) => request.method),
@@ -283,10 +266,7 @@ describe("Blender permission fencing", () => {
     try {
       retire = () => f.loaded.registry.retire()
       f.loaded.registry.attach(f.offerID, "ses_a")
-      await assert.rejects(
-        f.loaded.tool("blender_execute_code", { script_handle: f.host.scriptHandle, code: "pass" }, "ses_a"),
-        /changed/,
-      )
+      await assert.rejects(f.loaded.tool("blender_execute_code", { code: "pass" }, "ses_a"), /changed/)
       assert.equal(reads, 2)
       assert.deepEqual(
         f.host.requests.map((request) => request.method),

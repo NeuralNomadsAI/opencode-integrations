@@ -6,7 +6,7 @@ test("only Blender is publishable, with public access and trusted-publishing met
   const plugin = new URL("../plugin/", import.meta.url)
   const pkg = JSON.parse(readFileSync(new URL("package.json", plugin), "utf8"))
   assert.equal(pkg.name, "@neuralnomads/opencode-blender")
-  assert.equal(pkg.version, "0.2.0")
+  assert.equal(pkg.version, "0.4.0")
   assert.equal(pkg.private, undefined)
   assert.equal(pkg.publishConfig.access, "public")
   assert.equal(pkg.repository.url, "https://github.com/NeuralNomadsAI/opencode-integrations")

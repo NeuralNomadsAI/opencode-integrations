@@ -17,7 +17,7 @@ it("native exact-session binding: two Locations, move, delete, revocation and se
 }, async () => {
   const iso = isolatedRoot("blender-native-binding-")
   let service: Awaited<ReturnType<typeof startPrivateService>> | undefined
-  const host = await startFakeHost({ hostVersion: readPackage().version })
+  const host = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
   try {
     service = await startPrivateService(iso)
     const a = join(iso.root, "location-a")

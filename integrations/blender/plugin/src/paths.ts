@@ -1,4 +1,4 @@
-// Folders the plugin reads: its own package (methods, skills, data, host payload), the OpenCode
+// Folders the plugin reads: its own package (methods, programs, host payload), the OpenCode
 // global configuration (legacy probe only) and Blender's user extensions repository.
 
 import { existsSync, readdirSync } from "node:fs"
@@ -9,11 +9,10 @@ import { fileURLToPath } from "node:url"
 // dist/index.js and src/*.ts both sit one level below the package root.
 export const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 export const methodsDir = join(packageRoot, "methods")
-export const skillsDir = join(packageRoot, "skills")
-export const docsDir = join(packageRoot, "data", "blender_docs")
+export const programsDir = join(packageRoot, "programs")
 
 export const ADDON_ID = "opencode_link"
-export const MIN_BLENDER = [5, 2] as const
+export const MIN_BLENDER = [5, 3] as const
 
 export type PathEnv = { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string }
 
@@ -39,7 +38,7 @@ function versionOf(name: string): [number, number] | null {
   return match ? [Number(match[1]), Number(match[2])] : null
 }
 
-// The user extensions repository of the newest Blender >= 5.2 started on this machine, with that
+// The user extensions repository of the newest Blender >= 5.3 started on this machine, with that
 // version's folder (which proves the inspection even before the repository exists), or null.
 export function defaultExtensionsDir(paths: PathEnv): { dir: string; base: string } | null {
   const root = blenderConfigRoot(paths)

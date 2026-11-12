@@ -61,6 +61,31 @@
       }
     },
     {
+      "name": "animation.get_rig_info",
+      "description": "An armature's bones in world space at the current frame (heads, tails, rotation mode, constrained), the character's forward direction (from foot and toe bones, else the armature's -Y), its scale and actions.",
+      "args": {
+        "armature": {
+          "type": "string",
+          "required": true,
+          "description": "Armature object name."
+        },
+        "bones": {
+          "type": "array",
+          "description": "Bone names to list (default: all, up to limit).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limit": {
+          "type": "integer",
+          "default": 200
+        }
+      },
+      "execution": {
+        "handler": "film.get_rig_info"
+      }
+    },
+    {
       "name": "assets.get_asset_info",
       "description": "Get detailed asset metadata for a local data-block.",
       "args": {
@@ -200,11 +225,167 @@
       }
     },
     {
-      "name": "scene.get_full_scene_hierarchy",
-      "description": "Get the full collection/object hierarchy tree.",
-      "args": {},
+      "name": "scene.capture_view",
+      "description": "An image of objects, a collection or the scene from a direction, or through a camera, drawn off-screen with the 3D Viewport's settings: the user's view, selection, active camera and render settings are not changed and nothing is added to the file. Needs the Blender interface.",
+      "capture": true,
+      "args": {
+        "objects": {
+          "type": "array",
+          "description": "Object names to frame (children included).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collection": {
+          "type": "string"
+        },
+        "scene": {
+          "type": "boolean",
+          "default": false,
+          "description": "Frame every visible object."
+        },
+        "camera": {
+          "type": "string",
+          "description": "Look through this camera object instead of framing."
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "front",
+            "back",
+            "left",
+            "right",
+            "top",
+            "perspective"
+          ],
+          "default": "front"
+        },
+        "width": {
+          "type": "integer",
+          "default": 800
+        },
+        "height": {
+          "type": "integer",
+          "default": 450
+        },
+        "margin": {
+          "type": "number",
+          "default": 1.2,
+          "description": "Framing margin (1: tight)."
+        },
+        "shading": {
+          "type": "string",
+          "enum": [
+            "SOLID",
+            "MATERIAL",
+            "WIREFRAME"
+          ],
+          "default": "SOLID"
+        }
+      },
       "execution": {
-        "handler": "scene.get_full_scene_hierarchy"
+        "handler": "film.capture_view"
+      }
+    },
+    {
+      "name": "scene.contact_sheet",
+      "description": "Frames through their cameras as one image: by default each timeline marker's frame through its bound camera, else the given frames through camera (or the scene camera). Viewport-shaded (material preview with the scene world) or rendered by engine at low samples. The current frame, active camera, render settings and the user's view are restored; an engine render replaces the Render Result.",
+      "capture": true,
+      "args": {
+        "frames": {
+          "type": "array",
+          "description": "Frames to show (1 to 36); default: the timeline markers bound to cameras.",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "camera": {
+          "type": "string",
+          "description": "Camera object for frames (default: the scene camera)."
+        },
+        "width": {
+          "type": "integer",
+          "default": 480,
+          "description": "Width of each tile; the height follows the render aspect."
+        },
+        "columns": {
+          "type": "integer",
+          "default": 3
+        },
+        "shading": {
+          "type": "string",
+          "enum": [
+            "SOLID",
+            "MATERIAL",
+            "WIREFRAME"
+          ],
+          "default": "MATERIAL"
+        },
+        "scene_world": {
+          "type": "boolean",
+          "default": true,
+          "description": "Material preview with the scene world and lights."
+        },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "workbench",
+            "eevee",
+            "cycles"
+          ],
+          "description": "Render with this engine instead of the viewport (the default in the background is workbench)."
+        },
+        "samples": {
+          "type": "integer",
+          "default": 16,
+          "description": "EEVEE or Cycles samples for engine renders."
+        }
+      },
+      "execution": {
+        "handler": "film.contact_sheet"
+      }
+    },
+    {
+      "name": "scene.get_evaluated_bounds",
+      "description": "World bounding boxes of the evaluated geometry (armature deformation, modifiers and instances included) of objects, their hierarchies, a collection or the whole scene, with their union and its floor height.",
+      "args": {
+        "objects": {
+          "type": "array",
+          "description": "Object names; their children are included unless children is false.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "collection": {
+          "type": "string",
+          "description": "Collection name (all its objects, nested ones included)."
+        },
+        "children": {
+          "type": "boolean",
+          "default": true
+        },
+        "scene": {
+          "type": "boolean",
+          "default": false,
+          "description": "Every visible object of the view layer."
+        },
+        "visible_only": {
+          "type": "boolean",
+          "default": true
+        },
+        "exact": {
+          "type": "boolean",
+          "default": false,
+          "description": "Measure mesh vertices instead of bounding-box corners (slower, tighter)."
+        },
+        "limit": {
+          "type": "integer",
+          "default": 50,
+          "description": "Per-object boxes listed, largest first."
+        }
+      },
+      "execution": {
+        "handler": "film.get_evaluated_bounds"
       }
     },
     {
@@ -229,20 +410,6 @@
       }
     },
     {
-      "name": "scene.get_object_info",
-      "description": "Read detailed information for one Blender object.",
-      "args": {
-        "name": {
-          "type": "string",
-          "required": true,
-          "description": "Exact Blender object name."
-        }
-      },
-      "execution": {
-        "handler": "scene.get_object_info"
-      }
-    },
-    {
       "name": "scene.get_object_modifiers",
       "description": "Get detailed modifier info for an object.",
       "args": {
@@ -261,21 +428,6 @@
       "args": {},
       "execution": {
         "handler": "scene.get_scene_info"
-      }
-    },
-    {
-      "name": "scene.get_viewport_screenshot",
-      "description": "Capture the 3D viewport; the image comes back as an attachment (interface only).",
-      "capture": true,
-      "args": {
-        "max_size": {
-          "type": "integer",
-          "description": "Optional maximum image dimension in pixels.",
-          "default": 800
-        }
-      },
-      "execution": {
-        "handler": "scene.get_viewport_screenshot"
       }
     },
     {
@@ -425,10 +577,10 @@
     },
     {
       "name": "addons.import_blenderkit_asset",
-      "description": "Start importing a BlenderKit asset through the installed addon.",
+      "description": "Import a BlenderKit asset through the installed add-on, as a task to follow with blender_tasks until the asset is in the file (created datablocks with native references). One undo step; the file is marked modified.",
       "undoable": false,
       "network": true,
-      "sideEffect": "Downloads from BlenderKit; the import finishes asynchronously.",
+      "sideEffect": "Downloads from BlenderKit; the import finishes in a task (blender_tasks).",
       "args": {
         "asset_base_id": {
           "type": "string"
@@ -528,10 +680,10 @@
     },
     {
       "name": "addons.import_sketchfab_model",
-      "description": "Start importing a Sketchfab model through the installed addon.",
+      "description": "Import a Sketchfab model with the Sketchfab add-on's logged-in account, as a task to follow with blender_tasks: download progress, the error that stops it (not downloadable, login expired), and the created objects with native references. One undo step; the file is marked modified.",
       "undoable": false,
       "network": true,
-      "sideEffect": "Downloads from Sketchfab; the import finishes asynchronously.",
+      "sideEffect": "Downloads from Sketchfab; the import finishes in a task (blender_tasks).",
       "args": {
         "uid": {
           "type": "string",
@@ -617,6 +769,108 @@
       }
     },
     {
+      "name": "animation.aim_bone",
+      "description": "Rotate a pose bone so one of its axes (Y: head to tail) points along a world direction, optionally keyed at a frame. Works from world matrices, whatever the bone axes, rotation mode and armature scale; returns the rotation written, its quaternion and the alignment (1 = exact). A bone with active constraints or locked rotation channels is refused before anything changes.",
+      "undoable": true,
+      "args": {
+        "armature": {
+          "type": "string",
+          "required": true,
+          "description": "Armature object name."
+        },
+        "bone": {
+          "type": "string",
+          "required": true,
+          "description": "Pose bone name."
+        },
+        "direction": {
+          "type": "array",
+          "description": "World direction [x, y, z] to aim at (normalised).",
+          "items": {
+            "type": "number"
+          },
+          "required": true
+        },
+        "axis": {
+          "type": "string",
+          "enum": [
+            "Y",
+            "-Y",
+            "X",
+            "-X",
+            "Z",
+            "-Z"
+          ],
+          "default": "Y",
+          "description": "Bone axis to aim."
+        },
+        "frame": {
+          "type": "integer",
+          "description": "Pose at this frame and insert a rotation keyframe there; the current frame is restored."
+        }
+      },
+      "execution": {
+        "handler": "film.aim_bone",
+        "preflight": "film.preflight_aim_bone"
+      }
+    },
+    {
+      "name": "animation.attach_to_bone",
+      "description": "Make an object (a prop, a camera target) follow a bone with a Child Of constraint named OpenCode Attach, without the armature's scale by default: offset (metres) and rotation (radians, XYZ) are in the bone's axes from its head or tail, and the object keeps its size. With keep_world, it stays where it is and follows from there. Returns the world location and the residual error.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Object to attach (it must have no parent)."
+        },
+        "armature": {
+          "type": "string",
+          "required": true
+        },
+        "bone": {
+          "type": "string",
+          "required": true
+        },
+        "offset": {
+          "type": "array",
+          "description": "Offset [x, y, z] in metres, in the bone's axes.",
+          "items": {
+            "type": "number"
+          }
+        },
+        "rotation": {
+          "type": "array",
+          "description": "Rotation [x, y, z] in radians, in the bone's axes.",
+          "items": {
+            "type": "number"
+          }
+        },
+        "at": {
+          "type": "string",
+          "enum": [
+            "head",
+            "tail"
+          ],
+          "default": "head"
+        },
+        "inherit_scale": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also inherit the armature's scale."
+        },
+        "keep_world": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep the object where it is."
+        }
+      },
+      "execution": {
+        "handler": "rigging.attach_to_bone",
+        "preflight": "rigging.preflight_attach_to_bone"
+      }
+    },
+    {
       "name": "animation.create_turntable_animation",
       "description": "Create a simple turntable rotation animation on an object.",
       "undoable": true,
@@ -648,6 +902,60 @@
       },
       "execution": {
         "handler": "animation.create_turntable_animation"
+      }
+    },
+    {
+      "name": "animation.edit_keyframes",
+      "description": "Delete, or move by offset frames, the existing keys between frame_start and frame_end of an object's keyed channels in Blender 5's layered actions (through the object's action slot): all channels, one data_path (and index), or those of one bone. Moving onto an existing key is refused. Returns the keys changed per channel.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Animated object (an armature for bone channels)."
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "delete",
+            "move"
+          ],
+          "required": true
+        },
+        "frame_start": {
+          "type": "number",
+          "required": true
+        },
+        "frame_end": {
+          "type": "number",
+          "required": true
+        },
+        "offset": {
+          "type": "number",
+          "default": 0,
+          "description": "Frames to move by (move)."
+        },
+        "data_path": {
+          "type": "string",
+          "description": "e.g. location, rotation_quaternion (relative to the bone when bone is set)."
+        },
+        "index": {
+          "type": "integer",
+          "description": "Channel index (0 = X or W)."
+        },
+        "bone": {
+          "type": "string",
+          "description": "Only this bone's channels."
+        },
+        "remove_empty": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove a channel left without keys."
+        }
+      },
+      "execution": {
+        "handler": "rigging.edit_keyframes",
+        "preflight": "rigging.preflight_edit_keyframes"
       }
     },
     {
@@ -754,6 +1062,38 @@
       }
     },
     {
+      "name": "assets.import_file",
+      "description": "Import a model (glTF/GLB, FBX, OBJ, USD) from a local file, at once, or from an https:// URL, as a task to follow with blender_tasks (download up to max_mb, archives unpacked). The task lists the created objects and collections with native references; the import is one undo step and marks the file modified.",
+      "undoable": false,
+      "network": true,
+      "sideEffect": "Imports a model; an https:// source is downloaded first.",
+      "args": {
+        "source": {
+          "type": "string",
+          "required": true,
+          "description": "A .glb, .gltf, .fbx, .obj or .usd/.usda/.usdc/.usdz file path, or an https:// URL (a .zip is unpacked)."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "gltf",
+            "fbx",
+            "obj",
+            "usd"
+          ],
+          "description": "Only when the extension does not tell."
+        },
+        "max_mb": {
+          "type": "integer",
+          "default": 512,
+          "description": "Download limit in MB (at most 4096)."
+        }
+      },
+      "execution": {
+        "handler": "imports.import_file"
+      }
+    },
+    {
       "name": "assets.mark_asset",
       "description": "Mark a local data-block as an asset and update its metadata.",
       "undoable": true,
@@ -785,6 +1125,61 @@
       },
       "execution": {
         "handler": "assets.mark_asset"
+      }
+    },
+    {
+      "name": "entity.create",
+      "description": "Native plan intent: create a collection, an object (existing data or none), a host bmesh primitive (object and mesh) or a node in a Geometry/Shader tree, from a recipe listed by describe. The exact name must be free; the creation is bound to a batch alias.",
+      "undoable": true,
+      "args": {
+        "recipe": {
+          "type": "string",
+          "required": true,
+          "description": "Recipe identifier from describe: collection, object, primitive:<NAME> or node:<NodeType>."
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact name; never suffixed silently."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Node recipes only: reference of the owner node tree."
+        },
+        "data": {
+          "type": "string",
+          "description": "Object recipe only: reference of existing object data; omit for an Empty."
+        },
+        "bind": {
+          "type": "string",
+          "required": true,
+          "description": "Batch alias; later intents of the same apply reference it as $alias."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
+      }
+    },
+    {
+      "name": "entity.rename",
+      "description": "Native plan intent: rename a collection, object, node, node group or scene; the reference keeps its identity and the name must be free.",
+      "undoable": true,
+      "args": {
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias."
+        },
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Exact new name."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
       }
     },
     {
@@ -1072,6 +1467,194 @@
       }
     },
     {
+      "name": "object.parent",
+      "description": "Native plan intent: parent an object to another object, or clear its parent with null, keeping its world transform at the current frame.",
+      "undoable": true,
+      "args": {
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias of the object."
+        },
+        "parent": {
+          "type": "any",
+          "required": true,
+          "description": "Reference or $alias of the parent object, or null."
+        },
+        "keep_world": {
+          "type": "boolean",
+          "required": true,
+          "description": "Must be true."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
+      }
+    },
+    {
+      "name": "property.set",
+      "description": "Native plan intent: set a property that describe marks writable, by its published RNA identifier; the value is validated against its type, shape, enum and bounds.",
+      "undoable": true,
+      "args": {
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias."
+        },
+        "property": {
+          "type": "string",
+          "required": true,
+          "description": "Published RNA identifier; never a path or a call."
+        },
+        "value": {
+          "type": "any",
+          "required": true,
+          "description": "JSON value of the property's type and shape."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
+      }
+    },
+    {
+      "name": "relation.link",
+      "description": "Native plan intent: add one collection edge (children or objects) that is absent; every other membership stays.",
+      "undoable": true,
+      "args": {
+        "owner": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias of the collection, including a scene root collection."
+        },
+        "relation": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "children",
+            "objects"
+          ],
+          "description": "Edge kind."
+        },
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias of the child collection or object."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
+      }
+    },
+    {
+      "name": "relation.unlink",
+      "description": "Native plan intent: remove one existing collection edge; a move is link then unlink.",
+      "undoable": true,
+      "args": {
+        "owner": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias of the collection."
+        },
+        "relation": {
+          "type": "string",
+          "required": true,
+          "enum": [
+            "children",
+            "objects"
+          ],
+          "description": "Edge kind."
+        },
+        "target": {
+          "type": "string",
+          "required": true,
+          "description": "Reference or $alias of the child collection or object."
+        }
+      },
+      "execution": {
+        "strategy": "native_plan",
+        "method": "apply"
+      }
+    },
+    {
+      "name": "render.render_animation",
+      "description": "Render the scene's animation in a separate background Blender, as a task to follow with blender_tasks (frames done and total, the frame and samples being rendered, seconds per frame, errors of the render log; cancel with blender_tasks cancel). It reads the file as saved on disk with the file's own render settings; resolution_percentage, samples and engine override them only when passed, in the render only. The task result states the settings used and the overrides. With unsaved changes it is refused (the saved file has older settings), unless unsaved is save (save first) or copy (render a working copy of the current state). Frames are PNG files in output (see output; the result names the folder and frame_files), whatever the file's own output settings; video encodes them as an H.264 MP4. The open document is not changed, and the render goes on if Blender is closed or OpenCode Link reloaded.",
+      "undoable": false,
+      "sideEffect": "Starts a separate Blender that writes PNG frames (and an MP4) to the output folder; the open document is not changed.",
+      "args": {
+        "frame_start": {
+          "type": "integer",
+          "description": "Default: the scene's start frame."
+        },
+        "frame_end": {
+          "type": "integer",
+          "description": "Default: the scene's end frame."
+        },
+        "output": {
+          "type": "string",
+          "description": "A folder for the frames (f_####.png), or a path ending in a frame pattern such as renders/shot_####: the folder is its directory and the # run is the frame number, zero-padded to its length. Default: renders/<file>-<time> beside the file. Refused if it already holds those frames."
+        },
+        "unsaved": {
+          "type": "string",
+          "enum": [
+            "refuse",
+            "save",
+            "copy"
+          ],
+          "default": "refuse",
+          "description": "With unsaved changes: refuse, save the file first, or render a working copy of the current state."
+        },
+        "resolution_percentage": {
+          "type": "integer",
+          "description": "1 to 100; only when passed, in the render only (default: the file's)."
+        },
+        "samples": {
+          "type": "integer",
+          "description": "Cycles or EEVEE samples; only when passed, in the render only (default: the file's)."
+        },
+        "engine": {
+          "type": "string",
+          "enum": [
+            "workbench",
+            "eevee",
+            "cycles"
+          ],
+          "description": "Render engine; only when passed, in the render only (default: the file's)."
+        },
+        "video": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also encode the frames as <output>/<file>.mp4 (H.264)."
+        },
+        "fps": {
+          "type": "number",
+          "description": "Video frame rate (default: the scene's)."
+        },
+        "quality": {
+          "type": "string",
+          "enum": [
+            "LOWEST",
+            "VERYLOW",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "PERC_LOSSLESS",
+            "LOSSLESS"
+          ],
+          "default": "HIGH"
+        },
+        "scene": {
+          "type": "string",
+          "description": "Scene to render (default: the active one)."
+        }
+      },
+      "execution": {
+        "handler": "render.render_animation"
+      }
+    },
+    {
       "name": "scene.create_object",
       "description": "Create a primitive, camera, light, or empty in the active scene.",
       "undoable": true,
@@ -1125,6 +1708,76 @@
       }
     },
     {
+      "name": "scene.duplicate_hierarchy",
+      "description": "Copy an object with all its children, as for a second character from a rigged import: object data copied (the armature too), parents, Armature modifiers and constraints that point inside the hierarchy rewired to the copies, actions copied (each copy animates on its own), linked (shared) or none (detached); moved by offset in metres. Returns the copies' names.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Root object (an armature or the import's top object)."
+        },
+        "actions": {
+          "type": "string",
+          "enum": [
+            "copy",
+            "link",
+            "none"
+          ],
+          "default": "copy"
+        },
+        "offset": {
+          "type": "array",
+          "description": "World offset [x, y, z] in metres for the copy.",
+          "items": {
+            "type": "number"
+          }
+        },
+        "collection": {
+          "type": "string",
+          "description": "Collection for the copies (default: the originals' collections)."
+        },
+        "suffix": {
+          "type": "string",
+          "description": "Appended to each copied name (default: Blender's .001 numbering)."
+        }
+      },
+      "execution": {
+        "handler": "rigging.duplicate_hierarchy",
+        "preflight": "rigging.preflight_duplicate_hierarchy"
+      }
+    },
+    {
+      "name": "scene.place_on_ground",
+      "description": "Scale an object with its children about its origin to a height in metres, and put its lowest point at z = 0, measured on the evaluated geometry (armature deformation and modifiers included). Returns the factor, the move and the bounds before and after.",
+      "undoable": true,
+      "args": {
+        "name": {
+          "type": "string",
+          "required": true,
+          "description": "Object to scale and move (its children follow)."
+        },
+        "height": {
+          "type": "number",
+          "description": "Target height in metres; omitted: no scaling."
+        },
+        "ground": {
+          "type": "boolean",
+          "default": true,
+          "description": "Put the lowest point at z = 0."
+        },
+        "children": {
+          "type": "boolean",
+          "default": true,
+          "description": "Measure the children too."
+        }
+      },
+      "execution": {
+        "handler": "rigging.place_on_ground",
+        "preflight": "rigging.preflight_place_on_ground"
+      }
+    },
+    {
       "name": "scene.set_active_camera",
       "description": "Set the active render camera for the current scene.",
       "undoable": true,
@@ -1141,7 +1794,7 @@
     },
     {
       "name": "scene.transform_object",
-      "description": "Update an object's location, Euler rotation, and or scale.",
+      "description": "Update an object's location, rotation, and or scale. The rotation is given as Euler XYZ and written to the channel the object's rotation mode uses (converted to a quaternion, axis-angle or another Euler order); the result says which.",
       "undoable": true,
       "args": {
         "name": {
@@ -1158,7 +1811,7 @@
         },
         "rotation": {
           "type": "array",
-          "description": "Optional Euler rotation in radians as [x, y, z].",
+          "description": "Optional Euler XYZ rotation in radians as [x, y, z], converted to the object's rotation mode.",
           "items": {
             "type": "number"
           }

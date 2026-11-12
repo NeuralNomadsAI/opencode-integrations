@@ -1,0 +1,705 @@
+{
+  "addon": "opencode_link",
+  "version": "0.4.0",
+  "protocol": 1,
+  "method": "apply",
+  "wire": "params.operations: [{op, args}] with every op below (an edit batch); unknown ops and fields are refused",
+  "null": "any field given null counts as absent (its default applies; a required one is missing)",
+  "limits": {
+    "operations": 50,
+    "name_bytes": 255,
+    "max_frame": 1048574
+  },
+  "kinds": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "x-maxUtf8Bytes": 255,
+      "x-noNul": true
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "x-maxUtf8Bytes": 255,
+      "x-noNul": true,
+      "description": "an object name, or $alias of an object created or copied earlier in the batch ($ then an alias: ^[A-Za-z_][A-Za-z0-9_]{0,127}$)"
+    },
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+    },
+    "number": {
+      "type": "number",
+      "x-finite": true
+    },
+    "positive": {
+      "type": "number",
+      "x-finite": true,
+      "exclusiveMinimum": 0
+    },
+    "nonnegative": {
+      "type": "number",
+      "x-finite": true,
+      "minimum": 0
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "x-noNul": true
+    },
+    "bool": {
+      "type": "boolean"
+    },
+    "frame": {
+      "type": "number",
+      "x-finite": true,
+      "minimum": -1048574,
+      "maximum": 1048574
+    },
+    "whole_frame": {
+      "type": "integer",
+      "x-finite": true,
+      "minimum": -1048574,
+      "maximum": 1048574,
+      "description": "a whole number (2.0 is accepted as 2)"
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "x-finite": true,
+        "minimum": -1048574,
+        "maximum": 1048574
+      },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[first, last], first <= last"
+    },
+    "vec3": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "x-finite": true
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "rgb": {
+      "type": "array",
+      "items": {
+        "type": "number",
+        "x-finite": true,
+        "minimum": 0
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "linear RGB"
+    },
+    "scale": {
+      "oneOf": [
+        {
+          "type": "number",
+          "x-finite": true
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      ],
+      "description": "one number for all three axes, or three"
+    },
+    "rotation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "euler_deg"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "euler_deg": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "x-finite": true
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "order": {
+              "enum": [
+                "XYZ",
+                "XZY",
+                "YXZ",
+                "YZX",
+                "ZXY",
+                "ZYX"
+              ],
+              "default": "XYZ"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "quaternion"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "quaternion": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "x-finite": true
+              },
+              "minItems": 4,
+              "maxItems": 4,
+              "description": "w, x, y, z; not all 0"
+            }
+          }
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "exactly one of point, object, direction; bone only with object; direction not 0",
+      "properties": {
+        "point": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "object": {
+          "$ref": "#/kinds/ref"
+        },
+        "bone": {
+          "type": "string",
+          "minLength": 1,
+          "x-maxUtf8Bytes": 255,
+          "x-noNul": true
+        },
+        "direction": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/kinds/ref"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "location",
+          "rotation",
+          "scale"
+        ]
+      },
+      "minItems": 1
+    }
+  },
+  "ops": {
+    "set_transform": {
+      "description": "Location, rotation (written in the object's own rotation mode) and scale; delta adds the location.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "location": {
+          "kind": "vec3"
+        },
+        "rotation": {
+          "kind": "rotation"
+        },
+        "scale": {
+          "kind": "scale"
+        },
+        "delta": {
+          "kind": "bool",
+          "default": false
+        }
+      },
+      "rules": [
+        "give location, rotation or scale"
+      ]
+    },
+    "fit_height": {
+      "description": "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put the lowest point at ground_z, measured on the evaluated geometry; without height nothing is scaled.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "height": {
+          "kind": "number"
+        },
+        "ground": {
+          "kind": "bool",
+          "default": true
+        },
+        "ground_z": {
+          "kind": "number",
+          "default": 0.0
+        },
+        "children": {
+          "kind": "bool",
+          "default": true
+        },
+        "scale_axes": {
+          "enum": [
+            "z",
+            "uniform"
+          ],
+          "default": "z"
+        }
+      },
+      "rules": [
+        "give height or ground true",
+        "height above 0"
+      ]
+    },
+    "pose_bone": {
+      "description": "A pose bone's location, rotation (in the bone's rotation mode) and scale.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name",
+          "required": true
+        },
+        "location": {
+          "kind": "vec3"
+        },
+        "rotation": {
+          "kind": "rotation"
+        },
+        "scale": {
+          "kind": "scale"
+        }
+      },
+      "rules": [
+        "give location, rotation or scale"
+      ]
+    },
+    "aim_bone": {
+      "description": "Rotate a pose bone about its head so its axis points at a point, an object (or one of its bones) or along a world direction; reports error_deg and refuses a miss above tolerance_deg.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name",
+          "required": true
+        },
+        "target": {
+          "kind": "target",
+          "required": true
+        },
+        "axis": {
+          "enum": [
+            "Y",
+            "-Y",
+            "X",
+            "-X",
+            "Z",
+            "-Z"
+          ],
+          "default": "Y"
+        },
+        "tolerance_deg": {
+          "kind": "number"
+        }
+      }
+    },
+    "insert_key": {
+      "description": "Key the current location, rotation and/or scale of an object or pose bone at a frame.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "paths": {
+          "kind": "paths",
+          "required": true
+        },
+        "frame": {
+          "kind": "frame",
+          "required": true
+        },
+        "interpolation": {
+          "enum": [
+            "CONSTANT",
+            "LINEAR",
+            "BEZIER"
+          ]
+        }
+      }
+    },
+    "create_object": {
+      "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height. Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
+      "args": {
+        "kind": {
+          "enum": [
+            "empty",
+            "camera",
+            "light",
+            "mesh",
+            "text"
+          ],
+          "required": true
+        },
+        "name": {
+          "kind": "name",
+          "required": true
+        },
+        "as": {
+          "kind": "alias"
+        },
+        "primitive": {
+          "enum": [
+            "cube",
+            "plane",
+            "uv_sphere",
+            "cylinder"
+          ]
+        },
+        "size": {
+          "kind": "positive"
+        },
+        "light_type": {
+          "enum": [
+            "POINT",
+            "SUN",
+            "SPOT",
+            "AREA"
+          ]
+        },
+        "energy": {
+          "kind": "number"
+        },
+        "lens": {
+          "kind": "number"
+        },
+        "body": {
+          "kind": "text"
+        },
+        "extrude": {
+          "kind": "nonnegative"
+        },
+        "align_x": {
+          "enum": [
+            "LEFT",
+            "CENTER",
+            "RIGHT",
+            "JUSTIFY",
+            "FLUSH"
+          ]
+        },
+        "align_y": {
+          "enum": [
+            "TOP",
+            "TOP_BASELINE",
+            "CENTER",
+            "BOTTOM_BASELINE",
+            "BOTTOM"
+          ]
+        },
+        "location": {
+          "kind": "vec3"
+        },
+        "rotation": {
+          "kind": "rotation"
+        },
+        "collection": {
+          "kind": "name"
+        },
+        "parent": {
+          "kind": "ref"
+        }
+      },
+      "rules": [
+        "primitive and size apply to a mesh; light_type and energy to a light; lens to a camera; body, size, extrude, align_x and align_y to a text",
+        "a text needs body"
+      ]
+    },
+    "rename": {
+      "description": "Rename an object.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "name": {
+          "kind": "name",
+          "required": true
+        }
+      }
+    },
+    "delete": {
+      "description": "Delete objects: their names are free for the batch's later operations at once (and their data's when only they used it); they leave the document when the batch succeeds.",
+      "args": {
+        "refs": {
+          "kind": "refs",
+          "required": true
+        }
+      }
+    },
+    "duplicate": {
+      "description": "Copy an object with its whole hierarchy (children false: alone) into the same collections, moved by offset in world space. linked shares the data (Blender's Alt+D), otherwise each copy gets its own (Shift+D); materials and actions stay shared. name names the copy of ref, suffix is added to every copy's original name (Blender's .001 otherwise); as names the copy of ref $alias.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "as": {
+          "kind": "alias"
+        },
+        "name": {
+          "kind": "name"
+        },
+        "suffix": {
+          "kind": "name"
+        },
+        "offset": {
+          "kind": "vec3"
+        },
+        "linked": {
+          "kind": "bool",
+          "default": false
+        },
+        "children": {
+          "kind": "bool",
+          "default": true
+        }
+      },
+      "rules": [
+        "name, suffix and as apply to the copy of ref (suffix to every copy)"
+      ]
+    },
+    "set_material": {
+      "description": "Assign a material to an object's slot, creating it (Principled BSDF) when no material has that name; color (linear RGB, also the viewport colour), roughness and metallic set its Principled BSDF, also on an existing material. Without slot: its only slot (added when it has none); slot equal to the number of slots adds one.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "material": {
+          "kind": "name",
+          "required": true
+        },
+        "color": {
+          "kind": "rgb"
+        },
+        "roughness": {
+          "kind": "nonnegative"
+        },
+        "metallic": {
+          "kind": "nonnegative"
+        },
+        "slot": {
+          "kind": "index"
+        }
+      },
+      "rules": [
+        "color, roughness and metallic are optional: without them an existing material is only assigned"
+      ]
+    },
+    "scene_settings": {
+      "description": "The scene's frame range, current frame (animation evaluated there) and frames per second (a fractional rate such as 23.976 sets fps and fps_base).",
+      "args": {
+        "frame_start": {
+          "kind": "whole_frame"
+        },
+        "frame_end": {
+          "kind": "whole_frame"
+        },
+        "frame_current": {
+          "kind": "whole_frame"
+        },
+        "fps": {
+          "kind": "positive"
+        }
+      },
+      "rules": [
+        "give at least one field",
+        "frame_start at most frame_end when both are given; one alone may not cross the scene's other end (refused, never pushed)"
+      ]
+    },
+    "shift_keys": {
+      "description": "Move the keys of an object (or one pose bone) in frames [first, last] (all without frames) by offset frames, handles included, or delete them; paths narrows them to location, rotation and/or scale. The keys of its action's slot (Blender 5 layered actions).",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "paths": {
+          "kind": "paths"
+        },
+        "frames": {
+          "kind": "frames"
+        },
+        "offset": {
+          "kind": "number"
+        },
+        "delete": {
+          "kind": "bool",
+          "default": false
+        }
+      },
+      "rules": [
+        "give offset (not 0) or delete true, not both",
+        "frames is [first, last] with first at most last",
+        "a key may not land on a key that does not move (refused)"
+      ]
+    },
+    "link": {
+      "description": "Link an object into a collection.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "collection": {
+          "kind": "name",
+          "required": true
+        }
+      }
+    },
+    "unlink": {
+      "description": "Unlink an object from a collection (never from its last one: use delete).",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "collection": {
+          "kind": "name",
+          "required": true
+        }
+      }
+    },
+    "create_collection": {
+      "description": "A new collection, in parent or the scene's.",
+      "args": {
+        "name": {
+          "kind": "name",
+          "required": true
+        },
+        "parent": {
+          "kind": "name"
+        }
+      }
+    },
+    "set_parent": {
+      "description": "Parent an object (to a bone with bone), or clear its parent without parent; keeps its world transform.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "parent": {
+          "kind": "ref"
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "keep_transform": {
+          "kind": "bool",
+          "default": true
+        }
+      },
+      "rules": [
+        "bone needs parent"
+      ]
+    },
+    "add_marker": {
+      "description": "A timeline marker, optionally bound to a camera.",
+      "args": {
+        "name": {
+          "kind": "name",
+          "required": true
+        },
+        "frame": {
+          "kind": "frame",
+          "required": true
+        },
+        "camera": {
+          "kind": "ref"
+        }
+      }
+    },
+    "set_camera": {
+      "description": "Make a camera the scene's active camera.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        }
+      }
+    },
+    "add_constraint": {
+      "description": "An object constraint targeting an object (subtarget: one of its bones).",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "type": {
+          "enum": [
+            "TRACK_TO",
+            "DAMPED_TRACK",
+            "COPY_LOCATION",
+            "COPY_ROTATION",
+            "CHILD_OF"
+          ],
+          "required": true
+        },
+        "target": {
+          "kind": "ref",
+          "required": true
+        },
+        "subtarget": {
+          "kind": "name"
+        },
+        "name": {
+          "kind": "name"
+        }
+      }
+    }
+  }
+}
