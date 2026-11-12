@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { it } from "node:test"
-import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { startFakeHost } from "../../../packages/testing/src/index.ts"
 import { installHost } from "../plugin/src/host-install.ts"
 import { readPackage, resultContent } from "../plugin/src/integration.ts"
 import { packageRoot, stateRoot } from "../plugin/src/paths.ts"

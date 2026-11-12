@@ -13,10 +13,10 @@
   "scripts": {
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/conformance && tsc -p scripts && tsc -p integrations/affinity/plugin && tsc -p integrations/blender/plugin && tsc -p integrations/gaffer/plugin && tsc -p integrations/houdini/plugin && tsc -p integrations/m365/plugin && tsc -p integrations/resolve/plugin",
+    "typecheck": "tsc -b packages/integration-kit && tsc -p packages/integration-kit/test && tsc -p packages/testing && tsc -p scripts && tsc -p integrations/affinity/plugin && tsc -p integrations/blender/plugin && tsc -p integrations/gaffer/plugin && tsc -p integrations/houdini/plugin && tsc -p integrations/m365/plugin && tsc -p integrations/resolve/plugin",
     "build": "npm run build --workspaces --if-present",
     "test": "node --test \"packages/*/test/**/*.test.ts\" \"scripts/test/**/*.test.ts\" \"integrations/*/test/**/*.test.ts\"",
-    "check:markers": "node packages/conformance/src/cli.ts",
+    "check:markers": "node packages/testing/src/cli.ts",
     "scan": "node scripts/trace-scan.ts --tree --packs",
     "scan:history": "node scripts/trace-scan.ts --history",
     "npm:bootstrap": "node scripts/npm-bootstrap.ts"

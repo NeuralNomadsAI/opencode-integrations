@@ -46,7 +46,7 @@ describe("generated host artifacts", () => {
   })
 })
 
-describe("licences and content (PKG-10)", () => {
+describe("licences and content", () => {
   it("the GPL parts say so; the plugin is MIT; no Blender documentation is bundled", () => {
     const pkg = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8")) as {
       license: string

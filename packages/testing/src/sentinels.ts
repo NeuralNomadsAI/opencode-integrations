@@ -1,14 +1,13 @@
-// No secret in RPC outputs or events (spec/rpc-contract.md, RPC-6): a fake host
+// No secret in RPC outputs or events: a fake host
 // advertises known sentinel values, the native contract runs end to end, and
 // no output nor any event contains one. Only hello, between the plugin and
 // its host, carries them. The fake host also puts its script handle in its
 // document label and its port in its application version, which a plugin
-// must not copy into `hosts`, `status` or exact-session `bindingRead` results.
+// keeps out of `hosts`, `status` and exact-session `bindingRead` results.
 
 import { randomBytes } from "node:crypto"
 
-import { checkEventPayload, checkRpcOutput } from "./contract.ts"
-import { startFakeHost } from "./host.ts"
+import { startFakeHost } from "./fake-host.ts"
 
 export type ContractTarget = {
   call(method: string, input: unknown): Promise<unknown>
@@ -79,7 +78,6 @@ export async function runSentinelScenario(
       output = { thrown: String((error as Error)?.message ?? error) }
     }
     transcript.push({ step: name, output })
-    if (method !== "status") errors.push(...checkRpcOutput(method, output))
     return output as Record<string, unknown>
   }
   const announcement = {
@@ -127,7 +125,7 @@ export async function runSentinelScenario(
       errors.push(`${entry.step}: the output contains the ${found}`)
   }
   for (const event of target.events) {
-    errors.push(...checkEventPayload(event.name, event.data))
+    if (JSON.stringify(event.data) !== "{}") errors.push(`event ${event.name}: carries a payload`)
     for (const found of findSentinels({ name: event.name, data: event.data }, sentinels)) {
       errors.push(`event ${event.name}: contains the ${found}`)
     }

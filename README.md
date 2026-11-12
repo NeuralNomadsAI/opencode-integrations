@@ -4,7 +4,7 @@ OpenCode integrations connect [OpenCode](https://opencode.ai) to third-party app
 
 Integrations work in **every OpenCode client**: the terminal UI, the desktop app and [CodeNomad](https://github.com/NeuralNomadsAI/CodeNomad). CodeNomad gives the best experience (a catalog, per-integration status, one-click host install and attaching an open application to a conversation), but no integration depends on it.
 
-> **Status: draft 0.2 (`spec: 0`, RPC contract 1).** The specification and the packages are previews. Nothing is published to npm yet.
+> **Status: preview (`spec: 0`, RPC contract 1).** The packages are previews. Nothing is published to npm yet.
 
 ## Families
 
@@ -47,14 +47,14 @@ Open **Status → Plugins**, choose **Add**, and enter the package name; or use 
 
 ## Repository layout
 
-| Path                        | Content                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `spec/`                     | Specification of OpenCode integrations and its JSON Schemas (`spec/schemas/`) |
-| `catalog.json`              | Reviewed catalog, published as the asset of a `catalog-v<n>` release          |
-| `packages/integration-kit/` | Shared core bundled into every integration plugin                             |
-| `packages/conformance/`     | Conformance checks of markers, catalog and packaging                          |
-| `integrations/<app>/`       | `plugin/` (the npm package), `host/` (the application part), `test/`          |
-| `scripts/`                  | Repository tooling, including the trace scan                                  |
+| Path                        | Content                                                                    |
+| --------------------------- | -------------------------------------------------------------------------- |
+| `spec/`                     | How an integration, CodeNomad and the application part talk to each other  |
+| `catalog.json`              | Reviewed catalog, published as the asset of a `catalog-v<n>` release       |
+| `packages/integration-kit/` | Shared core bundled into every integration plugin                          |
+| `packages/testing/`         | Test helpers, and `check:markers` (markers, catalog, each plugin's status) |
+| `integrations/<app>/`       | `plugin/` (the npm package), `host/` (the application part), `test/`       |
+| `scripts/`                  | Repository tooling, including the trace scan                               |
 
 ## Development
 

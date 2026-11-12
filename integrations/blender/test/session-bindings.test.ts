@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { startFakeHost } from "../../../packages/testing/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { announcement, loadPlugin } from "./helpers/plugin.ts"
 

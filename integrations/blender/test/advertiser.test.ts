@@ -1,4 +1,4 @@
-// The add-on's advertiser (AC-B11, HST-18 to HST-21) under the system Python against fake OpenCode
+// The add-on's advertiser (AC-B11) under the system Python against fake OpenCode
 // services: every discovered service by default, one by name, unreachable services skipped, the
 // OPENCODE_CONFIG_DIR fallback setting, and withdrawal on stop. Paths come from the test's own
 // HOME and XDG folders; the real service registration is never read.

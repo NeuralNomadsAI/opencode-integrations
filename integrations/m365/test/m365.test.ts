@@ -7,7 +7,7 @@ import { after, before, beforeEach, test } from "node:test"
 import type { Plugin } from "@opencode/plugin"
 import type { Info } from "@opencode/plugin/promise/tool"
 import JSZip from "jszip"
-import { checkRepository, checkStatusOutput } from "../../../packages/conformance/src/index.ts"
+import { checkRepository, checkStatusOutput } from "../../../packages/testing/src/index.ts"
 import { readOptions, withAuthOptions } from "../plugin/src/options.ts"
 import { setupM365 } from "../plugin/src/plugin.ts"
 import {
@@ -473,7 +473,7 @@ test("RPC contract, detailed auth status, skills preservation and denied permiss
   await cleanup()
 })
 
-test("repository marker and catalogue conformance includes the API family", () => {
+test("the repository marker and catalogue check includes the API family", () => {
   const report = checkRepository(resolve("."))
   assert.deepEqual(report.errors, [])
   assert.ok(readFileSync("catalog.json", "utf8").includes('"id": "m365"'))

@@ -1,9 +1,7 @@
-// The only accepted forms of a method that executes supplied code
-// (spec/integrations.md, rule SEC-3): declared `dangerous` and gated on every
-// call by the permission `<app>_execute_code`; either absent unless both the
-// application preference and the plugin option `allowCodeExecution` are true
-// (a driver that declares `defaults`), or listed while the application part is
-// enabled (a driver without `defaults`).
+// How the integrations of this repository expose a method that executes supplied code: declared `dangerous` and
+// gated on every call by the permission `<app>_execute_code`; either absent unless both the application preference
+// and the plugin option `allowCodeExecution` are true (a driver that declares `defaults`), or listed while the
+// application part is enabled (a driver without `defaults`).
 
 export type ManifestLike = {
   name: string
@@ -25,7 +23,7 @@ export type CodeExecutionProbe = {
   call(permission: "allow" | "deny"): Promise<CodeExecutionCall>
 }
 
-// The settings gate (SEC-3 2a): the defaults of both settings, each combination probed.
+// The settings gate: the defaults of both settings, each combination probed.
 export type GatedCodeExecutionDriver = {
   app: string
   manifests: ManifestLike[]
@@ -33,7 +31,7 @@ export type GatedCodeExecutionDriver = {
   probe(settings: CodeExecutionSettings): Promise<CodeExecutionProbe>
 }
 
-// A method listed while the application part is enabled (SEC-3 2b): no settings, probed once.
+// A method listed while the application part is enabled: no settings, probed once.
 export type PresentCodeExecutionDriver = {
   app: string
   manifests: ManifestLike[]

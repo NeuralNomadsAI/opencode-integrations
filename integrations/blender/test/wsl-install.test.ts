@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "n
 import { join } from "node:path"
 import { it } from "node:test"
 
-import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { startFakeHost } from "../../../packages/testing/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { isWslDaemon } from "../plugin/src/kit.ts"
 import { announcement, clock, fixturePaths, loadPlugin } from "./helpers/plugin.ts"

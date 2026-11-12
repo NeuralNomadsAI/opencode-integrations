@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { it } from "node:test"
 
-import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { startFakeHost } from "../../../packages/testing/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { isolatedRoot } from "./helpers/blender.ts"
 import { nativeSkip, startPrivateService, until } from "./helpers/opencode.ts"

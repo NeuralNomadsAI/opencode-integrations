@@ -1,15 +1,7 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
 import net from "node:net"
-import { join } from "node:path"
 import { after, describe, it } from "node:test"
-import {
-  checkStatusOutput,
-  hostValidator,
-  rpcValidator,
-  runSentinelScenario,
-  startFakeHost,
-} from "../../conformance/src/index.ts"
+import { checkStatusOutput, runSentinelScenario, startFakeHost } from "../../testing/src/index.ts"
 import { BINDING_RPC_TIMEOUT_MS, parseBindingReadInput, parseBindingReadOutput } from "../src/contract.ts"
 import {
   appVersionSatisfies,
@@ -32,10 +24,6 @@ import {
   rpcDefinition,
   sharedOfferRegistry,
 } from "../src/index.ts"
-
-const spec = JSON.parse(
-  readFileSync(join(import.meta.dirname, "..", "..", "..", "spec", "schemas", "rpc.schema.json"), "utf8"),
-) as { $defs: Record<string, unknown> }
 
 const expected: HostExpectation = { protocol: 1, range: "^0.1.0", appVersions: ">=5.2" }
 
@@ -86,17 +74,6 @@ function clock(start = 1_000_000) {
 }
 
 describe("contract schemas", () => {
-  it("registers wire schemas equal to spec/schemas/rpc.schema.json", () => {
-    for (const [name, schema] of Object.entries(RPC_SCHEMAS)) {
-      assert.deepEqual(schema, spec.$defs[name], name)
-    }
-    const covered = new Set([...Object.keys(RPC_SCHEMAS), "advertise.input", "withdraw.input"])
-    assert.deepEqual(
-      Object.keys(spec.$defs).filter((name) => !covered.has(name)),
-      [],
-    )
-  })
-
   it("defines status only for vendor-mcp and api, the whole contract for native", () => {
     assert.deepEqual(Object.keys(rpcDefinition("neuralnomads.demo", "api").methods), ["status"])
     const native = rpcDefinition("neuralnomads.demo", "native")
@@ -187,20 +164,18 @@ describe("contract schemas", () => {
     for (const key of ["directory", "workspaceID", "offerID", "authority", "token", "port", "extra"]) {
       invalid.push({ sessionID: "ses_1", [key]: "untrusted" })
     }
-    const validate = rpcValidator("bindingRead.input")
     for (const [values, expected] of [
       [valid, true],
       [invalid, false],
     ] as const) {
       for (const value of values) {
-        assert.equal(validate(value), expected, JSON.stringify(value))
         assert.equal(parseBindingReadInput(value) !== null, expected, JSON.stringify(value))
         if (expected) assert.deepEqual(parseBindingReadInput(value), value)
       }
     }
   })
 
-  it("validates every bindingRead output branch and nested bound with full schema parity", () => {
+  it("validates every bindingRead output branch and nested bound", () => {
     const authority = { serviceGeneration: "service_1", registryGeneration: "registry-1", revision: 0 }
     const binding = { offerID: "offer_abcdefgh", label: "scene.blend" }
     const attached = { state: "attached", authority, binding }
@@ -308,22 +283,18 @@ describe("contract schemas", () => {
       invalid.push({ ...attached, authority: { ...authority, [key]: "foreign" } })
       invalid.push({ ...attached, binding: { ...binding, [key]: "foreign" } })
     }
-    for (const mode of ["reader", "strict"] as const) {
-      const validate = rpcValidator("bindingRead.output", mode)
-      for (const [values, expected] of [
-        [valid, true],
-        [invalid, false],
-      ] as const) {
-        for (const value of values) {
-          assert.equal(validate(value), expected, `${mode}: ${JSON.stringify(value)}`)
-          assert.equal(parseBindingReadOutput(value) !== null, expected, JSON.stringify(value))
-          if (expected) assert.deepEqual(parseBindingReadOutput(value), value)
-        }
+    for (const [values, expected] of [
+      [valid, true],
+      [invalid, false],
+    ] as const) {
+      for (const value of values) {
+        assert.equal(parseBindingReadOutput(value) !== null, expected, JSON.stringify(value))
+        if (expected) assert.deepEqual(parseBindingReadOutput(value), value)
       }
     }
   })
 
-  it("validates advertise and withdraw exactly like the JSON Schema", () => {
+  it("validates advertise and withdraw inputs", () => {
     const good = {
       host: "127.0.0.1",
       port: 50000,
@@ -359,26 +330,25 @@ describe("contract schemas", () => {
       [],
       "advertise",
     ]
-    const advertise = rpcValidator("advertise.input")
-    for (const value of advertiseCorpus) {
-      assert.equal(parseAdvertiseInput(value) !== null, advertise(value), JSON.stringify(value))
-    }
-    const withdraw = rpcValidator("withdraw.input")
+    // Valid: the good input and labels of exactly 120 code points.
+    const accepted = new Set([0, 9, 14])
+    advertiseCorpus.forEach((value, index) => {
+      assert.equal(parseAdvertiseInput(value) !== null, accepted.has(index), JSON.stringify(value))
+    })
     for (const value of [
       { offer_key: "k", token: "b".repeat(64) },
       { offer_key: "k", token: "b".repeat(64), extra: 1 },
       { offer_key: "", token: "b".repeat(64) },
       { offer_key: "k" },
       {},
-    ]) {
-      assert.equal(parseWithdrawInput(value) !== null, withdraw(value), JSON.stringify(value))
+    ].entries()) {
+      assert.equal(parseWithdrawInput(value[1]) !== null, value[0] === 0, JSON.stringify(value[1]))
     }
   })
 
-  it("validates hello like host.schema.json and checks its capability hash", async () => {
+  it("validates hello and checks its capability hash", async () => {
     const host = await fakeHost({ document: "scene.blend" })
     const hello = host.hello
-    const validate = hostValidator("hello")
     const corpus: unknown[] = [
       hello,
       { ...hello, protocol: 0 },
@@ -392,7 +362,10 @@ describe("contract schemas", () => {
       { ...hello, script_handle: "\u{1F600}".repeat(200) },
       { ...hello, script_handle: "\u{1F600}".repeat(201) },
     ]
-    for (const value of corpus) assert.equal(parseHello(value) !== null, validate(value), JSON.stringify(value))
+    // Valid: the hello itself and a script handle of exactly 200 code points.
+    corpus.forEach((value, index) => {
+      assert.equal(parseHello(value) !== null, index === 0 || index === 9, JSON.stringify(value))
+    })
     assert.equal(parseHello({ ...hello, capability_hash: "f".repeat(64) }), null)
     assert.equal(capabilityHash(hello.capabilities as never), hello.capability_hash)
   })

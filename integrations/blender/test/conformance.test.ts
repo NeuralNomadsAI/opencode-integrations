@@ -1,4 +1,4 @@
-// CNF-1: the conformance behaviour checks against this integration's own plugin and host. The
+// The behaviour checks of packages/testing against this integration's own plugin and host. The
 // host is the add-on's wire and core under the system Python (stub application), and also the
 // real add-on in a background Blender when BLENDER_TEST_BIN names a Blender 5.3 executable.
 
@@ -13,7 +13,7 @@ import {
   checkHostListener,
   type ManifestLike,
   runSentinelScenario,
-} from "../../../packages/conformance/src/index.ts"
+} from "../../../packages/testing/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { requestHost } from "../plugin/src/kit.ts"
 import { methodsDir } from "../plugin/src/paths.ts"
@@ -35,7 +35,7 @@ function manifests(dir = methodsDir): ManifestLike[] {
 
 type HostFactory = { name: string; start(): Promise<HostProcess & { scriptHandle: string }> }
 
-// The add-on lists its code execution while it is enabled (SEC-3 2b): the stub app allows it.
+// The add-on lists its code execution while it is enabled: the stub app allows it.
 const stub: HostFactory = {
   name: "add-on core (system Python)",
   start: async () => ({ ...(await startStubHost(true)), scriptHandle: "stub-document" }),
