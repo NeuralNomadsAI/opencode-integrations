@@ -317,9 +317,13 @@ describe("attachment (FAM-5)", () => {
       loaded.permissions.map((request) => request.action),
       ["blender_attach", "blender_attach"],
     )
-    // With two offered Blenders, another conversation only learns which one is its own.
+    // With two offered Blenders, another conversation sees which one this conversation holds.
     const other = content(await loaded.tool("blender_hosts", {}, "ses_one"))
-    assert.equal(other.blenders.find((b: { offerID: string }) => b.offerID === offerIDs[1]).attached, undefined)
+    assert.equal(
+      other.blenders.find((b: { offerID: string }) => b.offerID === offerIDs[1]).attached,
+      "another conversation",
+    )
+    assert.equal(other.blenders.find((b: { offerID: string }) => b.offerID === offerIDs[0]).attached, null)
     assert.equal(content(await loaded.tool("blender_hosts", { detach: true })).detached, "detached")
     assert.equal(loaded.registry.binding("ses_test"), null)
     await assert.rejects(loaded.tool("blender_hosts", { attach: "offer_unknown00" }), /No offered Blender/)

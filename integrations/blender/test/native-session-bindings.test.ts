@@ -8,8 +8,61 @@ import { it } from "node:test"
 import { startFakeHost } from "../../../packages/conformance/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { isolatedRoot } from "./helpers/blender.ts"
-import { nativeSkip, startPrivateService } from "./helpers/opencode.ts"
+import { nativeSkip, startPrivateService, until } from "./helpers/opencode.ts"
 import { announcement } from "./helpers/plugin.ts"
+
+it("an attachment survives a restart of the daemon and comes back when its Blender offers itself again", {
+  skip: nativeSkip,
+  timeout: 240_000,
+}, async () => {
+  const iso = isolatedRoot("blender-native-restart-")
+  let service: Awaited<ReturnType<typeof startPrivateService>> | undefined
+  // Two Blenders: only the stored attachment, never the automatic one, can explain the binding after the restart.
+  const kept = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
+  const other = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
+  const offers = [
+    { ...announcement(kept.endpoint, kept.scriptHandle, "offer-kept"), label: "Blender: kept.blend" },
+    { ...announcement(other.endpoint, other.scriptHandle, "offer-other"), label: "Blender: other.blend" },
+  ]
+  try {
+    service = await startPrivateService(iso)
+    const location = join(iso.root, "location")
+    mkdirSync(location)
+    const session = (
+      await service.request("POST", "/api/session", { location: { directory: location }, title: "restart" })
+    ).data
+    const advertise = async (running: NonNullable<typeof service>) => {
+      for (const offer of offers) await running.rpc(running.globalConfig, "advertise", offer)
+    }
+    await advertise(service)
+    const offerID = (await service.rpc(location, "hosts")).offers.find(
+      (entry: { label: string }) => entry.label === "Blender: kept.blend",
+    ).offerID
+    assert.deepEqual(await service.rpc(location, "attachHost", { offerID, sessionID: session.id }), {
+      outcome: "attached",
+    })
+
+    await service.close()
+    service = await startPrivateService(iso)
+    const running = service
+    const read = () => running.rpc(location, "bindingRead", { sessionID: session.id })
+    assert.equal((await read()).state, "none", "nothing is offered yet")
+    // The add-ons offer their sessions again (every 5 s); the conversation is attached back without a client call.
+    await advertise(running)
+    const restored = await until("the restored attachment", 20_000, async () => {
+      const binding = await read()
+      return binding.state === "attached" ? binding : undefined
+    })
+    assert.equal(restored.binding.label, "Blender: kept.blend")
+  } catch (error) {
+    throw new Error(`${String(error)}\n--- private daemon\n${service?.logs() ?? "startup failed"}`)
+  } finally {
+    await service?.close()
+    await kept.close()
+    await other.close()
+    iso.cleanup()
+  }
+})
 
 it("native exact-session binding: two Locations, move, delete, revocation and service generations", {
   skip: nativeSkip,

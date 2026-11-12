@@ -44,6 +44,33 @@ export function fixturePaths(): PathEnv & { root: string; cleanup(): void } {
   }
 }
 
+// A plugin storage as OpenCode keeps it: JSON values by key, scanned by prefix in key order with a cursor.
+export type MemoryStorage = ReturnType<typeof memoryStorage>
+
+export function memoryStorage() {
+  const values = new Map<string, unknown>()
+  return {
+    values,
+    async get(key: string) {
+      return values.has(key) ? structuredClone(values.get(key)) : undefined
+    },
+    async set(key: string, value: unknown) {
+      values.set(key, structuredClone(value))
+    },
+    async remove(key: string) {
+      values.delete(key)
+    },
+    async scan({ prefix, after, limit = 100 }: { prefix: string; after?: string; limit?: number }) {
+      const keys = [...values.keys()].filter((key) => key.startsWith(prefix) && (!after || key > after)).sort()
+      const page = keys.slice(0, limit)
+      return {
+        entries: page.map((key) => ({ key, value: structuredClone(values.get(key)) })),
+        ...(keys.length > limit ? { next: page.at(-1) } : {}),
+      }
+    },
+  }
+}
+
 export type PermissionAnswer = "allow" | "deny"
 
 export type LoadedPlugin = Awaited<ReturnType<typeof loadPlugin>>
@@ -60,6 +87,8 @@ export async function loadPlugin(
     location?: { directory: string; workspaceID?: string }
     sessions?: Map<string, { id: string; location: { directory: string; workspaceID?: string } }>
     nativeGet?: ((input: { sessionID: string }) => Promise<unknown>) | null
+    // The plugin storage; pass the same one to a second load to stand for an OpenCode restart.
+    storage?: MemoryStorage
   } = {},
 ) {
   const options = input.options ?? {}
@@ -101,9 +130,11 @@ export async function loadPlugin(
     tools = next
   }
 
+  const storage = input.storage ?? memoryStorage()
   const ctx = {
     options,
     location,
+    storage,
     session: {
       // Instructions entries the plugin puts into conversations (its working method).
       instructions: {
@@ -167,6 +198,7 @@ export async function loadPlugin(
 
   const deps: BlenderDeps = {
     registry,
+    now: input.now,
     paths: input.paths,
     legacyPort: input.legacyPort ?? 1,
     wsl: input.wsl ?? (() => false),
@@ -176,6 +208,7 @@ export async function loadPlugin(
 
   return {
     registry,
+    storage,
     sessions,
     location,
     internals: cleanup.internals,

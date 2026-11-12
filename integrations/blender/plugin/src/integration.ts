@@ -8,6 +8,7 @@ import { join } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 
+import { type AttachmentStorage, createAttachments, trackAdvertise } from "./attachments.ts"
 import { extensionsDir, inspectHost, installHost } from "./host-install.ts"
 import {
   type BindingAuthority,
@@ -87,6 +88,8 @@ export type BlenderDeps = {
   paths?: PathEnv
   // A private registry and clock for tests; the daemon shares one registry across Locations.
   registry?: OfferRegistry
+  // The clock of the stored attachments' lease, for tests.
+  now?: () => number
   legacyPort?: number
   wsl?: () => boolean
 }
@@ -160,11 +163,34 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     wsl: deps.wsl,
     notices: async () => (legacy.found() ? ["legacy_install"] : []),
   })
+  const bindings = rpc.bindings as SessionBindings
+  // Attachments kept across an OpenCode restart (attachments.ts), in the plugin's storage.
+  const attachments = createAttachments({
+    registry,
+    storage: (ctx as unknown as { storage?: AttachmentStorage }).storage,
+    now: deps.now,
+    owns: (sessionID) => bindings.snapshot(sessionID),
+  })
   const handlers: Record<string, (input: unknown, context?: { signal?: AbortSignal }) => Promise<unknown>> = {
     ...rpc.handlers,
     hosts: async (input: unknown) => {
       void legacy.refresh()
       return rpc.handlers.hosts?.(input)
+    },
+    advertise: trackAdvertise(registry, (input) => rpc.handlers.advertise?.(input) as Promise<unknown>),
+    attachHost: async (input: unknown, context?: { signal?: AbortSignal }) => {
+      const result = (await rpc.handlers.attachHost?.(input, context)) as { outcome?: string }
+      const sessionID = (input as { sessionID?: unknown } | null)?.sessionID
+      if (result?.outcome === "attached" && typeof sessionID === "string") await attachments.remember(sessionID)
+      return result
+    },
+    // The stored attachment goes first, once the session is verifiably this Location's: the detach's own change
+    // event must not find it and attach the conversation back.
+    detachHost: async (input: unknown, context?: { signal?: AbortSignal }) => {
+      const sessionID = (input as { sessionID?: unknown } | null)?.sessionID
+      if (typeof sessionID === "string" && (await bindings.snapshot(sessionID, context?.signal)))
+        await attachments.forget(sessionID)
+      return rpc.handlers.detachHost?.(input, context)
     },
   }
 
@@ -189,14 +215,13 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   const put = session?.instructions?.entry?.put
   const attachMethod = methodAttacher(put ? (input) => put.call(session?.instructions?.entry, input) : undefined)
 
-  const bindings = rpc.bindings as SessionBindings
-
-  // Whether another conversation is attached to the only offer: the registry counts attached sessions, which
-  // with one offer are all on it. Undefined with several offers (the registry does not say which holds which).
-  const heldElsewhere = (mine: string | undefined) => {
+  // Whether a conversation other than `sessionID` is attached to the offer: the conversations this daemon recorded
+  // (attachments.ts); with one offer, also the registry's count of attached sessions, which are all on it.
+  const heldElsewhere = (offerID: string, sessionID: string) => {
+    if (attachments.heldBy(offerID, sessionID)) return true
     const offers = registry.hosts().offers
-    if (offers.length !== 1) return undefined
-    return registry.counts().attachedSessions - (mine === offers[0]?.offerID ? 1 : 0) > 0
+    if (offers.length !== 1 || offers[0]?.offerID !== offerID) return false
+    return registry.counts().attachedSessions - (registry.binding(sessionID)?.offerID === offerID ? 1 : 0) > 0
   }
 
   // The conversation's attached Blender. Without one, the only offered Blender, compatible and attached to no
@@ -207,13 +232,24 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       throw new Error("This conversation's ownership is unverifiable: try again.")
     }
     let bound = registry.binding(context.sessionID)
+    // Its stored attachment first: the Blender it used before an OpenCode restart.
+    if (!bound && attachments.has(context.sessionID)) {
+      await attachments.restore(context.sessionID)
+      bound = registry.binding(context.sessionID)
+    }
     if (!bound) {
       const offers = registry.hosts().offers
-      const held = heldElsewhere(undefined) === true
       const only = offers.length === 1 ? offers[0] : undefined
-      if (only && only.protocol === "ok" && !held && registry.current(authority)) {
-        if (registry.attach(only.offerID, context.sessionID).outcome === "attached")
+      if (
+        only &&
+        only.protocol === "ok" &&
+        !heldElsewhere(only.offerID, context.sessionID) &&
+        registry.current(authority)
+      ) {
+        if (registry.attach(only.offerID, context.sessionID).outcome === "attached") {
           bound = registry.binding(context.sessionID)
+          await attachments.remember(context.sessionID)
+        }
       }
       if (!bound) {
         if (!offers.length)
@@ -221,7 +257,7 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         const list = offers
           .map(
             (offer) =>
-              `${offer.label} [${offer.offerID}]${held ? " (attached to another conversation)" : ""}${offer.protocol === "incompatible" ? " (incompatible add-on)" : ""}`,
+              `${offer.label} [${offer.offerID}]${heldElsewhere(offer.offerID, context.sessionID) ? " (attached to another conversation)" : ""}${offer.protocol === "incompatible" ? " (incompatible add-on)" : ""}`,
           )
           .join(", ")
         throw new Error(
@@ -299,7 +335,10 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       // Only a conversation of this Location sees and changes its attachment (RPC-12).
       if (!(await bindings.snapshot(context.sessionID, context.signal)))
         throw new Error("This conversation's ownership is unverifiable: try again.")
-      if (args.detach === true) out.detached = (await bindings.detach(context.sessionID, context.signal)).outcome
+      if (args.detach === true) {
+        await attachments.forget(context.sessionID) // first: the detach's change event must not restore it
+        out.detached = (await bindings.detach(context.sessionID, context.signal)).outcome
+      }
       if (typeof args.attach === "string") {
         const authority = await bindings.snapshot(context.sessionID, context.signal)
         if (!authority) throw new Error("This conversation's ownership is unverifiable: try again.")
@@ -310,22 +349,23 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
           throw new Error("The offers or this conversation changed while permission was asked: try again.")
         }
         out.attached = registry.attach(offer.offerID, context.sessionID).outcome
-        if (out.attached === "attached") await attachMethod(context.sessionID)
+        if (out.attached === "attached") {
+          await attachments.remember(context.sessionID)
+          await attachMethod(context.sessionID)
+        }
       }
       void legacy.refresh()
       const status = await rpc.status()
       const mine = registry.binding(context.sessionID)?.offerID
-      const elsewhere = heldElsewhere(mine)
       out.host = status.host
       out.blenders = registry.hosts().offers.map((offer) => ({
         ...offer,
-        ...(offer.offerID === mine
-          ? { attached: "this conversation" }
-          : elsewhere === true
-            ? { attached: "another conversation" }
-            : elsewhere === false
-              ? { attached: null }
-              : {}),
+        attached:
+          offer.offerID === mine
+            ? "this conversation"
+            : heldElsewhere(offer.offerID, context.sessionID)
+              ? "another conversation"
+              : null,
       }))
       return json(out)
     },
@@ -471,13 +511,39 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
   )
 
+  // Renews or forgets the stored attachments and attaches back the conversations whose Blender offers itself
+  // again: one run at a time, and once more when the offers changed during it.
+  let running: Promise<void> | undefined
+  let again = false
+  const maintain = (): Promise<void> => {
+    if (running) {
+      again = true
+      return running
+    }
+    running = (async () => {
+      do {
+        again = false
+        try {
+          await attachments.sweep()
+          await attachments.restore()
+        } catch {}
+      } while (again)
+    })().finally(() => {
+      running = undefined
+    })
+    return running
+  }
+
   const registrations: Array<{ dispose: () => Promise<void> }> = []
   let disconnect = () => {}
+  let unsubscribe = () => {}
   const cleanup = async () => {
+    unsubscribe()
     disconnect()
     for (const registration of registrations.splice(0).reverse()) await registration.dispose().catch(() => {})
   }
   try {
+    await attachments.load()
     const registration = await ctx.rpc.register(rpc.definition as never, handlers as never)
     registrations.push(registration)
     disconnect = rpc.connect(registration as never)
@@ -485,11 +551,13 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     registrations.push(
       await ctx.tool.transform((editor) => registerPluginTools(editor, APP, NAMESPACE_DESCRIPTION, allTools)),
     )
+    unsubscribe = registry.onChange(() => void maintain())
+    void maintain()
   } catch (error) {
     await cleanup()
     throw error
   }
   return Object.assign(cleanup, {
-    internals: { registry, rpc, handlers, tools: allTools, executors, legacy, options },
+    internals: { registry, rpc, handlers, tools: allTools, executors, legacy, options, attachments, maintain },
   })
 }
