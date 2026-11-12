@@ -30,7 +30,7 @@ npm run scan
    | Fallback environment variables | `NEURALNOMADS_<APP>_*`                         |                                  |
    | Release tag                    | `<app>-v<semver>`                              | `blender-v0.2.0`                 |
 
-3. Declare the static marker (`spec/schemas/marker.schema.json`) under `opencodeIntegration` in `package.json`, with `spec: 0` during the draft.
+3. Declare the marker under `opencodeIntegration` in `package.json` ([`spec/README.md`](spec/README.md), section 1).
 4. Declare the SDK as an **optional** peer and pin it for development:
 
    ```json
@@ -45,7 +45,7 @@ npm run scan
 7. Every `skills/<app>-<topic>/SKILL.md` starts with a front-matter header whose `name` equals its directory and which has a `description`.
 8. Add the catalog entry in `catalog.json` in the same pull request; it must copy the marker.
 
-`npm run check:markers` enforces points 2 to 8.
+`npm run check:markers` checks the marker, the embedded application part and the catalog entry (points 3 and 8), then loads each built plugin and reads its `status`.
 
 ## Test builds from Git
 

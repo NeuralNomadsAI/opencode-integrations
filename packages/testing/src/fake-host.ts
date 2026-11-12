@@ -1,11 +1,13 @@
-// Host wire protocol 1 (spec/host-handshake.md, HST-24): a reference fake host for
-// tests, a raw client, and the listener check (loopback only, token required).
+// The wire protocol between a plugin and its application part (spec/README.md, section 3): a fake application
+// part for tests, a raw client, and a probe of a real listener (loopback only, token required, valid hello).
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
+import { randomBytes, timingSafeEqual } from "node:crypto"
 import net from "node:net"
 import { networkInterfaces } from "node:os"
 
-import { hostValidator, schemaErrors } from "./schemas.ts"
+import { canonicalJson, capabilityHash, parseHello } from "../../integration-kit/src/hello.ts"
+
+export { canonicalJson, capabilityHash }
 
 export type Endpoint = { host: string; port: number; token: string }
 
@@ -16,26 +18,9 @@ export type Capabilities = {
   background: boolean
 }
 
-// Canonical JSON (keys sorted, no whitespace) and the capability hash.
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>
-    const keys = Object.keys(record)
-      .filter((key) => record[key] !== undefined)
-      .sort()
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`
-  }
-  return JSON.stringify(value)
-}
-
-export function capabilityHash(capabilities: Capabilities): string {
-  return createHash("sha256").update(canonicalJson(capabilities)).digest("hex")
-}
-
 export type FakeHostOptions = {
   token?: string
-  // Listen address; anything but 127.0.0.1 is a conformance failure, used by negative tests.
+  // Listen address, 127.0.0.1 by default; another one serves negative tests.
   listen?: string
   requireToken?: boolean
   protocol?: number
@@ -227,7 +212,7 @@ export async function checkHostListener(
     }
   }
 
-  const id = "conformance-probe"
+  const id = "listener-probe"
   const target = { host: "127.0.0.1", port: endpoint.port }
   const wrongToken = endpoint.token.startsWith("0") ? `1${endpoint.token.slice(1)}` : `0${endpoint.token.slice(1)}`
   const attempts: Array<[string, unknown]> = [
@@ -242,8 +227,8 @@ export async function checkHostListener(
   const response = await rawHostRequest(target, { id, token: endpoint.token, method: "hello", params }, timeoutMs)
   let hello: unknown = null
   if (!succeeded(response)) errors.push("host: hello with the token fails")
+  else if ((response as { id?: unknown }).id !== id) errors.push("host: the response id differs from the request")
   else {
-    errors.push(...schemaErrors("host response", hostValidator("response"), response))
     hello = (response as { result: unknown }).result
     errors.push(...checkHello(hello))
   }
@@ -251,11 +236,8 @@ export async function checkHostListener(
 }
 
 export function checkHello(hello: unknown): string[] {
-  const errors = schemaErrors("hello", hostValidator("hello"), hello)
-  if (errors.length > 0) return errors
-  const value = hello as { capabilities: Capabilities; capability_hash: string }
-  if (capabilityHash(value.capabilities) !== value.capability_hash) {
-    errors.push("hello: capability_hash is not the sha256 of the canonical capabilities")
-  }
-  return errors
+  const value = hello as { capabilities?: unknown; capability_hash?: unknown } | null
+  if (typeof value?.capabilities === "object" && value.capability_hash !== capabilityHash(value.capabilities as never))
+    return ["hello: capability_hash is not the sha256 of the canonical capabilities"]
+  return parseHello(hello) ? [] : ["hello: not a valid hello"]
 }

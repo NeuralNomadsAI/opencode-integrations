@@ -33,7 +33,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      # Conformance loads every built integration package.
+      # check:markers loads every built integration package.
       - run: npm run build
       - run: npm run check:markers
 

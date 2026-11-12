@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, beforeEach, describe, it } from "node:test"
 
-import { startFakeHost } from "../../../packages/conformance/src/index.ts"
+import { startFakeHost } from "../../../packages/testing/src/index.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { OFFER_LEASE_MS, OFFER_RENEW_MS } from "../plugin/src/kit.ts"
 import { METHOD_KEY, METHOD_TEXT, resetMethodForTests } from "../plugin/src/method.ts"
@@ -245,7 +245,7 @@ describe("advertisement refusals (AC-B14)", () => {
   })
 })
 
-describe("attachment (FAM-5)", () => {
+describe("attachment", () => {
   beforeEach(() => resetMethodForTests())
 
   async function offered(count = 1, answer: (action: string) => "allow" | "deny" = () => "allow") {
@@ -375,7 +375,7 @@ describe("tools", () => {
     assert.deepEqual(received, { script_handle: "blend-test", match: "C*", limit: 50, offset: 0 })
   })
 
-  it("blender_apply checks the batch, then sends it once with a command_id and the current revision (FAM-3)", async () => {
+  it("blender_apply checks the batch, then sends it once with a command_id and the current revision", async () => {
     const calls: Array<Record<string, unknown>> = []
     const { loaded } = await attached(
       {
@@ -440,7 +440,7 @@ describe("tools", () => {
     )
   })
 
-  it("blender_execute_code asks permission on every run; a denied run reaches nothing (SEC-3)", async () => {
+  it("blender_execute_code asks permission on every run; a denied run reaches nothing", async () => {
     let answer: "allow" | "deny" = "allow"
     const runs: Array<Record<string, unknown>> = []
     const { loaded } = await attached(
@@ -499,7 +499,7 @@ describe("tools", () => {
     await assert.rejects(loaded.tool("blender_inspect", {}), /type, operator/)
   })
 
-  it("blender_lab runs a Lab tool in Blender and returns its image as an attachment (FAM-4)", async () => {
+  it("blender_lab runs a Lab tool in Blender and returns its image as an attachment", async () => {
     let received: Record<string, unknown> | undefined
     const { loaded } = await attached({
       lab_tool: (params) => {
@@ -611,7 +611,7 @@ describe("legacy installation (AC-B16)", () => {
   })
 })
 
-describe("host installation (HST-1, RPC-3)", () => {
+describe("host installation", () => {
   it("installs, leaves an identical copy unchanged and updates an older one", async () => {
     const fixture = paths()
     const dir = join(fixture.root, "extensions")

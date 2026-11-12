@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { it } from "node:test"
 
-import { startFakeHost } from "../../conformance/src/index.ts"
+import { startFakeHost } from "../../testing/src/index.ts"
 import { createIntegrationRpc, createOfferRegistry, type InstallHostOutput, isWslDaemon } from "../src/index.ts"
 
 for (const detection of ["environment", "kernel", "ordinary Linux"] as const) {

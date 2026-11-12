@@ -3,11 +3,7 @@ import { spawn } from "node:child_process"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
 import { it } from "node:test"
-import {
-  checkCodeExecutionGate,
-  checkHostListener,
-  runSentinelScenario,
-} from "../../../packages/conformance/src/index.ts"
+import { checkCodeExecutionGate, checkHostListener, runSentinelScenario } from "../../../packages/testing/src/index.ts"
 import { requestHost } from "../plugin/src/kit.ts"
 import { loadPlugin } from "./helpers.ts"
 

@@ -15,7 +15,7 @@ What OpenCode for Blender 0.4.0 keeps, replaces and retires from 0.2.0. The 0.2.
 | `blender_context`      | kept     | The add-on's compact typed scene read (`scene`) instead of named catalog reads.                                                                   |
 | `blender_apply`        | kept     | The add-on's typed edit operations (`host/ops.json`) instead of catalog operations.                                                               |
 | `blender_catalog`      | retired  | The operations are in `blender_apply`'s description and `host/ops.json`.                                                                          |
-| `blender_execute_code` | kept     | Listed while the add-on is enabled; every run asks `blender_execute_code` (SEC-3).                                                                |
+| `blender_execute_code` | kept     | Listed while the add-on is enabled; every run asks `blender_execute_code`.                                                                        |
 | `blender_docs`         | retired  | `blender_inspect` reads the running Blender's own API and links the official documentation of its version; no documentation is bundled.           |
 | `blender_audit`        | retired  | `blender_lab` `get_blendfile_summary_*` summarise the open file; no background Blender is started for a closed one.                               |
 
@@ -129,7 +129,7 @@ Blender instead of a bundled copy of its documentation.
 
 ```sh
 git checkout ec99ef2 -- integrations/blender/plugin/methods/host     # catalog reads and operations
-git checkout ec99ef2 -- integrations/blender/plugin/skills           # skills (load them with ctx.skill.transform, PKG-2)
+git checkout ec99ef2 -- integrations/blender/plugin/skills           # skills (load them with ctx.skill.transform)
 git checkout ec99ef2 -- integrations/blender/plugin/src/audit.ts     # blender_audit (and its methods/tools manifest)
 ```
 

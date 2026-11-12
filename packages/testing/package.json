@@ -1,0 +1,14 @@
+{
+  "name": "@neuralnomads/integration-testing",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Test helpers of this repository: markers and catalog, status reading, a fake application part.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "semver": "7.8.5"
+  }
+}

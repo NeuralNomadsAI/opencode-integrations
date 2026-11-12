@@ -16,7 +16,7 @@ test("only Blender is publishable, with public access and trusted-publishing met
 
   for (const path of [
     "../../../package.json",
-    "../../../packages/conformance/package.json",
+    "../../../packages/testing/package.json",
     "../../../packages/integration-kit/package.json",
   ]) {
     assert.equal(JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")).private, true, path)
