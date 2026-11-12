@@ -39,9 +39,11 @@ async function hostScript<T extends Result>(script: string, args: (scratch: stri
 
 describe("OpenCode Link in Blender (background)", { skip }, () => {
   it("passes the host tests and runs every bundled Lab tool", async () => {
+    // Its renders and imports take minutes on a runner without a GPU.
     const result = await hostScript<Result & { coverage: Record<string, string>; lab: Record<string, string> }>(
       "host_tests.py",
       (scratch) => [scratch],
+      600_000,
     )
     assert.equal(result.passed.length, 26)
     assert.equal(Object.keys(result.coverage).length, 87)

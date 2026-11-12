@@ -640,6 +640,9 @@ def every_bundled_lab_tool_runs_by_name():
     check("lab_tool" in capabilities["methods"] and listed == sorted(core.lab.tools), "listed")
     obj = bpy.data.objects.new("OC_Lab", bpy.data.meshes.new("OC_Lab"))
     bpy.context.scene.collection.objects.link(obj)
+    # Lab's renders use the scene's engine: on a runner without a GPU, EEVEE renders in software for minutes
+    # (Lab lowers EEVEE's samples only for Blender 4's BLENDER_EEVEE_NEXT). The tools run the same with Workbench.
+    bpy.context.scene.render.engine = "BLENDER_WORKBENCH"
     for name in listed:
         tool = core.lab.tools[name]
         response = lab(name, **lab_args(tool))
