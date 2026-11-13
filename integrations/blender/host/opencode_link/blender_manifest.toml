@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "opencode_link"
-version = "0.4.1"
+version = "0.4.2"
 name = "OpenCode Link"
 tagline = "Lets OpenCode work on this Blender session"
 maintainer = "NeuralNomads"

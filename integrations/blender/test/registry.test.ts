@@ -41,3 +41,23 @@ it("a plugin loaded after an older version in the same process judges its own ad
     await fake.close()
   }
 })
+
+it("an upgrade from 0.4.1 without restarting OpenCode keeps this version's add-on ok", async () => {
+  const fake = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
+  // The list the published 0.4.1 made (named after its contract), loaded first in the same daemon.
+  const published = { protocol: 1, range: "^0.4.1", appVersions: ">=5.3" }
+  keys.push(offerRegistryKey(registryName(published)))
+  try {
+    const older = sharedOfferRegistry(registryName(published), { expected: published })
+    const registry = createRegistry(marker, readOptions(undefined, {}))
+    assert.notEqual(registry, older)
+    await registry.advertise(announcement(fake.endpoint, fake.scriptHandle, "after-upgrade"))
+    // This version's list, shared with the test above in this process: every offer on it is judged ok.
+    const hellos = registry.liveHellos()
+    assert.ok(hellos.length >= 1)
+    for (const hello of hellos)
+      assert.deepEqual([hello.compatibility, hello.partVersion], ["ok", readPackage().version])
+  } finally {
+    await fake.close()
+  }
+})
