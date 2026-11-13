@@ -53,7 +53,18 @@ status({}) => {
 
 CodeNomad shows the answer only when `integration.id` and `family` are the catalog's and `host.appVersion` holds no path. It ignores fields it does not know. An RPC that is not registered (`rpc.unavailable`, `rpc.method_not_found`) shows as unsupported.
 
-The plugin emits the events `status_changed` and, for `native`, `hosts_changed`, both with payload `{}`, when its state changes; CodeNomad then reads `status` again. A `native` plugin also answers `detachHost({ sessionID })` with `{ outcome: "detached" | "none" }`, which detaches that conversation from its application.
+The plugin emits the events `status_changed` and, for `native`, `hosts_changed`, both with payload `{}`, when its state changes; CodeNomad then reads `status` again. A `native` plugin also answers three methods for one conversation or its application part:
+
+```ts
+installHost({}) => { outcome: "installed" | "updated" | "unchanged" | "refused" | "failed", detail?: string }
+bindingRead({ sessionID }) =>
+    { state: "attached", authority, binding: { offerID, label } }
+  | { state: "none", authority }
+  | { state: "unknown", authority? }
+detachHost({ sessionID }) => { outcome: "detached" | "none" }
+```
+
+`installHost` writes the embedded application part (`host.payload`) into the application on the machine where OpenCode runs; `detail` is a short human-readable reason. `bindingRead` tells whether that conversation is attached and to which offer: `label` is the offer's label (section 3), `unknown` when the plugin cannot verify the conversation. `authority` (`serviceGeneration`, `registryGeneration`, `revision`) identifies the plugin's attachment state the answer was read from. `detachHost` detaches that conversation from its application.
 
 ## 3. Plugin and application part
 
