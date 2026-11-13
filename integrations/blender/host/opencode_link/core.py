@@ -845,15 +845,22 @@ class HostCore(object):
             raise HostFailure("invalid_args", "code is required")
         if self.quarantined:
             raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
+        # A script run from a file (blender_execute_code path): its tracebacks name the file and show its lines.
+        filename = params.get("filename")
+        if filename is not None and (not isinstance(filename, str) or not 0 < len(filename) <= 1024
+                                     or any(ord(char) < 32 for char in filename)):
+            raise HostFailure("invalid_args", "filename must be a file path of at most 1024 characters")
         namespace = self.app.exec_namespace()
         namespace["result"] = {}
+        if filename:
+            namespace["__file__"] = filename
         # read_only: no undo barrier or step. The barrier is an undo push, which marks a saved file as
         # modified: inspections and runs after a save leave the file saved; a change is reported, never undone.
         read_only = params.get("read_only") is True
         rotations = self.app.rotation_snapshot() if hasattr(self.app, "rotation_snapshot") else None
 
         def run():
-            exec(compile(code, "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
+            exec(compile(code, filename or "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
             check = namespace.get("check_is_finished")
             return check if callable(check) else None
 

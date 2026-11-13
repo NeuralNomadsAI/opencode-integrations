@@ -2,8 +2,8 @@
 // no socket, process, download or installation (PKG-6); the host is reached only once a session is
 // attached to an offer validated by hello.
 
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { readFileSync, statSync } from "node:fs"
+import { join, resolve } from "node:path"
 
 import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
@@ -101,6 +101,25 @@ type PackageJson = { version: string; opencodeIntegration: IntegrationMarker }
 
 export function readPackage(): PackageJson {
   return JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as PackageJson
+}
+
+// The longest script blender_execute_code reads from a file: the host reads requests of at most 1 MiB.
+export const SCRIPT_MAX_BYTES = 900 * 1024
+
+// A Python script on disk (absolute, or relative to the Location's directory), as UTF-8 text.
+export function readScript(path: string, base?: string) {
+  const file = resolve(base ?? process.cwd(), path)
+  let bytes: Buffer
+  try {
+    if (statSync(file).size > SCRIPT_MAX_BYTES)
+      throw new Error(`${file} is over ${SCRIPT_MAX_BYTES} bytes: split it, or have it exec() its parts.`)
+    bytes = readFileSync(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`No script ${file}.`)
+    throw error
+  }
+  const code = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "")
+  return { path: file, code }
 }
 
 function hostError(error: unknown): Error {
@@ -422,11 +441,16 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
 
     // The dangerous method (SEC-3): listed by the add-on while it is enabled; every run asks permission.
     async blender_execute_code(args, context) {
-      const code = String(args.code ?? "")
-      if (!code) throw new Error("code is required.")
+      // A script file is read here, byte for byte: no escaping of the code through a JSON or JavaScript string.
+      const script =
+        typeof args.path === "string" && args.path ? readScript(args.path, ctx.location?.directory) : undefined
+      if (script && args.code !== undefined) throw new Error("Give code or path, not both.")
+      const code = script?.code ?? String(args.code ?? "")
+      if (!code.trim()) throw new Error(script ? `${script.path} is empty.` : "code or path is required.")
       const held = await ticket(context)
       if (!held.bound.methods.includes("execute_code")) throw new HostError("method_disabled", "")
-      await assert(context, PERMISSIONS.executeCode, ["*"], {
+      await assert(context, PERMISSIONS.executeCode, [script?.path ?? "*"], {
+        ...(script ? { path: script.path } : {}),
         code: code.length > 4_000 ? `${code.slice(0, 4_000)}\n…` : code,
       })
       const seconds = typeof args.timeout_s === "number" ? Math.min(Math.max(args.timeout_s, 1), 3_600) : undefined
@@ -434,7 +458,11 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         await callHost(
           context,
           "execute_code",
-          { code, ...(args.read_only === true ? { read_only: true } : {}) },
+          {
+            code,
+            ...(script ? { filename: script.path } : {}),
+            ...(args.read_only === true ? { read_only: true } : {}),
+          },
           seconds ? seconds * 1_000 : undefined,
           held,
         ),

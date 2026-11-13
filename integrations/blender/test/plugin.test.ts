@@ -11,7 +11,7 @@ import { join } from "node:path"
 import { after, beforeEach, describe, it } from "node:test"
 
 import { startFakeHost } from "../../../packages/testing/src/index.ts"
-import { readPackage } from "../plugin/src/integration.ts"
+import { readPackage, SCRIPT_MAX_BYTES } from "../plugin/src/integration.ts"
 import { OFFER_LEASE_MS, OFFER_RENEW_MS } from "../plugin/src/kit.ts"
 import { METHOD_KEY, METHOD_TEXT, resetMethodForTests } from "../plugin/src/method.ts"
 import { announcement, clock, fixturePaths, type LoadedPlugin, loadPlugin } from "./helpers/plugin.ts"
@@ -465,6 +465,31 @@ describe("tools", () => {
       loaded.permissions.map((request) => request.action),
       ["blender_execute_code", "blender_execute_code", "blender_execute_code"],
     )
+  })
+
+  it("blender_execute_code runs a script file byte for byte, asking permission for it (journal entry 56)", async () => {
+    const runs: Array<Record<string, unknown>> = []
+    const { loaded } = await attached({
+      execute_code: (params) => {
+        runs.push(params)
+        return { status: "executed", result: {} }
+      },
+    })
+    const dir = mkdtempSync(join(tmpdir(), "blender-script-"))
+    const text = 'path = "C:\\\\work\\\\a.png"\nlines = "one\\ntwo"\nresult = {"path": path, "lines": lines}\n'
+    writeFileSync(join(dir, "fall.py"), `\uFEFF${text}`)
+    content(await loaded.tool("blender_execute_code", { path: join(dir, "fall.py") }))
+    assert.equal(runs[0]?.code, text, "the file's text, without its byte order mark")
+    assert.equal(runs[0]?.filename, join(dir, "fall.py"))
+    assert.deepEqual(loaded.permissions.at(-1)?.resources, [join(dir, "fall.py")])
+    await assert.rejects(loaded.tool("blender_execute_code", { path: join(dir, "none.py") }), /No script/)
+    await assert.rejects(
+      loaded.tool("blender_execute_code", { path: join(dir, "fall.py"), code: "x = 1" }),
+      /code or path, not both/,
+    )
+    writeFileSync(join(dir, "big.py"), Buffer.alloc(SCRIPT_MAX_BYTES + 1, 0x20))
+    await assert.rejects(loaded.tool("blender_execute_code", { path: join(dir, "big.py") }), /over/)
+    assert.equal(runs.length, 1)
   })
 
   it("inspect, verify and save run their fixed programs read only, asking nothing", async () => {

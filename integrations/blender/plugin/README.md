@@ -117,13 +117,13 @@ Add-on settings (Preferences ▸ Add-ons ▸ OpenCode Link): _OpenCode service_ 
 
 ## Code execution
 
-`blender_execute_code` runs Python in Blender with your rights: it can read and write files, start processes and reach the network. The add-on lists it while it is enabled, and **every run asks the `blender_execute_code` permission** ("ask" unless you allow it in OpenCode's permission settings); a refused run executes nothing. A run that changes the scene is one undo step; a failing one is undone. See [`SECURITY.md`](../../../SECURITY.md).
+`blender_execute_code` runs Python in Blender with your rights: it can read and write files, start processes and reach the network. The add-on lists it while it is enabled, and **every run asks the `blender_execute_code` permission** ("ask" unless you allow it in OpenCode's permission settings); a refused run executes nothing. A run that changes the scene is one undo step; a failing one is undone. A long script can be a file (`path`): it is read as written, with no escaping through a JSON or JavaScript string, and its tracebacks name the file. See [`SECURITY.md`](../../../SECURITY.md).
 
 ## Blender limits
 
 - Blender 5.3 or later; edits run in Object mode only.
 - Two conversations may attach the same Blender: each batch is checked against the document's revision.
-- The code-change fingerprint that keeps the revision current does not read mesh vertices, modifier and node values or settings below one nested level.
+- The code-change fingerprint that keeps the revision current does not read mesh vertices, modifier and node values or settings below one nested level. A `read_only` run is judged by its content instead (poses, mesh vertices, shape key values, constraint influences, material node values): one that puts everything back is no change.
 
 ## Earlier installation
 

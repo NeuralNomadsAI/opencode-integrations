@@ -186,6 +186,39 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     }
   })
 
+  it("blender_execute_code runs a script file as written (journal entry 56)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      // What Code Mode mangled: a backslash path and a newline escape inside Python strings.
+      const script = join(iso.root, "fall.py")
+      writeFileSync(
+        script,
+        [
+          "import bpy",
+          'path = "C:\\\\film\\\\sheet.png"',
+          'lines = "head\\nfoot"',
+          "result = {'path': path, 'chars': len(path), 'lines': lines.split('\\n'), 'file': __file__}",
+          "",
+        ].join("\n"),
+      )
+      const out = json(await plugin.tool("blender_execute_code", { path: script, read_only: true }))
+      assert.equal(out.status, "executed", JSON.stringify(out))
+      const result = JSON.parse(JSON.stringify(out.result))
+      assert.equal(result.path, "C:\\film\\sheet.png")
+      assert.equal(result.chars, 17)
+      assert.deepEqual(result.lines, ["head", "foot"])
+      assert.equal(result.file, script)
+      const broken = join(iso.root, "broken.py")
+      writeFileSync(broken, "x = 1\ny = 2\nraise ValueError('at the end')\n")
+      const failed = json(await plugin.tool("blender_execute_code", { path: broken }))
+      assert.equal(failed.status, "failed")
+      assert.ok(failed.traceback.includes("broken.py") && failed.traceback.includes("line 3"), failed.traceback)
+      assert.match(failed.traceback, /raise ValueError\('at the end'\)/)
+    } finally {
+      await stop()
+    }
+  })
+
   it("the plugin's tools act on the attached Blender document", async () => {
     const iso = isolatedRoot("blender-tools-")
     const stopFile = join(iso.root, "stop")
