@@ -395,6 +395,76 @@ def e54_fit_height_grounds_the_deformed_pose_at_a_frame_and_keys_it():
     check(abs(lowest("Outlaw_Body", 20)) < 1e-4, "the earlier key holds: %s" % falling.get("message"))
 
 
+# -- entry 52: the hand takes the grip exactly, elbow toward a pole, keyed ---------------------------------------------
+def mixamo_arm():
+    """A Mixamo-like right arm at the film's scale (an armature in centimetres scaled 0.01), rest pose keyed at 1."""
+    data = bpy.data.armatures.new("Sheriff")
+    rig = link(bpy.data.objects.new("Sheriff", data))
+    rig.scale = (0.01, 0.01, 0.01)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    previous = None
+    for name, head, tail, roll in (("mixamorig:RightShoulder", (15, 0, 140), (20, 0, 140), 0.0),
+                                   ("mixamorig:RightArm", (20, 0, 140), (48, 0, 140), 1.2),
+                                   ("mixamorig:RightForeArm", (48, 0, 140), (73, 0, 140), 0.4),
+                                   ("mixamorig:RightHand", (73, 0, 140), (81, 0, 140), -0.7)):
+        bone = data.edit_bones.new(name)
+        bone.head, bone.tail, bone.roll = head, tail, roll
+        if previous is not None:
+            bone.parent, bone.use_connect = previous, True
+        previous = bone
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for bone in rig.pose.bones:
+        bone.keyframe_insert("rotation_quaternion", frame=1)
+    return rig
+
+
+@test
+def e52_reach_puts_the_hand_on_the_grip_with_the_elbow_toward_the_pole():
+    empty()
+    rig = mixamo_arm()
+    grip = link(bpy.data.objects.new("Grip", None))
+    grip.location = (0.35, -0.15, 0.95)
+    grip.rotation_euler = (math.radians(80), math.radians(-20), math.radians(35))
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    chain = ["mixamorig:RightArm", "mixamorig:RightForeArm", "mixamorig:RightHand"]
+    out = applied(("reach", {"ref": "Sheriff", "chain": chain, "target": {"object": "Grip"},
+                             "pole": {"point": [0.6, 0.5, 1.2]}, "frame": 30}))
+    reach = next(c for c in out["changes"] if c["field"] == "reach")
+    check(reach["error"] < 1e-4 and reach["end_error_deg"] < 0.1, "reached: %s" % reach)
+    check(bpy.context.scene.frame_current == 1, "the current frame stays")
+    bpy.context.scene.frame_set(30)
+    bpy.context.view_layer.update()
+    hand = rig.matrix_world @ rig.pose.bones["mixamorig:RightHand"].matrix
+    check((hand.to_translation() - grip.matrix_world.to_translation()).length < 1e-4, "the hand on the grip at 30")
+    angle = math.degrees(hand.to_quaternion().rotation_difference(grip.matrix_world.to_quaternion()).angle)
+    check(min(angle, 360 - angle) < 0.1, "and turned like it: %.3f degrees" % angle)
+    shoulder = rig.matrix_world @ rig.pose.bones["mixamorig:RightArm"].head
+    elbow = rig.matrix_world @ rig.pose.bones["mixamorig:RightForeArm"].head
+    along = (grip.location - shoulder).normalized()
+    side = Vector((0.6, 0.5, 1.2)) - shoulder
+    side -= along * side.dot(along)
+    bend = elbow - shoulder
+    bend -= along * bend.dot(along)
+    check(bend.dot(side) > 0, "the elbow bends toward the pole, not like a chicken wing")
+    keyed = {c.data_path for c in _curves_of(rig) for p in c.keyframe_points if abs(p.co[0] - 30) < 1e-6}
+    check(keyed == {'pose.bones["%s"].rotation_quaternion' % n for n in chain}, "the chain keyed at 30: %s" % keyed)
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    rest = rig.matrix_world @ rig.pose.bones["mixamorig:RightHand"].head
+    check(near(rest, (0.73, 0, 1.4)), "frame 1 keeps its pose: %s" % list(rest))
+    # Out of reach: refused and undone; a chain that is not one is refused before running.
+    far = edit(("reach", {"ref": "Sheriff", "chain": chain, "target": {"point": [2, 0, 1.4]}, "frame": 40}))
+    check(far["status"] == "failed" and far["restored"] and "missed the target" in far["message"], "out of reach: %s" % far.get("message"))
+    check(bpy.context.scene.frame_current == 1, "frame back")
+    broken = edit(("reach", {"ref": "Sheriff", "chain": ["mixamorig:RightShoulder", "mixamorig:RightHand"],
+                             "target": {"point": [0.5, 0, 1.3]}}))
+    check(broken["status"] == "failed" and "is not the parent" in broken["message"], "not a chain: %s" % broken.get("message"))
+    check(refused(("reach", {"ref": "Sheriff", "chain": chain, "target": {"point": [0, 0, 1]}, "key": True})) is not None,
+          "key without frame refused")
+
+
 def _curves_of(owner):
     from bpy_extras import anim_utils
 

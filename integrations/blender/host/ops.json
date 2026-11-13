@@ -222,6 +222,47 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "bones": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "x-maxUtf8Bytes": 255,
+        "x-noNul": true
+      },
+      "minItems": 2,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "description": "[upper, lower] or [upper, lower, end], each the parent of the next"
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "point or object (bone only with object); rotation: the end bone's world orientation",
+      "properties": {
+        "point": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "object": {
+          "$ref": "#/kinds/ref"
+        },
+        "bone": {
+          "type": "string",
+          "minLength": 1,
+          "x-maxUtf8Bytes": 255,
+          "x-noNul": true
+        },
+        "rotation": {
+          "$ref": "#/kinds/rotation"
+        }
+      }
+    },
     "data_path": {
       "type": "string",
       "minLength": 1,
@@ -384,6 +425,40 @@
           "kind": "number"
         }
       }
+    },
+    "reach": {
+      "description": "Two-bone IK solved once and written as a pose: chain is [upper, lower] or [upper, lower, end] (an arm, and its hand), each the parent of the next. The lower bone's tail reaches target (a point, an object or one of its bones), the elbow bends toward pole (a point, an object, a bone or a world direction; default: the side it bends to now), and end takes the target's world orientation (an object or bone target, or target.rotation). At frame (which stays current) it keys the chain's rotations (key, default true with frame). Reports error (metres), end_error_deg and the elbow; refuses a miss above tolerance (default 1 mm), such as a target out of reach.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "chain": {
+          "kind": "bones",
+          "required": true
+        },
+        "target": {
+          "kind": "goal",
+          "required": true
+        },
+        "pole": {
+          "kind": "target"
+        },
+        "frame": {
+          "kind": "whole_frame"
+        },
+        "key": {
+          "kind": "bool"
+        },
+        "tolerance": {
+          "kind": "positive"
+        }
+      },
+      "rules": [
+        "each bone of chain is the parent of the next",
+        "target is point or object (with bone), rotation optional",
+        "key needs frame"
+      ]
     },
     "insert_key": {
       "description": "Key at a frame the current location, rotation and/or scale (paths) of an object or pose bone, or any animatable property by its RNA path (path), such as constraints[\"Grab\"].influence, key_blocks[\"Blink\"].value with owner shape_keys, lens with owner data, or [\"prop\"]; with bone the path is the pose bone's. value sets the property first; index keys one element of an array.",

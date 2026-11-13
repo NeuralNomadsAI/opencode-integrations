@@ -606,6 +606,126 @@ def op_aim_bone(args, batch, index):
         raise PlanError("%s: aim missed by %.3g degrees (tolerance %.3g)" % (label, error if error is not None else -1, tolerance))
 
 
+def _world_bone(obj, bone):
+    return obj.matrix_world @ bone.matrix
+
+
+def _turn_world(obj, bone, rotation):
+    """Gives a pose bone the world rotation `rotation` (a Quaternion), its head and scale kept."""
+    location, scale = bone.location.copy(), bone.scale.copy()
+    head, _rotation, size = _world_bone(obj, bone).decompose()
+    bone.matrix = obj.matrix_world.inverted() @ Matrix.LocRotScale(head, rotation, size)
+    bone.location, bone.scale = location, scale  # a turn about the head only
+    bpy.context.view_layer.update()
+
+
+def _aim_world(obj, bone, point):
+    """The least rotation that points a pose bone's Y axis (head to tail) at a world point."""
+    _head, rotation, _size = _world_bone(obj, bone).decompose()
+    head = obj.matrix_world @ bone.head
+    want = point - head
+    if want.length == 0:
+        return
+    _turn_world(obj, bone, rotation.to_matrix().col[1].normalized().rotation_difference(want.normalized()) @ rotation)
+
+
+def _goal_point(batch, goal):
+    """(world point, world orientation or None) of a reach target."""
+    rotation = None
+    if "rotation" in goal:
+        given = goal["rotation"]
+        rotation = (Euler([math.radians(a) for a in given["euler_deg"]], given["order"]).to_quaternion()
+                    if "euler_deg" in given else Quaternion(given["quaternion"]).normalized())
+    if "point" in goal:
+        return Vector(goal["point"]), rotation
+    holder = batch.ref(goal["object"])
+    matrix = _world_bone(holder, _pose_bone(holder, goal["bone"])) if goal.get("bone") else holder.matrix_world
+    return matrix.to_translation(), rotation if rotation is not None else matrix.to_quaternion()
+
+
+def op_reach(args, batch, index):
+    obj = batch.ref(args["ref"])
+    chain = [_pose_bone(obj, name) for name in args["chain"]]
+    for child, parent in zip(chain[1:], chain):
+        if child.parent != parent:
+            raise PlanError("%s: %r is not the parent of %r" % (obj.name, parent.name, child.name))
+    label = "%s:%s" % (obj.name, "/".join(args["chain"]))
+    scene = bpy.context.scene
+    current = scene.frame_current
+    frame = args.get("frame", current)
+    key = args.get("key", "frame" in args)
+    if frame != current:
+        batch.add(lambda: scene.frame_set(current), lambda: scene.frame_current == current, "%s.frame_current" % scene.name,
+                  ("field", _pointer(scene), "frame_current"))
+        scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    for bone in chain:
+        for attr in ("rotation_quaternion", "rotation_euler", "rotation_axis_angle", "location", "scale"):
+            batch.remember(bone, attr)
+    before = {bone.name: _rotation(bone) for bone in chain}
+    upper, lower = chain[0], chain[1]
+    world = obj.matrix_world
+    shoulder = world @ upper.head
+    first = (world @ upper.tail - shoulder).length
+    second = (world @ lower.tail - world @ lower.head).length
+    target, orientation = _goal_point(batch, args["target"])
+    if "pole" in args:
+        pole = args["pole"]
+        if "direction" in pole:
+            pole_point = shoulder + Vector(pole["direction"])
+        else:
+            pole_point = _target_point(batch, pole)
+    else:
+        pole_point = world @ lower.head  # the side the elbow bends to now
+    reach = target - shoulder
+    if reach.length == 0:
+        raise PlanError("%s: the target is at the shoulder" % label)
+    along = reach.normalized()
+    distance = min(max(reach.length, abs(first - second) * 1.000001), (first + second) * 0.999999)
+    cosine = max(-1.0, min(1.0, (first * first + distance * distance - second * second) / (2 * first * distance)))
+    side = pole_point - shoulder
+    side -= along * side.dot(along)
+    if side.length < 1e-9:
+        side = (world @ lower.head - shoulder)
+        side -= along * side.dot(along)
+    if side.length < 1e-9:
+        side = along.orthogonal()
+    elbow = shoulder + along * (cosine * first) + side.normalized() * (math.sqrt(1 - cosine * cosine) * first)
+    _aim_world(obj, upper, elbow)
+    _aim_world(obj, lower, shoulder + along * distance)
+    end_error = None
+    if len(chain) == 3 and orientation is not None:
+        _turn_world(obj, chain[2], orientation)
+        end_error = math.degrees(_world_bone(obj, chain[2]).to_quaternion().rotation_difference(orientation).angle)
+        end_error = min(end_error, 360 - end_error)
+    reached = obj.matrix_world @ lower.tail
+    error = (reached - target).length
+    change = {"op": index, "ref": label, "field": "reach", "before": before,
+              "after": {bone.name: _rotation(bone) for bone in chain}, "error": _r(error), "elbow": _r(elbow),
+              "reached": _r(reached), "chain_length": _r(first + second)}
+    if end_error is not None:
+        change["end_error_deg"] = _r(end_error)
+    batch.changes.append(change)
+    tolerance = args.get("tolerance", 0.001)
+    if error > tolerance:
+        raise PlanError("%s: missed the target by %.4g m (tolerance %.4g; the chain is %.4g m long, the target %.4g m "
+                        "from %s)" % (label, error, tolerance, first + second, reach.length, upper.name))
+    if end_error is not None and end_error > limits.value("aim_tolerance_deg"):
+        raise PlanError("%s: %s's orientation missed by %.3g degrees (locked or constrained rotation?)" % (
+            label, chain[2].name, end_error))
+    if key:
+        prefix = 'pose.bones["%s"].'
+        for bone in chain:
+            prop = _rotation_prop(bone)
+            _key(batch, index, obj, bone, prop, prefix % bone.name.replace("\\", "\\\\").replace('"', '\\"'), None, frame,
+                 None, "%s:%s" % (obj.name, bone.name), prop)
+    elif frame != current:
+        batch.warnings.append("%s: posed at frame %d without keys; going back to frame %d re-evaluates its animation." % (
+            label, frame, current))
+    if frame != current:
+        scene.frame_set(current)
+
+
 def _curves(owner):
     """The F-curves of owner's action for its slot (Blender 5 layered actions), or of a legacy action."""
     data = owner.animation_data
@@ -1494,7 +1614,7 @@ def op_switch_parent(args, batch, index):
 
 OPS = {
     "set_transform": op_set_transform, "fit_height": op_fit_height, "pose_bone": op_pose_bone,
-    "aim_bone": op_aim_bone, "insert_key": op_insert_key, "delete_keys": op_delete_keys,
+    "aim_bone": op_aim_bone, "reach": op_reach, "insert_key": op_insert_key, "delete_keys": op_delete_keys,
     "create_object": op_create_object, "rename": op_rename, "switch_parent": op_switch_parent,
     "delete": op_delete, "link": op_link, "unlink": op_unlink, "create_collection": op_create_collection,
     "set_parent": op_set_parent, "add_marker": op_add_marker, "set_camera": op_set_camera,
@@ -1566,6 +1686,14 @@ def precheck(checked):
             continue
         for key in ("ref", "parent", "camera"):
             need(args.get(key))
+        pole = args.get("pole")
+        if isinstance(pole, dict) and "object" in pole:
+            pole_holder = need(pole["object"])
+            if pole.get("bone") and pole_holder is not None:
+                try:
+                    _pose_bone(pole_holder, pole["bone"])
+                except PlanError as error:
+                    raise PlanError("%s: %s" % (where, error)) from None
         target = args.get("target")
         holder = need(target["object"] if isinstance(target, dict) and "object" in target else target
                       if isinstance(target, str) else None)
@@ -1631,6 +1759,12 @@ def precheck(checked):
                 raise PlanError("%s: %s" % (where, error)) from None
             if op == "aim_bone":
                 _free_to_turn(bone, where)
+        if obj is not None and op == "reach":
+            try:
+                for name in args["chain"]:
+                    _free_to_turn(_pose_bone(obj, name), where)
+            except PlanError as error:
+                raise PlanError(str(error) if str(error).startswith(where) else "%s: %s" % (where, error)) from None
         if op in ("set_parent", "switch_parent") and obj is not None and args.get("parent") and args.get("bone"):
             parent = need(args["parent"])
             if parent is not None:

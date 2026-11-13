@@ -60,6 +60,15 @@ SPEC = {
                   "axis": F({"enum": AXES}, default="Y"), "tolerance_deg": F("number")},
                  "Rotate a pose bone about its head so its axis points at a point, an object (or one of its bones) "
                  "or along a world direction; reports error_deg and refuses a miss above tolerance_deg."),
+    "reach": ({"ref": F("ref", True), "chain": F("bones", True), "target": F("goal", True), "pole": F("target"),
+               "frame": F("whole_frame"), "key": F("bool"), "tolerance": F("positive")},
+              "Two-bone IK solved once and written as a pose: chain is [upper, lower] or [upper, lower, end] (an arm, "
+              "and its hand), each the parent of the next. The lower bone's tail reaches target (a point, an object or "
+              "one of its bones), the elbow bends toward pole (a point, an object, a bone or a world direction; "
+              "default: the side it bends to now), and end takes the target's world orientation (an object or bone "
+              "target, or target.rotation). At frame (which stays current) it keys the chain's rotations (key, "
+              "default true with frame). Reports error (metres), end_error_deg and the elbow; refuses a miss above "
+              "tolerance (default 1 mm), such as a target out of reach."),
     "insert_key": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths"), "path": F("data_path"),
                     "index": F("index"), "owner": F({"enum": OWNERS}, default="object"), "value": F("value"),
                     "frame": F("frame", True), "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
@@ -129,7 +138,7 @@ SPEC = {
                       "ground in three operations."),
 }
 OPS = tuple(SPEC)
-REFERENCES = ("ref", "parent", "camera", "target")
+REFERENCES = ("ref", "parent", "camera", "target", "pole")
 
 # The rules across fields that validate() checks, as ops.json and the catalog state them.
 RULES = {
@@ -147,6 +156,8 @@ RULES = {
                     "path, without bone", "frames is [first, last] with first at most last"),
     "add_constraint": ("influence from 0 to 1",),
     "switch_parent": ("bone needs parent", "parent is not the object or one of its children"),
+    "reach": ("each bone of chain is the parent of the next", "target is point or object (with bone), rotation "
+              "optional", "key needs frame"),
     "delete": ("give refs or collections", "a collection is deleted empty: its objects and child collections are "
                "deleted by the same batch or moved first"),
     "duplicate": ("name, suffix and as apply to the copy of ref (suffix to every copy)",),
@@ -301,6 +312,26 @@ def _value(kind, value, path):
         if "bone" in target:
             out["bone"] = _name(target["bone"], path + ".bone")
         return out
+    if kind == "bones":
+        if not isinstance(value, list) or not 2 <= len(value) <= 3:
+            _fail(path, "expected [upper, lower] or [upper, lower, end] bone names")
+        names = [_name(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        if len(set(names)) != len(names):
+            _fail(path, "a bone is listed twice")
+        return names
+    if kind == "goal":
+        goal = _record(value, path, ("point", "object", "bone", "rotation"))
+        if ("point" in goal) == ("object" in goal):
+            _fail(path, "expected point or object")
+        if "bone" in goal and "object" not in goal:
+            _fail(path + ".bone", "belongs to object")
+        out = {"point": _vector(goal["point"], path + ".point", 3)} if "point" in goal else {
+            "object": _ref(goal["object"], path + ".object")}
+        if "bone" in goal:
+            out["bone"] = _name(goal["bone"], path + ".bone")
+        if "rotation" in goal:
+            out["rotation"] = _value("rotation", goal["rotation"], path + ".rotation")
+        return out
     if kind == "data_path":
         if not isinstance(value, str) or not value or "\x00" in value or len(value) > 1024 or value.startswith("."):
             _fail(path, "expected an RNA path of 1 to 1024 characters (constraints[\"Grab\"].influence)")
@@ -361,7 +392,7 @@ def validate(operations):
             args[key] = _value(spec["kind"], given[key], "%s.args.%s" % (path, key))
         for key in REFERENCES + ("refs",):
             values = args.get(key) if key == "refs" else [args.get(key)]
-            if key == "target" and isinstance(args.get(key), dict):
+            if key in ("target", "pole") and isinstance(args.get(key), dict):
                 values = [args[key].get("object")]
             for value in values or ():
                 if isinstance(value, str) and value.startswith("$") and value[1:] not in aliases:
@@ -394,6 +425,8 @@ def validate(operations):
                     _fail("%s.args.%s" % (path, key), "goes with path")
             if args["owner"] != "object" and ("path" not in args or "bone" in args):
                 _fail(path + ".args.owner", "%s goes with path, without bone" % args["owner"])
+        if op == "reach" and args.get("key") and "frame" not in args:
+            _fail(path + ".args.key", "needs frame")
         if op == "add_constraint" and args.get("influence", 0) > 1:
             _fail(path + ".args.influence", "expected 0 to 1")
         if op == "switch_parent" and "bone" in args and "parent" not in args:
@@ -463,6 +496,12 @@ def kinds():
                    "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name, "direction": vec3}},
         "refs": {"type": "array", "items": {"$ref": "#/kinds/ref"}, "minItems": 1, "uniqueItems": True},
         "names": {"type": "array", "items": name, "minItems": 1, "uniqueItems": True},
+        "bones": {"type": "array", "items": name, "minItems": 2, "maxItems": 3, "uniqueItems": True,
+                  "description": "[upper, lower] or [upper, lower, end], each the parent of the next"},
+        "goal": {"type": "object", "additionalProperties": False,
+                 "description": "point or object (bone only with object); rotation: the end bone's world orientation",
+                 "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name,
+                                "rotation": {"$ref": "#/kinds/rotation"}}},
         "data_path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-noNul": True,
                       "description": "an RNA path relative to the owner (or the pose bone): constraints[\"Grab\"].influence"},
         "value": {"oneOf": [number, {"type": "boolean"}, {"type": "array", "items": number, "minItems": 1,

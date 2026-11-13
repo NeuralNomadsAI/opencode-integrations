@@ -36,6 +36,8 @@ type Kind =
   | "refs"
   | "names"
   | "data_path"
+  | "bones"
+  | "goal"
   | "value"
   | "paths"
   | { enum: readonly string[] }
@@ -63,6 +65,15 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     target: F("target", true),
     axis: F({ enum: ["Y", "-Y", "X", "-X", "Z", "-Z"] }),
     tolerance_deg: F("number"),
+  },
+  reach: {
+    ref: F("ref", true),
+    chain: F("bones", true),
+    target: F("goal", true),
+    pole: F("target"),
+    frame: F("whole_frame"),
+    key: F("bool"),
+    tolerance: F("positive"),
   },
   insert_key: {
     ref: F("ref", true),
@@ -278,6 +289,25 @@ function value(kind: Kind, v: unknown, path: string): unknown {
       if (new Set(list).size !== list.length) fail(path, "duplicate name")
       return list
     }
+    case "bones": {
+      if (!Array.isArray(v) || v.length < 2 || v.length > 3)
+        fail(path, "expected [upper, lower] or [upper, lower, end]")
+      const list = (v as unknown[]).map((x, i) => str(x, `${path}[${i}]`))
+      if (new Set(list).size !== list.length) fail(path, "a bone is listed twice")
+      return list
+    }
+    case "goal": {
+      const g = record(v, path, ["point", "object", "bone", "rotation"])
+      if ((g.point === undefined) === (g.object === undefined)) fail(path, "expected point or object")
+      if (g.bone !== undefined && g.object === undefined) fail(`${path}.bone`, "belongs to object")
+      return {
+        ...(g.point !== undefined
+          ? { point: vec(g.point, `${path}.point`, 3) }
+          : { object: ref(g.object, `${path}.object`) }),
+        ...(g.bone !== undefined ? { bone: str(g.bone, `${path}.bone`) } : {}),
+        ...(g.rotation !== undefined ? { rotation: value("rotation", g.rotation, `${path}.rotation`) } : {}),
+      }
+    }
     case "data_path":
       if (typeof v !== "string" || !v || v.includes("\0") || v.length > 1024 || v.startsWith("."))
         fail(path, "expected an RNA path of 1 to 1024 characters")
@@ -338,6 +368,7 @@ function rules(op: string, o: Json, path: string) {
   if (op === "add_constraint" && (o.influence as number | undefined) !== undefined && (o.influence as number) > 1)
     fail(`${path}.influence`, "expected 0 to 1")
   if (op === "switch_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
+  if (op === "reach" && o.key === true && o.frame === undefined) fail(`${path}.key`, "needs frame")
 }
 
 export function validatePlan(input: Json) {
@@ -363,6 +394,7 @@ export function validatePlan(input: Json) {
     const refs: [string, unknown][] = [
       ...["ref", "parent", "camera", "target"].map((k) => [`${path}.${k}`, out[k]] as [string, unknown]),
       [`${path}.target.object`, (out.target as Json | undefined)?.object],
+      [`${path}.pole.object`, (out.pole as Json | undefined)?.object],
       ...((out.refs as string[] | undefined) ?? []).map((r, k) => [`${path}.refs[${k}]`, r] as [string, unknown]),
     ]
     for (const [at, r] of refs)
