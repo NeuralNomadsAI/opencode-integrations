@@ -35,10 +35,14 @@ type Kind =
   | "target"
   | "refs"
   | "names"
+  | "data_path"
+  | "value"
   | "paths"
   | { enum: readonly string[] }
 
 const F = (kind: Kind, required = false) => ({ kind, required })
+// Whose animation an RNA path is keyed on (ops.json).
+const OWNERS = { enum: ["object", "data", "shape_keys"] } as const
 const ROT = F("rotation")
 export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: boolean }>> = {
   set_transform: { ref: F("ref", true), location: F("vec3"), rotation: ROT, scale: F("scale"), delta: F("bool") },
@@ -61,9 +65,22 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
   insert_key: {
     ref: F("ref", true),
     bone: F("name"),
-    paths: F("paths", true),
+    paths: F("paths"),
+    path: F("data_path"),
+    index: F("index"),
+    owner: F(OWNERS),
+    value: F("value"),
     frame: F("frame", true),
     interpolation: F({ enum: ["CONSTANT", "LINEAR", "BEZIER"] }),
+  },
+  delete_keys: {
+    ref: F("ref", true),
+    bone: F("name"),
+    paths: F("paths"),
+    path: F("data_path"),
+    index: F("index"),
+    owner: F(OWNERS),
+    frames: F("frames"),
   },
   create_object: {
     kind: F({ enum: ["empty", "camera", "light", "mesh", "text"] }, true),
@@ -125,11 +142,16 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
   set_camera: { ref: F("ref", true) },
   add_constraint: {
     ref: F("ref", true),
-    type: F({ enum: ["TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION", "COPY_ROTATION", "CHILD_OF"] }, true),
+    type: F(
+      { enum: ["TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION", "COPY_ROTATION", "COPY_TRANSFORMS", "CHILD_OF"] },
+      true,
+    ),
     target: F("ref", true),
     subtarget: F("name"),
     name: F("name"),
+    influence: F("nonnegative"),
   },
+  switch_parent: { ref: F("ref", true), parent: F("ref"), bone: F("name"), frame: F("whole_frame", true) },
 }
 // create_object's fields that apply to one kind only (ops.json rules).
 const KIND_FIELDS: Record<string, string[]> = {
@@ -254,6 +276,17 @@ function value(kind: Kind, v: unknown, path: string): unknown {
       if (new Set(list).size !== list.length) fail(path, "duplicate name")
       return list
     }
+    case "data_path":
+      if (typeof v !== "string" || !v || v.includes("\0") || v.length > 1024 || v.startsWith("."))
+        fail(path, "expected an RNA path of 1 to 1024 characters")
+      return v
+    case "value":
+      if (typeof v === "boolean") return v
+      if (Array.isArray(v)) {
+        if (v.length < 1 || v.length > 32) fail(path, "expected 1 to 32 numbers")
+        return v.map((x, i) => num(x, `${path}[${i}]`))
+      }
+      return num(v, path)
     case "paths": {
       if (!Array.isArray(v) || v.length < 1) fail(path, "expected location, rotation and/or scale")
       for (const p of v as unknown[])
@@ -293,6 +326,16 @@ function rules(op: string, o: Json, path: string) {
   }
   if (op === "set_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
   if (op === "delete" && !has("refs", "collections")) fail(path, "give refs or collections")
+  if (op === "insert_key" || op === "delete_keys") {
+    if (has("paths") === has("path")) fail(path, "give paths or path (one of them)")
+    for (const key of op === "insert_key" ? ["value", "index"] : ["index"])
+      if (o[key] !== undefined && o.path === undefined) fail(`${path}.${key}`, "goes with path")
+    if (o.owner !== undefined && o.owner !== "object" && (o.path === undefined || o.bone !== undefined))
+      fail(`${path}.owner`, "goes with path, without bone")
+  }
+  if (op === "add_constraint" && (o.influence as number | undefined) !== undefined && (o.influence as number) > 1)
+    fail(`${path}.influence`, "expected 0 to 1")
+  if (op === "switch_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
 }
 
 export function validatePlan(input: Json) {

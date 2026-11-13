@@ -13,7 +13,7 @@ import { announcement, loadPlugin } from "./helpers/plugin.ts"
 
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 // The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
-const OPS042_TESTS = 4
+const OPS042_TESTS = 7
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }

@@ -222,6 +222,33 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "data_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "x-noNul": true,
+      "description": "an RNA path relative to the owner (or the pose bone): constraints[\"Grab\"].influence"
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": "number",
+          "x-finite": true
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 1,
+          "maxItems": 32
+        }
+      ]
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -352,7 +379,7 @@
       }
     },
     "insert_key": {
-      "description": "Key the current location, rotation and/or scale of an object or pose bone at a frame.",
+      "description": "Key at a frame the current location, rotation and/or scale (paths) of an object or pose bone, or any animatable property by its RNA path (path), such as constraints[\"Grab\"].influence, key_blocks[\"Blink\"].value with owner shape_keys, lens with owner data, or [\"prop\"]; with bone the path is the pose bone's. value sets the property first; index keys one element of an array.",
       "args": {
         "ref": {
           "kind": "ref",
@@ -362,8 +389,24 @@
           "kind": "name"
         },
         "paths": {
-          "kind": "paths",
-          "required": true
+          "kind": "paths"
+        },
+        "path": {
+          "kind": "data_path"
+        },
+        "index": {
+          "kind": "index"
+        },
+        "owner": {
+          "enum": [
+            "object",
+            "data",
+            "shape_keys"
+          ],
+          "default": "object"
+        },
+        "value": {
+          "kind": "value"
         },
         "frame": {
           "kind": "frame",
@@ -376,7 +419,50 @@
             "BEZIER"
           ]
         }
-      }
+      },
+      "rules": [
+        "give paths or path (one of them)",
+        "value and index go with path",
+        "owner other than object goes with path, without bone"
+      ]
+    },
+    "delete_keys": {
+      "description": "Delete the keys of paths (location, rotation, scale) or of one RNA path (each array element unless index) in frames [first, last] (all without frames); an F-curve left without keys is removed.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "paths": {
+          "kind": "paths"
+        },
+        "path": {
+          "kind": "data_path"
+        },
+        "index": {
+          "kind": "index"
+        },
+        "owner": {
+          "enum": [
+            "object",
+            "data",
+            "shape_keys"
+          ],
+          "default": "object"
+        },
+        "frames": {
+          "kind": "frames"
+        }
+      },
+      "rules": [
+        "give paths or path (one of them)",
+        "index goes with path",
+        "owner other than object goes with path, without bone",
+        "frames is [first, last] with first at most last"
+      ]
     },
     "create_object": {
       "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height, a cone's base diameter and height; depth sets a cylinder's or cone's height apart (a barrel 0.6 wide and 0.9 high: size 0.6, depth 0.9). Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
@@ -694,7 +780,7 @@
       }
     },
     "add_constraint": {
-      "description": "An object constraint targeting an object (subtarget: one of its bones).",
+      "description": "An object constraint targeting an object (subtarget: one of its bones), with its influence (0 to 1).",
       "args": {
         "ref": {
           "kind": "ref",
@@ -706,6 +792,7 @@
             "DAMPED_TRACK",
             "COPY_LOCATION",
             "COPY_ROTATION",
+            "COPY_TRANSFORMS",
             "CHILD_OF"
           ],
           "required": true
@@ -719,8 +806,37 @@
         },
         "name": {
           "kind": "name"
+        },
+        "influence": {
+          "kind": "nonnegative"
         }
-      }
+      },
+      "rules": [
+        "influence from 0 to 1"
+      ]
+    },
+    "switch_parent": {
+      "description": "From frame on, the object follows parent (one of its bones with bone; the world without parent) without a jump: an anchor empty is made under parent where the object is at that frame, and a Copy Transforms constraint to it takes over at that frame (influences keyed CONSTANT: this switch's 1, earlier switches' 0). Before frame nothing changes. A revolver goes holster, hand, ground in three operations.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "parent": {
+          "kind": "ref"
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "frame": {
+          "kind": "whole_frame",
+          "required": true
+        }
+      },
+      "rules": [
+        "bone needs parent",
+        "parent is not the object or one of its children"
+      ]
     }
   }
 }

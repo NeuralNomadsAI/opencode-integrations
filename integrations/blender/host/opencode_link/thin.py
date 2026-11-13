@@ -626,69 +626,267 @@ def _key_at(curve, frame):
     return None
 
 
+def _owner_id(obj, owner):
+    """The datablock whose animation holds a path: the object, its data, or its data's shape keys."""
+    if owner == "object":
+        return obj
+    data = obj.data
+    if data is None:
+        raise PlanError("%r has no data" % obj.name)
+    if owner == "data":
+        return data
+    keys = getattr(data, "shape_keys", None)
+    if keys is None:
+        raise PlanError("%r has no shape keys" % obj.name)
+    return keys
+
+
+def _split_path(path):
+    """(parent path, last segment, is an item): 'constraints["Grab"].influence' -> ('constraints["Grab"]',
+    'influence', False); '["prop"]' -> ('', 'prop', True)."""
+    depth, quote, cut = 0, None, -1
+    for position, char in enumerate(path):
+        if quote:
+            if char == "\\":
+                continue
+            if char == quote and path[position - 1] != "\\":
+                quote = None
+        elif char in "\"'":
+            quote = char
+        elif char == "[":
+            if depth == 0:
+                cut = position
+            depth += 1
+        elif char == "]":
+            depth -= 1
+        elif char == "." and depth == 0:
+            cut = position
+    if cut < 0:
+        return "", path, False
+    if path[cut] == ".":
+        return path[:cut], path[cut + 1:], False
+    inner = path[cut + 1:-1] if path.endswith("]") else None
+    if not inner or inner[0] not in "\"'" or inner[-1] != inner[0]:
+        raise PlanError("%s: give an array element with index, not [n]" % path)
+    return path[:cut], inner[1:-1], True
+
+
+def _property(holder, path, label):
+    """(struct, name, is_item) of path on holder, refused when it does not resolve or cannot be animated."""
+    parent_path, name, item = _split_path(path)
+    try:
+        parent = holder.path_resolve(parent_path) if parent_path else holder
+    except ValueError:
+        raise PlanError("%s has no %s" % (label, parent_path)) from None
+    if item:
+        try:
+            parent[name]
+        except (KeyError, TypeError):
+            raise PlanError("%s has no property %s" % (label, path)) from None
+        return parent, name, True
+    rna = getattr(getattr(parent, "bl_rna", None), "properties", {}).get(name)
+    if rna is None:
+        raise PlanError("%s has no property %s" % (label, path))
+    if not rna.is_animatable:
+        raise PlanError("%s: %s cannot be animated" % (label, path))
+    return parent, name, False
+
+
+def _read(parent, name, item):
+    value = parent[name] if item else getattr(parent, name)
+    return _copy(value)
+
+
+def _write(parent, name, item, value):
+    if item:
+        parent[name] = value
+    else:
+        setattr(parent, name, value)
+
+
+def _action_journal(batch, owner):
+    """A key on an owner without an action makes one: undoing the batch removes it again."""
+    had_data = owner.animation_data is not None
+    if had_data and owner.animation_data.action is not None:
+        return
+
+    def drop_action():
+        data = owner.animation_data
+        if data is not None and data.action is not None:
+            action = data.action
+            data.action = None
+            if action.users == 0:
+                bpy.data.actions.remove(action)
+        if not had_data and owner.animation_data is not None:
+            owner.animation_data_clear()
+
+    batch.add(drop_action, lambda: (owner.animation_data is None) if not had_data else owner.animation_data.action is None,
+              "%s new action" % owner.name, ("action", _pointer(owner)))
+
+
+def _key(batch, index, owner, holder, rel_path, prefix, indices, frame, interpolation, label, field):
+    """Keys holder's rel_path (on owner's action, as prefix + rel_path) at frame, element by element in indices
+    (None: the whole property); records the inverse: keys it made removed, keys it replaced restored."""
+    full = prefix + rel_path
+    elements = indices if indices is not None else range(max(1, _size(holder, rel_path)))
+    existed = []
+    for element in elements:
+        curve = _curve(owner, full, element)
+        point = _key_at(curve, frame)
+        existed.append((element, curve is not None, tuple(point.co) if point else None,
+                        point.interpolation if point else None))
+    _action_journal(batch, owner)
+    keyed = holder.keyframe_insert(rel_path, index=-1 if indices is None else indices[0], frame=frame)
+    if not keyed:
+        raise PlanError("%s: could not key %s" % (label, rel_path))
+    if interpolation:
+        for element, *_rest in existed:
+            point = _key_at(_curve(owner, full, element), frame)
+            if point is not None:
+                point.interpolation = interpolation
+
+    def undo(existed=existed):
+        for element, had_curve, co, interpolation in existed:
+            curve = _curve(owner, full, element)
+            point = _key_at(curve, frame)
+            if co is None and point is not None:
+                curve.keyframe_points.remove(point)
+                if not had_curve and not curve.keyframe_points:
+                    _remove_curve(owner, curve)
+            elif co is not None and point is not None:
+                point.co = co
+                point.interpolation = interpolation
+
+    def proof(existed=existed):
+        for element, _had, co, _interpolation in existed:
+            point = _key_at(_curve(owner, full, element), frame)
+            if (co is None) != (point is None) or (co is not None and not _same(tuple(point.co), co)):
+                return False
+        return True
+
+    batch.add(undo, proof, "%s key %s" % (label, rel_path),
+              ("key", _pointer(owner), full, frame, tuple(indices) if indices is not None else None))
+    value = _read(*_property(holder, rel_path, label)) if field is None else getattr(holder, rel_path)
+    batch.changes.append({"op": index, "ref": label, "field": "key %s" % (field or rel_path), "frame": frame,
+                          "value": _r(list(value) if isinstance(value, (tuple, list, Vector, Euler, Quaternion)) else value),
+                          "replaced": any(co for _e, _h, co, _i in existed)})
+
+
+def _size(holder, rel_path):
+    parent, name, item = _property(holder, rel_path, "")
+    value = parent[name] if item else getattr(parent, name)
+    try:
+        return len(value) if not isinstance(value, str) else 1
+    except TypeError:
+        return 1
+
+
+def _key_holder(obj, args):
+    """(owner datablock, struct the path is relative to, owner path prefix, label)."""
+    if args.get("bone"):
+        bone = _pose_bone(obj, args["bone"])
+        return obj, bone, 'pose.bones["%s"].' % bone.name.replace("\\", "\\\\").replace('"', '\\"'), "%s:%s" % (obj.name, bone.name)
+    owner = _owner_id(obj, args.get("owner", "object"))
+    label = obj.name if owner is obj else "%s (%s %s)" % (obj.name, args.get("owner"), owner.name)
+    return owner, owner, "", label
+
+
+def _rotation_prop(holder):
+    return {"QUATERNION": "rotation_quaternion", "AXIS_ANGLE": "rotation_axis_angle"}.get(holder.rotation_mode, "rotation_euler")
+
+
 def op_insert_key(args, batch, index):
     obj = batch.ref(args["ref"])
     frame = args["frame"]
-    holder = _pose_bone(obj, args["bone"]) if args.get("bone") else obj
-    prefix = 'pose.bones["%s"].' % holder.name.replace("\\", "\\\\").replace('"', '\\"') if args.get("bone") else ""
-    label = "%s:%s" % (obj.name, holder.name) if args.get("bone") else obj.name
-    had_data = obj.animation_data is not None
-    had_action = had_data and obj.animation_data.action is not None
+    owner, holder, prefix, label = _key_holder(obj, args)
+    interpolation = args.get("interpolation")
+    if "path" in args:
+        path = args["path"]
+        parent, name, item = _property(holder, path, label)
+        if "value" in args:
+            before = _read(parent, name, item)
+            wanted = args["value"]
+            if "index" in args:
+                array = list(before)
+                if not 0 <= args["index"] < len(array):
+                    raise PlanError("%s: %s has %d elements" % (label, path, len(array)))
+                array[args["index"]] = wanted
+                wanted = array
+            try:
+                _write(parent, name, item, wanted)
+            except (TypeError, ValueError) as error:
+                raise PlanError("%s: %s does not take %s (%s)" % (label, path, args["value"], error)) from None
+            batch.add(lambda: _write(parent, name, item, before), lambda: _same(_read(parent, name, item), before),
+                      "%s.%s" % (label, path), ("field", _pointer(parent), name))
+            batch.record(index, label, path, before, _read(parent, name, item))
+        indices = [args["index"]] if "index" in args else None
+        _key(batch, index, owner, holder, path, prefix, indices, frame, interpolation, label, None)
+        return
     for path in args["paths"]:
-        prop = path
-        if path == "rotation":
-            prop = {"QUATERNION": "rotation_quaternion", "AXIS_ANGLE": "rotation_axis_angle"}.get(holder.rotation_mode,
-                                                                                                    "rotation_euler")
-        size = len(getattr(holder, prop))
-        existed = []
-        for array_index in range(size):
-            curve = _curve(obj, prefix + prop, array_index)
-            point = _key_at(curve, frame)
-            existed.append((curve is not None, tuple(point.co) if point else None,
-                            point.interpolation if point else None))
-        if not holder.keyframe_insert(prop, frame=frame):
-            raise PlanError("%s: could not key %s" % (label, prop))
-        if args.get("interpolation"):
-            for array_index in range(size):
-                point = _key_at(_curve(obj, prefix + prop, array_index), frame)
-                if point is not None:
-                    point.interpolation = args["interpolation"]
+        prop = _rotation_prop(holder) if path == "rotation" else path
+        _key(batch, index, owner, holder, prop, prefix, None, frame, interpolation, label, prop)
 
-        def undo(holder=holder, prop=prop, existed=existed):
-            for array_index, (had_curve, co, interpolation) in enumerate(existed):
-                curve = _curve(obj, prefix + prop, array_index)
-                point = _key_at(curve, frame)
-                if co is None and point is not None:
-                    curve.keyframe_points.remove(point)
-                    if not had_curve and not curve.keyframe_points:
-                        _remove_curve(obj, curve)
-                elif co is not None and point is not None:
-                    point.co = co
-                    point.interpolation = interpolation
 
-        def proof(prop=prop, existed=existed):
-            for array_index, (_had, co, _interpolation) in enumerate(existed):
-                point = _key_at(_curve(obj, prefix + prop, array_index), frame)
-                if (co is None) != (point is None) or (co is not None and not _same(tuple(point.co), co)):
-                    return False
-            return True
+def op_delete_keys(args, batch, index):
+    obj = batch.ref(args["ref"])
+    owner, holder, prefix, label = _key_holder(obj, args)
+    if "path" in args:
+        _property(holder, args["path"], label)
+        wanted = {(prefix + args["path"], args.get("index"))}
 
-        batch.add(undo, proof, "%s key %s" % (label, prop), ("key", _pointer(obj), prefix + prop, frame))
-        batch.changes.append({"op": index, "ref": label, "field": "key %s" % prop, "frame": frame,
-                              "value": _r(list(getattr(holder, prop))), "replaced": any(co for _, co, _ in existed)})
-    if not had_action:
-        def drop_action():
-            data = obj.animation_data
-            if data is not None and data.action is not None:
-                action = data.action
-                data.action = None
-                if action.users == 0:
-                    bpy.data.actions.remove(action)
-            if not had_data and obj.animation_data is not None:
-                obj.animation_data_clear()
-        batch.add(drop_action, lambda: (obj.animation_data is None) if not had_data else obj.animation_data.action is None,
-                  "%s new action" % obj.name, ("action", _pointer(obj)))
+        def matches(curve):
+            return any(curve.data_path == path and (element is None or curve.array_index == element)
+                       for path, element in wanted)
+    else:
+        props = {prefix + prop for path in args["paths"] for prop in _PATH_PROPS[path]}
 
+        def matches(curve):
+            return curve.data_path in props
+
+    tolerance = limits.value("abs_tolerance")
+    first, last = args.get("frames", (-math.inf, math.inf))
+    plan = []
+    for curve in _curves(owner):
+        if not matches(curve):
+            continue
+        doomed = [position for position, point in enumerate(curve.keyframe_points)
+                  if first - tolerance <= point.co[0] <= last + tolerance]
+        if doomed:
+            plan.append((curve, doomed))
+    if not plan:
+        where = "" if "frames" not in args else " in frames %g-%g" % (first, last)
+        raise PlanError("%s has no keys of %s%s" % (label, args.get("path") or ", ".join(args["paths"]), where))
+    count = 0
+    for curve, doomed in plan:
+        state, path, element = _key_state(curve), curve.data_path, curve.array_index
+        group = curve.group.name if curve.group else None
+
+        def undo(path=path, element=element, state=state, group=group):
+            curve = _curve(owner, path, element) or _new_curve(owner, path, element, group)
+            _restore_keys(curve, state)
+
+        batch.add(undo, lambda path=path, element=element, state=state: _curve(owner, path, element) is not None and _same(
+            _key_state(_curve(owner, path, element)), state), "%s keys %s[%d]" % (label, path, element),
+            ("keys", _pointer(owner), path, element))
+        points = curve.keyframe_points
+        for position in reversed(doomed):  # by position from the last: no reference outlives a removal
+            points.remove(points[position], fast=True)
+        count += len(doomed)
+        curve.update()
+        if not len(points):
+            _remove_curve(owner, curve)
+    batch.changes.append({"op": index, "ref": label, "field": "keys deleted", "curves": len(plan), "deleted": count})
+
+
+def _new_curve(owner, path, element, group):
+    from bpy_extras import anim_utils
+
+    data = owner.animation_data
+    bag = anim_utils.action_ensure_channelbag_for_slot(data.action, data.action_slot)
+    curve = bag.fcurves.new(path, index=element)
+    if group:
+        curve.group = bag.groups.get(group) or bag.groups.new(group)
+    return curve
 
 def _remove_curve(obj, curve):
     try:
@@ -1191,12 +1389,83 @@ def op_add_constraint(args, batch, index):
         constraint.track_axis, constraint.up_axis = "TRACK_NEGATIVE_Z", "UP_Y"
     if args.get("name"):
         constraint.name = args["name"]
+    if "influence" in args:
+        constraint.influence = args["influence"]
     batch.record(index, obj.name, "constraints", None, [found.name for found in obj.constraints])
+
+
+SWITCH_PREFIX = "OC parent "
+
+
+def op_switch_parent(args, batch, index):
+    """From frame on, obj copies the world transform of an anchor empty made under the new parent where obj is at
+    that frame: no jump. Each switch adds its anchor and its Copy Transforms constraint; the influences are keyed
+    CONSTANT, this switch's 1 from frame on (0 just before), every earlier switch's 0 from frame on."""
+    obj = batch.ref(args["ref"])
+    scene = bpy.context.scene
+    frame = args["frame"]
+    parent = batch.ref(args["parent"]) if args.get("parent") else None
+    walker = parent
+    while walker is not None:
+        if walker == obj:
+            raise PlanError("%r cannot follow %r, its own child" % (obj.name, parent.name))
+        walker = walker.parent
+    if args.get("bone"):
+        _pose_bone(parent, args["bone"])
+    current = scene.frame_current
+    batch.add(lambda: scene.frame_set(current), lambda: scene.frame_current == current, "%s.frame_current" % scene.name,
+              ("field", _pointer(scene), "frame_current"))
+    scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    world = obj.matrix_world.copy()
+    where = (parent.name + ((":" + args["bone"]) if args.get("bone") else "")) if parent else "world"
+    anchor = bpy.data.objects.new("%s @ %s f%d" % (obj.name, where, frame), None)
+    anchor.empty_display_size = 0.05
+    anchor.hide_render = True
+    batch.journal.append((lambda: _removed(anchor) or bpy.data.objects.remove(anchor, do_unlink=True),
+                          lambda: _removed(anchor), "anchor of %s" % obj.name))
+    batch.make(anchor)
+    for group in obj.users_collection or (scene.collection,):
+        group.objects.link(anchor)
+    if parent is not None:
+        anchor.parent = parent
+        if args.get("bone"):
+            anchor.parent_type, anchor.parent_bone = "BONE", args["bone"]
+        bpy.context.view_layer.update()
+    anchor.matrix_world = world
+    bpy.context.view_layer.update()
+    earlier = [c for c in obj.constraints if c.type == "COPY_TRANSFORMS" and c.name.startswith(SWITCH_PREFIX)]
+    count = len(obj.constraints)
+    constraint = obj.constraints.new("COPY_TRANSFORMS")
+    batch.add(lambda: obj.constraints.remove(constraint), lambda: len(obj.constraints) == count,
+              "%s constraint %s" % (obj.name, constraint.name), ("constraints", _pointer(obj)))
+    constraint.name = "%sf%d %s" % (SWITCH_PREFIX, frame, where)
+    constraint.target = anchor
+    for target, before, at in [(constraint, 0.0, 1.0)] + [(c, None, 0.0) for c in earlier]:
+        path = 'constraints["%s"].influence' % target.name.replace("\\", "\\\\").replace('"', '\\"')
+        if target is not constraint and _curve(obj, path, 0) is None:
+            batch.remember(target, "influence")  # keyed, its keys (journaled below) decide it at every frame
+        if before is not None:
+            target.influence = before
+            _key(batch, index, obj, obj, path, "", None, frame - 1, "CONSTANT", obj.name, None)
+        target.influence = at
+        _key(batch, index, obj, obj, path, "", None, frame, "CONSTANT", obj.name, None)
+    scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    error = (obj.matrix_world.translation - world.translation).length
+    scene.frame_set(current)
+    batch.changes.append({"op": index, "ref": obj.name, "field": "parent from frame %d" % frame, "after": where,
+                          "anchor": anchor.name, "constraint": constraint.name, "jump": _r(error)})
+    if error > max(1e-4, limits.value("matrix_tolerance") * world.translation.length):
+        raise PlanError("%s: it would jump by %.4g at frame %d (a sheared or scaled parent)" % (obj.name, error, frame))
+    if _keyed(obj, ("location", "rotation_euler", "rotation_quaternion", "scale")):
+        batch.warnings.append("%s: its own keys no longer move it from frame %d on: it follows %s." % (obj.name, frame, where))
 
 
 OPS = {
     "set_transform": op_set_transform, "fit_height": op_fit_height, "pose_bone": op_pose_bone,
-    "aim_bone": op_aim_bone, "insert_key": op_insert_key, "create_object": op_create_object, "rename": op_rename,
+    "aim_bone": op_aim_bone, "insert_key": op_insert_key, "delete_keys": op_delete_keys,
+    "create_object": op_create_object, "rename": op_rename, "switch_parent": op_switch_parent,
     "delete": op_delete, "link": op_link, "unlink": op_unlink, "create_collection": op_create_collection,
     "set_parent": op_set_parent, "add_marker": op_add_marker, "set_camera": op_set_camera,
     "add_constraint": op_add_constraint, "duplicate": op_duplicate, "set_material": op_set_material,
@@ -1325,14 +1594,14 @@ def precheck(checked):
             if not old.startswith("$"):
                 renamed_away[old] = (new, index)
             renamed_away.pop(new, None)
-        if obj is not None and (op in ("pose_bone", "aim_bone") or (op in ("insert_key", "shift_keys") and args.get("bone"))):
+        if obj is not None and (op in ("pose_bone", "aim_bone") or (op in ("insert_key", "shift_keys", "delete_keys") and args.get("bone"))):
             try:
                 bone = _pose_bone(obj, args["bone"])
             except PlanError as error:
                 raise PlanError("%s: %s" % (where, error)) from None
             if op == "aim_bone":
                 _free_to_turn(bone, where)
-        if op == "set_parent" and obj is not None and args.get("parent") and args.get("bone"):
+        if op in ("set_parent", "switch_parent") and obj is not None and args.get("parent") and args.get("bone"):
             parent = need(args["parent"])
             if parent is not None:
                 try:

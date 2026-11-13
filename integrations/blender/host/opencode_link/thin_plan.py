@@ -17,6 +17,9 @@ from . import limits
 ORDERS = ("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX")
 AXES = ("Y", "-Y", "X", "-X", "Z", "-Z")
 PATHS = ("location", "rotation", "scale")
+# Whose animation an RNA path is keyed on: the object, its data (a camera's lens) or its data's shape keys.
+OWNERS = ("object", "data", "shape_keys")
+VALUE_ITEMS = 32
 # Blender 5.3 TextCurve.align_x / align_y items (rna_curve.cc).
 ALIGN_X = ("LEFT", "CENTER", "RIGHT", "JUSTIFY", "FLUSH")
 ALIGN_Y = ("TOP", "TOP_BASELINE", "CENTER", "BOTTOM_BASELINE", "BOTTOM")
@@ -53,9 +56,17 @@ SPEC = {
                   "axis": F({"enum": AXES}, default="Y"), "tolerance_deg": F("number")},
                  "Rotate a pose bone about its head so its axis points at a point, an object (or one of its bones) "
                  "or along a world direction; reports error_deg and refuses a miss above tolerance_deg."),
-    "insert_key": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths", True), "frame": F("frame", True),
-                    "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
-                   "Key the current location, rotation and/or scale of an object or pose bone at a frame."),
+    "insert_key": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths"), "path": F("data_path"),
+                    "index": F("index"), "owner": F({"enum": OWNERS}, default="object"), "value": F("value"),
+                    "frame": F("frame", True), "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
+                   "Key at a frame the current location, rotation and/or scale (paths) of an object or pose bone, or any "
+                   "animatable property by its RNA path (path), such as constraints[\"Grab\"].influence, "
+                   "key_blocks[\"Blink\"].value with owner shape_keys, lens with owner data, or [\"prop\"]; with bone the "
+                   "path is the pose bone's. value sets the property first; index keys one element of an array."),
+    "delete_keys": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths"), "path": F("data_path"),
+                     "index": F("index"), "owner": F({"enum": OWNERS}, default="object"), "frames": F("frames")},
+                    "Delete the keys of paths (location, rotation, scale) or of one RNA path (each array element unless "
+                    "index) in frames [first, last] (all without frames); an F-curve left without keys is removed."),
     "create_object": ({"kind": F({"enum": ("empty", "camera", "light", "mesh", "text")}, True), "name": F("name", True),
                        "as": F("alias"), "primitive": F({"enum": ("cube", "plane", "uv_sphere", "cylinder", "cone")}),
                        "size": F("positive"), "depth": F("positive"), "light_type": F({"enum": ("POINT", "SUN", "SPOT", "AREA")}),
@@ -103,9 +114,15 @@ SPEC = {
                    "A timeline marker, optionally bound to a camera."),
     "set_camera": ({"ref": F("ref", True)}, "Make a camera the scene's active camera."),
     "add_constraint": ({"ref": F("ref", True), "type": F({"enum": ("TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION",
-                                                                    "COPY_ROTATION", "CHILD_OF")}, True),
-                        "target": F("ref", True), "subtarget": F("name"), "name": F("name")},
-                       "An object constraint targeting an object (subtarget: one of its bones)."),
+                                                                    "COPY_ROTATION", "COPY_TRANSFORMS", "CHILD_OF")}, True),
+                        "target": F("ref", True), "subtarget": F("name"), "name": F("name"), "influence": F("nonnegative")},
+                       "An object constraint targeting an object (subtarget: one of its bones), with its influence (0 to 1)."),
+    "switch_parent": ({"ref": F("ref", True), "parent": F("ref"), "bone": F("name"), "frame": F("whole_frame", True)},
+                      "From frame on, the object follows parent (one of its bones with bone; the world without parent) "
+                      "without a jump: an anchor empty is made under parent where the object is at that frame, and a "
+                      "Copy Transforms constraint to it takes over at that frame (influences keyed CONSTANT: this "
+                      "switch's 1, earlier switches' 0). Before frame nothing changes. A revolver goes holster, hand, "
+                      "ground in three operations."),
 }
 OPS = tuple(SPEC)
 REFERENCES = ("ref", "parent", "camera", "target")
@@ -120,6 +137,12 @@ RULES = {
                       "body, size, extrude, align_x and align_y to a text",
                       "a text needs body"),
     "set_parent": ("bone needs parent",),
+    "insert_key": ("give paths or path (one of them)", "value and index go with path", "owner other than object "
+                   "goes with path, without bone"),
+    "delete_keys": ("give paths or path (one of them)", "index goes with path", "owner other than object goes with "
+                    "path, without bone", "frames is [first, last] with first at most last"),
+    "add_constraint": ("influence from 0 to 1",),
+    "switch_parent": ("bone needs parent", "parent is not the object or one of its children"),
     "delete": ("give refs or collections", "a collection is deleted empty: its objects and child collections are "
                "deleted by the same batch or moved first"),
     "duplicate": ("name, suffix and as apply to the copy of ref (suffix to every copy)",),
@@ -274,6 +297,18 @@ def _value(kind, value, path):
         if "bone" in target:
             out["bone"] = _name(target["bone"], path + ".bone")
         return out
+    if kind == "data_path":
+        if not isinstance(value, str) or not value or "\x00" in value or len(value) > 1024 or value.startswith("."):
+            _fail(path, "expected an RNA path of 1 to 1024 characters (constraints[\"Grab\"].influence)")
+        return value
+    if kind == "value":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, list):
+            if not 1 <= len(value) <= VALUE_ITEMS:
+                _fail(path, "expected 1 to %d numbers" % VALUE_ITEMS)
+            return [_number(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        return _number(value, path)
     if kind == "names":
         if not isinstance(value, list) or not value:
             _fail(path, "expected a list of names")
@@ -347,6 +382,18 @@ def validate(operations):
                 _fail(path + ".args.depth", "applies to a cylinder or cone")
             if args["kind"] == "text" and "body" not in args:
                 _fail(path + ".args", "missing body (a text's characters)")
+        if op in ("insert_key", "delete_keys"):
+            if ("paths" in args) == ("path" in args):
+                _fail(path + ".args", "give paths or path (one of them)")
+            for key in ("value", "index") if op == "insert_key" else ("index",):
+                if key in args and "path" not in args:
+                    _fail("%s.args.%s" % (path, key), "goes with path")
+            if args["owner"] != "object" and ("path" not in args or "bone" in args):
+                _fail(path + ".args.owner", "%s goes with path, without bone" % args["owner"])
+        if op == "add_constraint" and args.get("influence", 0) > 1:
+            _fail(path + ".args.influence", "expected 0 to 1")
+        if op == "switch_parent" and "bone" in args and "parent" not in args:
+            _fail(path + ".args.bone", "belongs to parent")
         if op == "delete" and "refs" not in args and "collections" not in args:
             _fail(path + ".args", "nothing to delete: give refs or collections")
         if op == "set_parent" and "bone" in args and "parent" not in args:
@@ -412,5 +459,9 @@ def kinds():
                    "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name, "direction": vec3}},
         "refs": {"type": "array", "items": {"$ref": "#/kinds/ref"}, "minItems": 1, "uniqueItems": True},
         "names": {"type": "array", "items": name, "minItems": 1, "uniqueItems": True},
+        "data_path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-noNul": True,
+                      "description": "an RNA path relative to the owner (or the pose bone): constraints[\"Grab\"].influence"},
+        "value": {"oneOf": [number, {"type": "boolean"}, {"type": "array", "items": number, "minItems": 1,
+                                                           "maxItems": VALUE_ITEMS}]},
         "paths": {"type": "array", "items": {"enum": list(PATHS)}, "minItems": 1},
     }

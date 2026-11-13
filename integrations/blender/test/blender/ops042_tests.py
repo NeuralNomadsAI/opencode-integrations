@@ -208,6 +208,145 @@ def e60_a_barrel_is_one_cylinder_with_size_and_depth():
     check(message and "cylinder or cone" in message, "depth on a cube: %s" % message)
 
 
+# A runtime failure (Blender clamps 40000 fps to 32767): the operations before it must be undone.
+FAIL = ("scene_settings", {"fps": 40000})
+
+
+def failed_and_restored(*ops):
+    out = edit(*ops)
+    check(out["status"] == "failed" and out["restored"] is True and not core.quarantined,
+          "failed and restored: %s" % {k: out.get(k) for k in ("status", "message", "restoration", "restored")})
+    return out
+
+
+def rig_with_hand():
+    """An armature whose Hand bone moves along X from frame 1 (x 0) to frame 101 (x 10), and a Hips bone that stays."""
+    data = bpy.data.armatures.new("Rig")
+    rig = link(bpy.data.objects.new("Rig", data))
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    for name, head, tail in (("Hips", (0.3, 0, 1), (0.3, 0, 1.2)), ("Hand", (0, -0.5, 1.2), (0, -0.5, 1.3))):
+        bone = data.edit_bones.new(name)
+        bone.head, bone.tail = head, tail
+    bpy.ops.object.mode_set(mode="OBJECT")
+    hand = rig.pose.bones["Hand"]
+    for frame, x in ((1, 0.0), (101, 10.0)):
+        hand.location = (x, 0, 0)  # the bone's local axes: X is world X here (no roll)
+        hand.keyframe_insert("location", frame=frame)
+    for curve in rig.animation_data.action.layers[0].strips[0].channelbags[0].fcurves:
+        for point in curve.keyframe_points:
+            point.interpolation = "LINEAR"
+    return rig
+
+
+def world_at(name, frame):
+    bpy.context.scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    return obj(name).matrix_world.translation.copy()
+
+
+# -- entry 53: change the revolver's parent at given frames, without a jump ------------------------------------------
+@test
+def e53_the_revolver_goes_holster_hand_ground_without_a_jump():
+    empty()
+    rig_with_hand()
+    gun = link(bpy.data.objects.new("Revolver", cube_mesh("Revolver", size=0.2)))
+    gun.location = (0.35, 0.1, 0.95)
+    bpy.context.scene.frame_set(1)
+    app.undo_push("setup")
+    out = applied(("switch_parent", {"ref": "Revolver", "parent": "Rig", "bone": "Hips", "frame": 10}),
+                  ("switch_parent", {"ref": "Revolver", "parent": "Rig", "bone": "Hand", "frame": 30}),
+                  ("switch_parent", {"ref": "Revolver", "frame": 60}))
+    check(all(c.get("jump", 1) < 1e-4 for c in out["changes"] if c["field"].startswith("parent from")), "no jump: %s" % out["changes"])
+    check(bpy.context.scene.frame_current == 1, "the current frame stays")
+    for frame in (9, 10, 29):
+        check(near(world_at("Revolver", frame), (0.35, 0.1, 0.95)), "holstered at %d: %s" % (frame, list(world_at("Revolver", frame))))
+    at30, at40, at59 = world_at("Revolver", 30), world_at("Revolver", 40), world_at("Revolver", 59)
+    check(near(at30, (0.35, 0.1, 0.95)), "taken without a jump: %s" % list(at30))
+    check(near(at40 - at30, (1.0, 0, 0), 1e-3), "follows the hand (1 m in 10 frames): %s" % list(at40 - at30))
+    check(near(world_at("Revolver", 60), at59 + Vector((0.1, 0, 0)), 1e-3), "dropped where the hand left it")
+    check(near(world_at("Revolver", 90), world_at("Revolver", 60)), "then stays on the ground while the hand moves on")
+    constraints = [c.name for c in gun.constraints]
+    check(len(constraints) == 3 and all(n.startswith("OC parent ") for n in constraints), "three switches: %s" % constraints)
+    # One more switch undone with a failing batch: its anchor, constraint and keys gone, the others intact.
+    bpy.context.scene.frame_set(1)
+    objects = len(bpy.data.objects)
+    failed_and_restored(("switch_parent", {"ref": "Revolver", "parent": "Rig", "bone": "Hand", "frame": 80}), FAIL)
+    check(len(bpy.data.objects) == objects and len(gun.constraints) == 3, "restored")
+    check(near(world_at("Revolver", 90), world_at("Revolver", 60)), "the ground switch still holds")
+    message = refused(("switch_parent", {"ref": "Revolver", "parent": "Rig", "bone": "Nope", "frame": 5}))
+    check(message and "no bone" in message, "an unknown bone: %s" % message)
+
+
+@test
+def e53_copy_transforms_with_an_influence():
+    empty()
+    target = link(bpy.data.objects.new("Target", None))
+    target.location = (2, 0, 0)
+    link(bpy.data.objects.new("Follower", None))
+    applied(("add_constraint", {"ref": "Follower", "type": "COPY_TRANSFORMS", "target": "Target", "name": "Grab",
+                                "influence": 0.5}))
+    check(near(world_at("Follower", 1), (1, 0, 0)), "half way: %s" % list(world_at("Follower", 1)))
+
+
+# -- entries 53, 59, 61: key and delete keys on any animatable path ---------------------------------------------------
+@test
+def e59_61_shape_key_influence_and_property_keys_and_one_deleted_key():
+    empty()
+    head = link(bpy.data.objects.new("Head", cube_mesh("Head")))
+    head.shape_key_add(name="Basis")
+    head.shape_key_add(name="Blink")
+    holder = link(bpy.data.objects.new("Holder", None))
+    head.constraints.new("COPY_LOCATION").name = "Grab"
+    head.constraints["Grab"].target = holder
+    head["fear"] = 0.0
+    camera = link(bpy.data.objects.new("Cam", bpy.data.cameras.new("Cam")))
+    blink = 'key_blocks["Blink"].value'
+    out = applied(*[("insert_key", {"ref": "Head", "owner": "shape_keys", "path": blink, "value": v, "frame": f})
+                    for f, v in ((5, 0.0), (10, 1.0), (15, 0.0), (16, 0.0))],
+                  ("insert_key", {"ref": "Head", "path": 'constraints["Grab"].influence', "value": 0, "frame": 1,
+                                  "interpolation": "CONSTANT"}),
+                  ("insert_key", {"ref": "Head", "path": 'constraints["Grab"].influence', "value": 1, "frame": 20,
+                                  "interpolation": "CONSTANT"}),
+                  ("insert_key", {"ref": "Head", "path": '["fear"]', "value": 0.8, "frame": 12}),
+                  ("insert_key", {"ref": "Cam", "owner": "data", "path": "lens", "value": 85, "frame": 12}),
+                  ("insert_key", {"ref": "Head", "path": "location", "index": 2, "value": 0.5, "frame": 12}))
+    keys = head.data.shape_keys
+    scene = bpy.context.scene
+    scene.frame_set(10)
+    check(abs(keys.key_blocks["Blink"].value - 1) < 1e-6, "blink keyed: %s" % keys.key_blocks["Blink"].value)
+    scene.frame_set(19)
+    check(head.constraints["Grab"].influence == 0, "influence held at 0 until 20")
+    scene.frame_set(20)
+    check(head.constraints["Grab"].influence == 1, "and 1 from 20")
+    check(abs(head["fear"] - 0.8) < 1e-6 and abs(camera.data.lens - 85) < 1e-4, "custom property and lens keyed")
+    location = [c for c in _curves_of(head) if c.data_path == "location"]
+    check([c.array_index for c in location] == [2], "only location[2] keyed: %s" % [c.array_index for c in location])
+    check(len(out["changes"]) >= 9, "listed: %s" % out["changes"])
+    # Entry 61: one duplicate key goes, the right one, the others stay.
+    applied(("delete_keys", {"ref": "Head", "owner": "shape_keys", "path": blink, "frames": [16, 16]}))
+    frames = [p.co[0] for c in _curves_of(keys) for p in c.keyframe_points]
+    check(frames == [5, 10, 15], "the right key deleted: %s" % frames)
+    applied(("delete_keys", {"ref": "Head", "path": 'constraints["Grab"].influence'}))
+    check(not any(c.data_path.startswith("constraints") for c in _curves_of(head)), "an emptied curve goes")
+    # Undone with a failing batch: keys back, value back.
+    failed_and_restored(("delete_keys", {"ref": "Head", "owner": "shape_keys", "path": blink}),
+                        ("insert_key", {"ref": "Head", "path": '["fear"]', "value": 0.1, "frame": 40}), FAIL)
+    check([p.co[0] for c in _curves_of(keys) for p in c.keyframe_points] == [5, 10, 15], "keys restored")
+    message = refused(("insert_key", {"ref": "Head", "path": "location", "paths": ["location"], "frame": 1}))
+    check(message and "one of them" in message, "paths and path: %s" % message)
+    out = edit(("insert_key", {"ref": "Head", "path": "not_a_property", "frame": 1}))
+    check(out["status"] == "failed" and "no property" in out["message"] and out["restored"], "unknown path: %s" % out.get("message"))
+
+
+def _curves_of(owner):
+    from bpy_extras import anim_utils
+
+    data = owner.animation_data
+    bag = anim_utils.action_get_channelbag_for_slot(data.action, data.action_slot) if data and data.action else None
+    return list(bag.fcurves) if bag else []
+
+
 for fn in TESTS:
     try:
         fn()
