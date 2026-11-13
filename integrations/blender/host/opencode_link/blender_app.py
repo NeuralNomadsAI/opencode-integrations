@@ -464,6 +464,12 @@ class BlenderApp(object):
         visibility, and the keys of every action. A run whose fingerprint differs is a change."""
         return change_digest()
 
+    def content_digest(self):
+        """What a read_only run (blender_verify, blender_inspect, an inspection script) is judged by: the change
+        digest plus poses, mesh geometry, shape key values and material node values. A run that evaluates other
+        frames, renders, or makes and removes temporary datablocks, then puts everything back, leaves it equal."""
+        return change_digest(content=True)
+
     # -- thin layer (thin.py): compact context and edit batches -----------------------------------
     def thin_context(self, query):
         from . import thin
@@ -584,7 +590,12 @@ def _curves(action):
         yield from getattr(action, "fcurves", ())
 
 
-def change_digest():
+def _transient(item):
+    """The render and compositor result images Blender makes on a render: views of a result, not content."""
+    return isinstance(item, bpy.types.Image) and item.type in ("RENDER_RESULT", "COMPOSITING")
+
+
+def change_digest(content=False):
     import array
     import hashlib
 
@@ -597,7 +608,7 @@ def change_digest():
         collection = getattr(bpy.data, name, None)
         if name in _UI_DATA or not isinstance(collection, bpy.types.bpy_prop_collection):
             continue
-        put(name, sorted(item.name for item in collection))
+        put(name, sorted(item.name for item in collection if not _transient(item)))
     for scene in bpy.data.scenes:
         put(scene.name, _settings(scene, 1, []))
         put(sorted((m.name, m.frame, m.camera.name if m.camera else None) for m in scene.timeline_markers))
@@ -610,7 +621,44 @@ def change_digest():
             points = array.array("f", bytes(8 * len(curve.keyframe_points)))
             curve.keyframe_points.foreach_get("co", points)
             put(action.name, curve.data_path, curve.array_index, points.tobytes())
+    if content:
+        _content(put)
     return digest.hexdigest()
+
+
+def _content(put):
+    """Poses, mesh vertices, shape key values, constraint influences and material node values (content_digest)."""
+    import array
+
+    def floats(collection, attr, size):
+        values = array.array("f", bytes(4 * size * len(collection)))
+        collection.foreach_get(attr, values)
+        return values.tobytes()
+
+    for obj in bpy.data.objects:
+        if obj.pose is not None:
+            for bone in obj.pose.bones:
+                put(obj.name, bone.name, tuple(bone.location), tuple(bone.rotation_quaternion), tuple(bone.rotation_euler),
+                    tuple(bone.rotation_axis_angle), tuple(bone.scale))
+        put(obj.name, [(c.name, c.type, c.mute, round(c.influence, 6)) for c in obj.constraints])
+    for mesh in bpy.data.meshes:
+        put(mesh.name, len(mesh.vertices), len(mesh.polygons), floats(mesh.vertices, "co", 3))
+    for key in bpy.data.shape_keys:
+        put(key.name, [(block.name, block.value, block.mute) for block in key.key_blocks])
+    for material in bpy.data.materials:
+        tree = material.node_tree
+        if tree is None:
+            continue
+        for node in tree.nodes:
+            put(material.name, node.name, node.bl_idname,
+                [_socket_value(socket) for socket in node.inputs if hasattr(socket, "default_value")])
+        put(material.name, sorted((l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
+                                  for l in tree.links))
+
+
+def _socket_value(socket):
+    value = socket.default_value
+    return tuple(value) if hasattr(value, "__len__") and not isinstance(value, str) else value
 
 
 def _same(actual, expected, tolerance=1e-4):

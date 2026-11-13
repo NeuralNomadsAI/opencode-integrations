@@ -12,6 +12,8 @@ import { blenderBin, installAddon, installTestAddon, isolatedRoot, runBlender } 
 import { announcement, loadPlugin } from "./helpers/plugin.ts"
 
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
+// The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
+const OPS042_TESTS = 10
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -35,6 +37,47 @@ async function hostScript<T extends Result>(script: string, args: (scratch: stri
   } finally {
     iso.cleanup()
   }
+}
+
+// The add-on of these sources served by a private background Blender, and a plugin attached to it.
+async function served(seconds = 240) {
+  const iso = isolatedRoot("blender-tools-")
+  const stopFile = join(iso.root, "stop")
+  installTestAddon(iso)
+  const run = runBlender(iso, join(folder, "serve.py"), [
+    "--listen-only",
+    "--seconds",
+    String(seconds),
+    "--stop-file",
+    stopFile,
+  ])
+  const plugin = await loadPlugin()
+  const stop = async () => {
+    writeFileSync(stopFile, "")
+    await run.exited
+    await plugin.cleanup()
+    iso.cleanup()
+  }
+  try {
+    let line: string | undefined
+    for (let attempt = 0; attempt < 600 && !line; attempt += 1) {
+      line = run
+        .output()
+        .split("\n")
+        .find((entry) => entry.startsWith("ENDPOINT "))
+      if (!line) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.ok(line, run.output().slice(-2000))
+    const { port, token, script_handle } = JSON.parse(line.slice("ENDPOINT ".length))
+    assert.deepEqual(await plugin.rpc("advertise", announcement({ port, token }, script_handle)), {
+      outcome: "accepted",
+    })
+  } catch (error) {
+    await stop()
+    throw error
+  }
+  const json = (result: { content?: unknown }) => JSON.parse(String(result.content))
+  return { iso, plugin, stop, json }
 }
 
 describe("OpenCode Link in Blender (background)", { skip }, () => {
@@ -66,6 +109,152 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     assert.equal((await hostScript("defects_tests.py", (scratch) => [scratch])).passed.length, 6)
   })
 
+  it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
+    assert.equal((await hostScript("ops042_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS042_TESTS)
+  })
+
+  it("blender_verify renders a free viewpoint over several frames as one sheet (journal entries 47, 51)", async () => {
+    const { plugin, stop, json } = await served()
+    try {
+      // Workbench renders on runners without a GPU.
+      json(await plugin.tool("blender_execute_code", { code: "bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'" }))
+      const scene = json(await plugin.tool("blender_context"))
+      // The film's set-up: a camera bound to a marker, an animated holster nobody frames.
+      json(
+        await plugin.tool("blender_apply", {
+          operations: [
+            { op: "create_object", kind: "camera", name: "Cam_Wide", as: "cam", location: [0, -30, 2] },
+            { op: "add_marker", name: "Wide", frame: 1, camera: "$cam" },
+            { op: "set_camera", ref: "$cam" },
+            { op: "create_object", kind: "mesh", primitive: "cube", name: "Holster", as: "h", size: 0.3 },
+            { op: "insert_key", ref: "$h", paths: ["location"], frame: 1 },
+            { op: "create_object", kind: "light", light_type: "SUN", name: "Sun", energy: 3 },
+          ],
+        }),
+      )
+      json(
+        await plugin.tool("blender_apply", {
+          operations: [
+            { op: "set_transform", ref: "Holster", location: [0, 0, 1] },
+            { op: "insert_key", ref: "Holster", paths: ["location"], frame: 20 },
+            // Evaluated from its keys: nothing unkeyed for a frame change to overwrite.
+            { op: "scene_settings", frame_current: 1 },
+          ],
+        }),
+      )
+      const before = json(await plugin.tool("blender_context")).revision
+      assert.ok(before > scene.revision)
+      const result = (
+        await plugin.tool("blender_verify", {
+          view: { location: [1.5, -1.5, 1.2], target: "Holster", lens: 35 },
+          frames: [1, 10, 20],
+          size: 160,
+        })
+      ).content as ReadonlyArray<{ type: string; text?: string; uri?: string }>
+      const facts = JSON.parse(String(result[0]?.text)).facts
+      assert.equal(facts.frames.length, 3)
+      assert.deepEqual(
+        facts.frames.map((frame: { frame: number }) => frame.frame),
+        [1, 10, 20],
+      )
+      assert.match(facts.frames[0].camera_used.via, /^view: from/)
+      assert.ok(
+        facts.frames.every((frame: { image: { black: boolean } }) => !frame.image.black),
+        JSON.stringify(facts),
+      )
+      assert.deepEqual([facts.sheet.columns, facts.sheet.rows], [2, 2])
+      assert.match(String(result[1]?.uri), /^data:image\/png;base64,iVBOR/)
+      const after = json(await plugin.tool("blender_context"))
+      assert.equal(after.revision, before, "verify leaves the revision")
+      assert.equal(after.scene.camera, "Cam_Wide")
+      assert.deepEqual(after.markers, [{ name: "Wide", frame: 1, camera: "Cam_Wide" }])
+      assert.ok(!after.objects.some((object: { name: string }) => object.name.startsWith("OpenCode verify")))
+      // The usual output still works, and if_revision from before the verifies still applies.
+      const plain = (await plugin.tool("blender_verify", { frame: 1, size: 96 })).content as ReadonlyArray<{
+        text?: string
+      }>
+      assert.equal(JSON.parse(String(plain[0]?.text)).facts.camera_used.camera, "Cam_Wide")
+      const write = json(
+        await plugin.tool("blender_apply", {
+          if_revision: before,
+          operations: [{ op: "rename", ref: "Sun", name: "Key light" }],
+        }),
+      )
+      assert.equal(write.status, "applied", JSON.stringify(write).slice(0, 500))
+    } finally {
+      await stop()
+    }
+  })
+
+  it("blender_execute_code runs a script file as written (journal entry 56)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      // What Code Mode mangled: a backslash path and a newline escape inside Python strings.
+      const script = join(iso.root, "fall.py")
+      writeFileSync(
+        script,
+        [
+          "import bpy",
+          'path = "C:\\\\film\\\\sheet.png"',
+          'lines = "head\\nfoot"',
+          "result = {'path': path, 'chars': len(path), 'lines': lines.split('\\n'), 'file': __file__}",
+          "",
+        ].join("\n"),
+      )
+      const out = json(await plugin.tool("blender_execute_code", { path: script, read_only: true }))
+      assert.equal(out.status, "executed", JSON.stringify(out))
+      const result = JSON.parse(JSON.stringify(out.result))
+      assert.equal(result.path, "C:\\film\\sheet.png")
+      assert.equal(result.chars, 17)
+      assert.deepEqual(result.lines, ["head", "foot"])
+      assert.equal(result.file, script)
+      const broken = join(iso.root, "broken.py")
+      writeFileSync(broken, "x = 1\ny = 2\nraise ValueError('at the end')\n")
+      const failed = json(await plugin.tool("blender_execute_code", { path: broken }))
+      assert.equal(failed.status, "failed")
+      assert.ok(failed.traceback.includes("broken.py") && failed.traceback.includes("line 3"), failed.traceback)
+      assert.match(failed.traceback, /raise ValueError\('at the end'\)/)
+    } finally {
+      await stop()
+    }
+  })
+
+  it("blender_import brings a model file in through the tool (journal entry 58)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      const file = join(iso.root, "colt.glb")
+      // A model on disk: a barrel exported as glTF, then removed from the scene.
+      const exported = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy",
+            "bpy.ops.mesh.primitive_cylinder_add(radius=0.02, depth=0.2)",
+            "bpy.context.object.name = 'Colt barrel'",
+            `bpy.ops.export_scene.gltf(filepath=${JSON.stringify(file)}, use_selection=True)`,
+            "bpy.data.objects.remove(bpy.data.objects['Colt barrel'])",
+          ].join("\n"),
+        }),
+      )
+      assert.equal(exported.status, "executed", JSON.stringify(exported).slice(0, 1500))
+      assert.ok(existsSync(file))
+      const out = json(await plugin.tool("blender_import", { source: "file", path: file, wait_s: 120 }))
+      const task = out.task ?? out
+      assert.equal(task.state, "done", JSON.stringify(out).slice(0, 1500))
+      assert.ok(JSON.stringify(task.created).includes("Colt barrel"), JSON.stringify(task.created))
+      const scene = json(await plugin.tool("blender_context", { match: "Colt*" }))
+      assert.deepEqual(
+        scene.objects.map((object: { name: string }) => object.name),
+        ["Colt barrel"],
+      )
+      assert.deepEqual(
+        plugin.permissions.map((request) => request.action),
+        ["blender_execute_code", "blender_import"],
+      )
+    } finally {
+      await stop()
+    }
+  })
+
   it("the plugin's tools act on the attached Blender document", async () => {
     const iso = isolatedRoot("blender-tools-")
     const stopFile = join(iso.root, "stop")
@@ -92,7 +281,7 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       const hello = (await requestHost({ host: "127.0.0.1", port, token }, "hello", {})) as {
         capabilities: { methods: string[] }
       }
-      for (const method of ["scene", "apply", "execute_code", "lab_tool"])
+      for (const method of ["scene", "apply", "execute_code", "lab_tool", "tasks"])
         assert.ok(hello.capabilities.methods.includes(method), `hello lists ${method}`)
       assert.deepEqual(await plugin.rpc("advertise", announcement({ port, token }, script_handle)), {
         outcome: "accepted",

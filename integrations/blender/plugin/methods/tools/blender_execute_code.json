@@ -1,15 +1,18 @@
 {
   "name": "blender_execute_code",
   "domain": "tools",
-  "description": "DANGEROUS: run Python in the attached Blender (bpy). Assign a JSON-able dict to `result`; print() output is returned. A run that changes the scene is one undo step; a failing one is undone. Every run asks permission. Prefer blender_apply.",
+  "description": "DANGEROUS: run Python in the attached Blender (bpy), given as code or as a script file (path). Assign a JSON-able dict to `result`; print() output is returned. A run that changes the scene is one undo step; a failing one is undone. Every run asks permission. Prefer blender_apply.",
   "kind": "host-backed",
   "risk": "destructive",
   "dangerous": true,
   "args": {
     "code": {
       "type": "string",
-      "description": "Python code.",
-      "required": true
+      "description": "Python code (or path)."
+    },
+    "path": {
+      "type": "string",
+      "description": "A .py file to run instead of code, read as is (absolute or relative to the project): long scripts, no escaping."
     },
     "read_only": {
       "type": "boolean",

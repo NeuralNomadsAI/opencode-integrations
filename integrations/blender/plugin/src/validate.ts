@@ -34,10 +34,19 @@ type Kind =
   | "rotation"
   | "target"
   | "refs"
+  | "names"
+  | "data_path"
+  | "bones"
+  | "nodes"
+  | "links"
+  | "goal"
+  | "value"
   | "paths"
   | { enum: readonly string[] }
 
 const F = (kind: Kind, required = false) => ({ kind, required })
+// Whose animation an RNA path is keyed on (ops.json).
+const OWNERS = { enum: ["object", "data", "shape_keys"] } as const
 const ROT = F("rotation")
 export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: boolean }>> = {
   set_transform: { ref: F("ref", true), location: F("vec3"), rotation: ROT, scale: F("scale"), delta: F("bool") },
@@ -48,6 +57,8 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     ground_z: F("number"),
     children: F("bool"),
     scale_axes: F({ enum: ["z", "uniform"] }),
+    frame: F("whole_frame"),
+    key: F("bool"),
   },
   pose_bone: { ref: F("ref", true), bone: F("name", true), location: F("vec3"), rotation: ROT, scale: F("scale") },
   aim_bone: {
@@ -57,19 +68,42 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     axis: F({ enum: ["Y", "-Y", "X", "-X", "Z", "-Z"] }),
     tolerance_deg: F("number"),
   },
+  reach: {
+    ref: F("ref", true),
+    chain: F("bones", true),
+    target: F("goal", true),
+    pole: F("target"),
+    frame: F("whole_frame"),
+    key: F("bool"),
+    tolerance: F("positive"),
+  },
   insert_key: {
     ref: F("ref", true),
     bone: F("name"),
-    paths: F("paths", true),
+    paths: F("paths"),
+    path: F("data_path"),
+    index: F("index"),
+    owner: F(OWNERS),
+    value: F("value"),
     frame: F("frame", true),
     interpolation: F({ enum: ["CONSTANT", "LINEAR", "BEZIER"] }),
+  },
+  delete_keys: {
+    ref: F("ref", true),
+    bone: F("name"),
+    paths: F("paths"),
+    path: F("data_path"),
+    index: F("index"),
+    owner: F(OWNERS),
+    frames: F("frames"),
   },
   create_object: {
     kind: F({ enum: ["empty", "camera", "light", "mesh", "text"] }, true),
     name: F("name", true),
     as: F("alias"),
-    primitive: F({ enum: ["cube", "plane", "uv_sphere", "cylinder"] }),
+    primitive: F({ enum: ["cube", "plane", "uv_sphere", "cylinder", "cone"] }),
     size: F("positive"),
+    depth: F("positive"),
     light_type: F({ enum: ["POINT", "SUN", "SPOT", "AREA"] }),
     energy: F("number"),
     lens: F("number"),
@@ -83,7 +117,7 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     parent: F("ref"),
   },
   rename: { ref: F("ref", true), name: F("name", true) },
-  delete: { refs: F("refs", true) },
+  delete: { refs: F("refs"), collections: F("names") },
   duplicate: {
     ref: F("ref", true),
     as: F("alias"),
@@ -99,6 +133,13 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     color: F("rgb"),
     roughness: F("nonnegative"),
     metallic: F("nonnegative"),
+    slot: F("index"),
+  },
+  material_nodes: {
+    material: F("name", true),
+    nodes: F("nodes"),
+    links: F("links"),
+    ref: F("ref"),
     slot: F("index"),
   },
   scene_settings: {
@@ -123,16 +164,22 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
   set_camera: { ref: F("ref", true) },
   add_constraint: {
     ref: F("ref", true),
-    type: F({ enum: ["TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION", "COPY_ROTATION", "CHILD_OF"] }, true),
+    type: F(
+      { enum: ["TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION", "COPY_ROTATION", "COPY_TRANSFORMS", "CHILD_OF"] },
+      true,
+    ),
     target: F("ref", true),
     subtarget: F("name"),
     name: F("name"),
+    influence: F("nonnegative"),
   },
+  switch_parent: { ref: F("ref", true), parent: F("ref"), bone: F("name"), frame: F("whole_frame", true) },
 }
 // create_object's fields that apply to one kind only (ops.json rules).
 const KIND_FIELDS: Record<string, string[]> = {
   primitive: ["mesh"],
   size: ["mesh", "text"],
+  depth: ["mesh"],
   light_type: ["light"],
   energy: ["light"],
   lens: ["camera"],
@@ -245,6 +292,74 @@ function value(kind: Kind, v: unknown, path: string): unknown {
       if (new Set(list).size !== list.length) fail(path, "duplicate ref")
       return list
     }
+    case "names": {
+      if (!Array.isArray(v) || v.length < 1) fail(path, "expected at least one name")
+      const list = (v as unknown[]).map((x, i) => str(x, `${path}[${i}]`))
+      if (new Set(list).size !== list.length) fail(path, "duplicate name")
+      return list
+    }
+    case "nodes": {
+      if (!Array.isArray(v) || v.length < 1 || v.length > 100) fail(path, "expected 1 to 100 nodes")
+      const names = new Set<string>()
+      return (v as unknown[]).map((raw, i) => {
+        const at = `${path}[${i}]`
+        const n = record(raw, at, ["name", "type", "location", "label", "inputs", "props", "ramp"])
+        const name = str(n.name, `${at}.name`)
+        if (names.has(name)) fail(`${at}.name`, "a node is listed twice")
+        names.add(name)
+        if (n.type !== undefined) str(n.type, `${at}.type`, /^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$/)
+        if (n.location !== undefined) vec(n.location, `${at}.location`, 2)
+        for (const key of ["inputs", "props"])
+          if (n[key] !== undefined && (typeof n[key] !== "object" || n[key] === null || Array.isArray(n[key])))
+            fail(`${at}.${key}`, "expected {name: value}")
+        if (n.ramp !== undefined && (!Array.isArray(n.ramp) || n.ramp.length < 1 || n.ramp.length > 32))
+          fail(`${at}.ramp`, "expected 1 to 32 [position, [r, g, b, a]] stops")
+        return n
+      })
+    }
+    case "links": {
+      if (!Array.isArray(v) || v.length < 1 || v.length > 200) fail(path, "expected 1 to 200 links")
+      return (v as unknown[]).map((raw, i) => {
+        const l = record(raw, `${path}[${i}]`, ["from", "to"])
+        for (const end of ["from", "to"]) {
+          const pair = l[end]
+          if (!Array.isArray(pair) || pair.length !== 2)
+            fail(`${path}[${i}].${end}`, "expected [node name, socket name]")
+          for (const [k, x] of (pair as unknown[]).entries()) str(x, `${path}[${i}].${end}[${k}]`)
+        }
+        return l
+      })
+    }
+    case "bones": {
+      if (!Array.isArray(v) || v.length < 2 || v.length > 3)
+        fail(path, "expected [upper, lower] or [upper, lower, end]")
+      const list = (v as unknown[]).map((x, i) => str(x, `${path}[${i}]`))
+      if (new Set(list).size !== list.length) fail(path, "a bone is listed twice")
+      return list
+    }
+    case "goal": {
+      const g = record(v, path, ["point", "object", "bone", "rotation"])
+      if ((g.point === undefined) === (g.object === undefined)) fail(path, "expected point or object")
+      if (g.bone !== undefined && g.object === undefined) fail(`${path}.bone`, "belongs to object")
+      return {
+        ...(g.point !== undefined
+          ? { point: vec(g.point, `${path}.point`, 3) }
+          : { object: ref(g.object, `${path}.object`) }),
+        ...(g.bone !== undefined ? { bone: str(g.bone, `${path}.bone`) } : {}),
+        ...(g.rotation !== undefined ? { rotation: value("rotation", g.rotation, `${path}.rotation`) } : {}),
+      }
+    }
+    case "data_path":
+      if (typeof v !== "string" || !v || v.includes("\0") || v.length > 1024 || v.startsWith("."))
+        fail(path, "expected an RNA path of 1 to 1024 characters")
+      return v
+    case "value":
+      if (typeof v === "boolean") return v
+      if (Array.isArray(v)) {
+        if (v.length < 1 || v.length > 32) fail(path, "expected 1 to 32 numbers")
+        return v.map((x, i) => num(x, `${path}[${i}]`))
+      }
+      return num(v, path)
     case "paths": {
       if (!Array.isArray(v) || v.length < 1) fail(path, "expected location, rotation and/or scale")
       for (const p of v as unknown[])
@@ -269,6 +384,8 @@ function rules(op: string, o: Json, path: string) {
       if (o[field] !== undefined && !kinds.includes(o.kind as string))
         fail(`${path}.${field}`, `applies to ${kinds.join(" or ")} only`)
     if (o.kind === "text" && o.body === undefined) fail(path, "a text needs body")
+    if (o.depth !== undefined && o.primitive !== "cylinder" && o.primitive !== "cone")
+      fail(`${path}.depth`, "applies to a cylinder or cone")
   }
   if (op === "scene_settings") {
     if (!has("frame_start", "frame_end", "frame_current", "fps")) fail(path, "give at least one field")
@@ -281,6 +398,22 @@ function rules(op: string, o: Json, path: string) {
       fail(path, "give offset (not 0) or delete true, not both")
   }
   if (op === "set_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
+  if (op === "delete" && !has("refs", "collections")) fail(path, "give refs or collections")
+  if (op === "insert_key" || op === "delete_keys") {
+    if (has("paths") === has("path")) fail(path, "give paths or path (one of them)")
+    for (const key of op === "insert_key" ? ["value", "index"] : ["index"])
+      if (o[key] !== undefined && o.path === undefined) fail(`${path}.${key}`, "goes with path")
+    if (o.owner !== undefined && o.owner !== "object" && (o.path === undefined || o.bone !== undefined))
+      fail(`${path}.owner`, "goes with path, without bone")
+  }
+  if (op === "add_constraint" && (o.influence as number | undefined) !== undefined && (o.influence as number) > 1)
+    fail(`${path}.influence`, "expected 0 to 1")
+  if (op === "switch_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
+  if (op === "reach" && o.key === true && o.frame === undefined) fail(`${path}.key`, "needs frame")
+  if (op === "material_nodes") {
+    if (!has("nodes", "links", "ref")) fail(path, "give nodes, links or ref")
+    if (o.slot !== undefined && o.ref === undefined) fail(`${path}.slot`, "goes with ref")
+  }
 }
 
 export function validatePlan(input: Json) {
@@ -306,6 +439,7 @@ export function validatePlan(input: Json) {
     const refs: [string, unknown][] = [
       ...["ref", "parent", "camera", "target"].map((k) => [`${path}.${k}`, out[k]] as [string, unknown]),
       [`${path}.target.object`, (out.target as Json | undefined)?.object],
+      [`${path}.pole.object`, (out.pole as Json | undefined)?.object],
       ...((out.refs as string[] | undefined) ?? []).map((r, k) => [`${path}.refs[${k}]`, r] as [string, unknown]),
     ]
     for (const [at, r] of refs)

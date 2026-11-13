@@ -2,8 +2,8 @@
 // no socket, process, download or installation (PKG-6); the host is reached only once a session is
 // attached to an offer validated by hello.
 
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { readFileSync, statSync } from "node:fs"
+import { join, resolve } from "node:path"
 
 import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
@@ -42,6 +42,7 @@ export const PERMISSIONS = {
   attach: "blender_attach",
   install: "blender_install_host",
   executeCode: "blender_execute_code",
+  import: "blender_import",
 } as const
 
 // The Lab tools the add-on runs (host method lab_tool, their code bundled in the add-on).
@@ -66,6 +67,11 @@ export const LAB_TOOLS = [
 
 const MAX_TEXT = 100_000
 const VERIFY_TIMEOUT_MS = 600_000
+// A save that failed while the .blend was briefly held by another process, retried once after SAVE_RETRY_MS.
+export const TRANSIENT_SAVE = /unable to make version backup|file saved with @/i
+export const SAVE_RETRY_MS = 1_000
+// Longest wait of one blender_render call that follows a task.
+export const RENDER_WAIT_MAX_S = 3_600
 
 const HINTS: Record<string, string> = {
   stale_handle:
@@ -99,6 +105,25 @@ type PackageJson = { version: string; opencodeIntegration: IntegrationMarker }
 
 export function readPackage(): PackageJson {
   return JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as PackageJson
+}
+
+// The longest script blender_execute_code reads from a file: the host reads requests of at most 1 MiB.
+export const SCRIPT_MAX_BYTES = 900 * 1024
+
+// A Python script on disk (absolute, or relative to the Location's directory), as UTF-8 text.
+export function readScript(path: string, base?: string) {
+  const file = resolve(base ?? process.cwd(), path)
+  let bytes: Buffer
+  try {
+    if (statSync(file).size > SCRIPT_MAX_BYTES)
+      throw new Error(`${file} is over ${SCRIPT_MAX_BYTES} bytes: split it, or have it exec() its parts.`)
+    bytes = readFileSync(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`No script ${file}.`)
+    throw error
+  }
+  const code = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "")
+  return { path: file, code }
 }
 
 function hostError(error: unknown): Error {
@@ -420,11 +445,16 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
 
     // The dangerous method (SEC-3): listed by the add-on while it is enabled; every run asks permission.
     async blender_execute_code(args, context) {
-      const code = String(args.code ?? "")
-      if (!code) throw new Error("code is required.")
+      // A script file is read here, byte for byte: no escaping of the code through a JSON or JavaScript string.
+      const script =
+        typeof args.path === "string" && args.path ? readScript(args.path, ctx.location?.directory) : undefined
+      if (script && args.code !== undefined) throw new Error("Give code or path, not both.")
+      const code = script?.code ?? String(args.code ?? "")
+      if (!code.trim()) throw new Error(script ? `${script.path} is empty.` : "code or path is required.")
       const held = await ticket(context)
       if (!held.bound.methods.includes("execute_code")) throw new HostError("method_disabled", "")
-      await assert(context, PERMISSIONS.executeCode, ["*"], {
+      await assert(context, PERMISSIONS.executeCode, [script?.path ?? "*"], {
+        ...(script ? { path: script.path } : {}),
         code: code.length > 4_000 ? `${code.slice(0, 4_000)}\n…` : code,
       })
       const seconds = typeof args.timeout_s === "number" ? Math.min(Math.max(args.timeout_s, 1), 3_600) : undefined
@@ -432,7 +462,11 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         await callHost(
           context,
           "execute_code",
-          { code, ...(args.read_only === true ? { read_only: true } : {}) },
+          {
+            code,
+            ...(script ? { filename: script.path } : {}),
+            ...(args.read_only === true ? { read_only: true } : {}),
+          },
           seconds ? seconds * 1_000 : undefined,
           held,
         ),
@@ -482,7 +516,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         const task = getTask(String(id))
         if (!task) throw new Error(`No render task ${String(id)} in this OpenCode.`)
         if (cancel === true) return json(cancelTask(task))
-        const until = Date.now() + Math.min(Number(wait_s ?? 0), 120) * 1_000
+        // A whole render can be waited for in one call (the tool call itself has no time limit).
+        const until = Date.now() + Math.min(Math.max(Number(wait_s ?? 0), 0), RENDER_WAIT_MAX_S) * 1_000
         let status = taskStatus(task)
         while (
           (status.state === "rendering" || status.state === "encoding") &&
@@ -501,8 +536,102 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       return json({ ...taskStatus(task), ...(started.saved_first ? { saved_first: true } : {}) })
     },
 
+    async blender_import(args, context) {
+      // A task from an earlier import: its state, waited for up to wait_s, or cancelled.
+      const follow = async (id: string) => {
+        const until = Date.now() + Math.min(Math.max(Number(args.wait_s ?? 0), 0), RENDER_WAIT_MAX_S) * 1_000
+        let task = (await callHost(context, "tasks", {
+          task_id: id,
+          ...(args.cancel === true ? { cancel: true } : {}),
+        })) as { state?: string }
+        while (task.state === "running" && Date.now() < until && !context.signal.aborted && args.cancel !== true) {
+          const seconds = Math.max(1, Math.min(60, Math.ceil((until - Date.now()) / 1_000)))
+          task = (await callHost(context, "tasks", { task_id: id, wait_seconds: seconds }, (seconds + 30) * 1_000)) as {
+            state?: string
+          }
+        }
+        return task
+      }
+      if (typeof args.task === "string") return json(await follow(args.task))
+      const source = args.source
+      if (source !== "blenderkit" && source !== "sketchfab" && source !== "file")
+        throw new Error("source is required: blenderkit, sketchfab or file (or give task).")
+      const searching = args.action === "search"
+      let op: string
+      let opArgs: Record<string, unknown>
+      let resource: string
+      if (searching) {
+        if (source === "file") throw new Error("search is for blenderkit and sketchfab; a file is imported by path.")
+        if (typeof args.query !== "string" || !args.query.trim()) throw new Error("search needs query.")
+        const page = Number.isInteger(args.page) ? (args.page as number) : 1
+        op = source === "blenderkit" ? "addons.search_blenderkit_assets" : "addons.search_sketchfab_models"
+        opArgs =
+          source === "blenderkit"
+            ? {
+                query: args.query,
+                page,
+                asset_type: args.asset_type ?? "model",
+                ...(args.free_only === true ? { free_only: true } : {}),
+              }
+            : { query: args.query, page, downloadable: true }
+        resource = ""
+      } else if (source === "file") {
+        if (typeof args.path !== "string" || !args.path) throw new Error("import from file needs path.")
+        const remote = /^https:\/\//i.test(args.path)
+        const path = remote ? args.path : resolve(ctx.location?.directory ?? process.cwd(), args.path)
+        op = "assets.import_file"
+        opArgs = { source: path }
+        resource = path
+      } else {
+        if (typeof args.id !== "string" || !args.id) throw new Error(`import from ${source} needs id (from a search).`)
+        if (source === "blenderkit") {
+          op = "addons.import_blenderkit_asset"
+          opArgs = {
+            asset_base_id: args.id,
+            ...(args.asset_type ? { asset_type: args.asset_type } : {}),
+            ...(typeof args.target_object === "string" ? { target_object: args.target_object } : {}),
+            ...(Array.isArray(args.location) ? { model_location: args.location } : {}),
+          }
+        } else {
+          op = "addons.import_sketchfab_model"
+          opArgs = { uid: args.id }
+        }
+        resource = `${source}:${args.id}`
+      }
+      const held = await ticket(context)
+      if (!searching) await assert(context, PERMISSIONS.import, [resource], { source, id: args.id, path: args.path })
+      const result = (await callHost(
+        context,
+        "apply",
+        {
+          command_id: `i-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          if_revision: (await hello(held.bound, context.signal)).revision,
+          operations: [{ op, args: opArgs }],
+        },
+        undefined,
+        held,
+      )) as { status?: string; message?: string; results?: Array<{ result?: Record<string, unknown> }> }
+      if (result.status !== "applied") throw new Error(`blender_import: ${String(result.message ?? result.status)}`)
+      const out = result.results?.[0]?.result ?? {}
+      // The add-on's task snapshot names its task task_id; wait_s holds on this first call too.
+      const task = out.task as { task_id?: string; state?: string } | undefined
+      if (!searching && typeof task?.task_id === "string" && task.state === "running" && Number(args.wait_s ?? 0) > 0)
+        return json({ ...out, task: await follow(task.task_id) })
+      return json(out)
+    },
+
     async blender_save(args, context) {
-      return json(await program(context, "save", args))
+      try {
+        return json(await program(context, "save", args))
+      } catch (error) {
+        // Blender renames the file aside while saving; another process holding it a moment (a background render
+        // reading it) fails that rename, and the save changed nothing: once more, a second later, and said.
+        const message = error instanceof Error ? error.message : String(error)
+        if (!TRANSIENT_SAVE.test(message)) throw error
+        await new Promise((done) => setTimeout(done, SAVE_RETRY_MS))
+        const saved = (await program(context, "save", args)) as Record<string, unknown>
+        return json({ ...saved, retried: message.split("\n")[0]?.slice(0, 300) })
+      }
     },
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "blender_context",
   "domain": "tools",
-  "description": "Compact read of the attached Blender scene: revision, scene settings, collections, markers, a page of objects (name, type, parent, collections, location, rotation with its mode, scale). ref = one object in detail (world bounds; pose bones with head, world direction, rotation). Call first; pass revision to blender_apply.",
+  "description": "Compact read of the attached Blender scene: revision, scene settings, collections, markers, a page of objects (name, type, parent, collections, location, rotation with its mode, scale). ref = one object in detail (world bounds; pose bones with head, world direction, rotation); include parts lists a mesh's loose parts (vertices, world box, material, dominant vertex group), region keeps those meeting a world box. Call first; pass revision to blender_apply.",
   "kind": "host-backed",
   "risk": "read",
   "args": {
@@ -29,6 +29,15 @@
       "type": "integer",
       "description": "First object of the page.",
       "default": 0
+    },
+    "include": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["bounds", "bones", "parts"] },
+      "description": "bounds and bones for every listed object; parts with ref: the mesh's loose parts, largest first."
+    },
+    "region": {
+      "type": "object",
+      "description": "With include parts: {min: [x, y, z], max: [x, y, z]} in world space; the parts whose box meets it."
     }
   },
   "execution": {

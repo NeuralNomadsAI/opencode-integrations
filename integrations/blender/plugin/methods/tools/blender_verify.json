@@ -1,7 +1,7 @@
 {
   "name": "blender_verify",
   "domain": "tools",
-  "description": "Render one frame at low resolution (the scene's final output: the sequencer when used, compositing when active) and return the image with facts: black or transparent, mean brightness, the camera actually used and why, sequencer strips at that frame, compositing state, evaluated instances per object. Render settings and the current frame are restored.",
+  "description": "Render frames at low resolution and return the image with facts: black or transparent, mean brightness, the camera actually used and why, sequencer strips, compositing state, evaluated instances per object. By default the scene's final output (sequencer when used, compositing when active); view renders from a free viewpoint instead (a temporary camera; the scene's cameras and markers stay as they are). frames renders several frames as one contact sheet, left to right and top to bottom. Render settings, cameras and the current frame are restored; the revision stays.",
   "kind": "host-backed",
   "risk": "read",
   "args": {
@@ -13,9 +13,20 @@
       "type": "integer",
       "description": "Default: the current frame."
     },
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "1 to 16 frames, as one contact sheet (instead of frame)."
+    },
+    "view": {
+      "type": "object",
+      "description": "{location: [x, y, z], target: [x, y, z] or an object name or {object, bone}, lens?: mm (default 50)}: a free viewpoint, world space."
+    },
     "size": {
       "type": "integer",
-      "description": "Longest side in pixels (64 to 640).",
+      "description": "Longest side of each image in pixels (64 to 640; a sheet stays within 1280).",
       "default": 320
     }
   },

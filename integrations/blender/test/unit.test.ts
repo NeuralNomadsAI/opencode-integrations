@@ -30,6 +30,23 @@ describe("blender_apply follows OpenCode Link's operations (host/ops.json)", () 
     assert.equal(contract.version, readPackage().version)
   })
 
+  it("blender_apply's description, what the model reads, names every operation of ops.json with every field", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(import.meta.dirname, "..", "plugin", "methods", "tools", "blender_apply.json"), "utf8"),
+    ) as { description: string }
+    const lines = manifest.description.split("\n")
+    for (const [op, spec] of Object.entries(contract.ops)) {
+      const line = lines.find((entry) => entry.startsWith(`${op} {`))
+      assert.ok(line, `${op} is described`)
+      const fields = line.slice(op.length + 2, line.indexOf("}: "))
+      for (const [field, arg] of Object.entries(spec.args)) {
+        assert.match(fields, new RegExp(`(^|, )${field}\\b`), `${op}.${field}`)
+        for (const item of arg.enum ?? []) assert.ok(fields.includes(item), `${op}.${field} ${item}`)
+      }
+    }
+    assert.match(manifest.description, /links \[\{from:\[node, output\], to:\[node, input\]\}\]/)
+  })
+
   it("has the same operations, fields, required fields, enums and batch limit as ops.json", () => {
     assert.equal(MAX_OPERATIONS, contract.limits.operations)
     assert.deepEqual(Object.keys(OPERATIONS).sort(), Object.keys(contract.ops).sort())

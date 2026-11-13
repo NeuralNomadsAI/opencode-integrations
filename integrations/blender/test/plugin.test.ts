@@ -11,7 +11,7 @@ import { join } from "node:path"
 import { after, beforeEach, describe, it } from "node:test"
 
 import { startFakeHost } from "../../../packages/testing/src/index.ts"
-import { readPackage } from "../plugin/src/integration.ts"
+import { readPackage, SCRIPT_MAX_BYTES } from "../plugin/src/integration.ts"
 import { OFFER_LEASE_MS, OFFER_RENEW_MS } from "../plugin/src/kit.ts"
 import { METHOD_KEY, METHOD_TEXT, resetMethodForTests } from "../plugin/src/method.ts"
 import { announcement, clock, fixturePaths, type LoadedPlugin, loadPlugin } from "./helpers/plugin.ts"
@@ -346,13 +346,14 @@ describe("tools", () => {
     return { loaded, host }
   }
 
-  it("has ten tools and no skill", async () => {
+  it("has eleven tools and no skill", async () => {
     const loaded = await plugin()
     assert.deepEqual(loaded.toolNames(), [
       "blender_apply",
       "blender_context",
       "blender_execute_code",
       "blender_hosts",
+      "blender_import",
       "blender_inspect",
       "blender_install_host",
       "blender_lab",
@@ -467,6 +468,116 @@ describe("tools", () => {
     )
   })
 
+  it("blender_execute_code runs a script file byte for byte, asking permission for it (journal entry 56)", async () => {
+    const runs: Array<Record<string, unknown>> = []
+    const { loaded } = await attached({
+      execute_code: (params) => {
+        runs.push(params)
+        return { status: "executed", result: {} }
+      },
+    })
+    const dir = mkdtempSync(join(tmpdir(), "blender-script-"))
+    const text = 'path = "C:\\\\work\\\\a.png"\nlines = "one\\ntwo"\nresult = {"path": path, "lines": lines}\n'
+    writeFileSync(join(dir, "fall.py"), `\uFEFF${text}`)
+    content(await loaded.tool("blender_execute_code", { path: join(dir, "fall.py") }))
+    assert.equal(runs[0]?.code, text, "the file's text, without its byte order mark")
+    assert.equal(runs[0]?.filename, join(dir, "fall.py"))
+    assert.deepEqual(loaded.permissions.at(-1)?.resources, [join(dir, "fall.py")])
+    await assert.rejects(loaded.tool("blender_execute_code", { path: join(dir, "none.py") }), /No script/)
+    await assert.rejects(
+      loaded.tool("blender_execute_code", { path: join(dir, "fall.py"), code: "x = 1" }),
+      /code or path, not both/,
+    )
+    writeFileSync(join(dir, "big.py"), Buffer.alloc(SCRIPT_MAX_BYTES + 1, 0x20))
+    await assert.rejects(loaded.tool("blender_execute_code", { path: join(dir, "big.py") }), /over/)
+    assert.equal(runs.length, 1)
+  })
+
+  it("blender_import searches without asking, imports with permission and follows the task (journal entry 58)", async () => {
+    const applied: Array<{ op: string; args: Record<string, unknown> }> = []
+    let polls = 0
+    const loaded = await plugin()
+    const host = await fakeHost({
+      capabilities: { ...CAPABILITIES, methods: [...CAPABILITIES.methods, "tasks"] },
+      methods: {
+        apply: (params) => {
+          const operation = (params.operations as Array<{ op: string; args: Record<string, unknown> }>)[0]
+          applied.push(operation as { op: string; args: Record<string, unknown> })
+          const result = operation?.op.includes("search")
+            ? { results: [{ asset_base_id: "abc", name: "Weathered planks" }] }
+            : { task: { task_id: "task-1", kind: "sketchfab", state: "running", title: "Colt", elapsed_s: 0.1 } }
+          return { status: "applied", results: [{ op: operation?.op, result }] }
+        },
+        tasks: (params) => {
+          polls += 1
+          // The add-on's snapshot (tasks.py Task.snapshot).
+          return {
+            task_id: params.task_id,
+            kind: "sketchfab",
+            state: polls < 3 ? "running" : "done",
+            created: ["object:Colt"],
+          }
+        },
+      },
+    })
+    await loaded.rpc("advertise", announcement(host.endpoint, host.scriptHandle))
+    loaded.registry.attach(loaded.registry.hosts().offers[0]?.offerID as string, "ses_test")
+    const found = content(
+      await loaded.tool("blender_import", {
+        source: "blenderkit",
+        action: "search",
+        query: "planks",
+        asset_type: "material",
+      }),
+    )
+    assert.equal(found.results[0].asset_base_id, "abc")
+    assert.deepEqual(applied[0], {
+      op: "addons.search_blenderkit_assets",
+      args: { query: "planks", page: 1, asset_type: "material" },
+    })
+    assert.deepEqual(loaded.permissions, [], "a search asks nothing")
+    const imported = content(await loaded.tool("blender_import", { source: "sketchfab", id: "uid-colt", wait_s: 30 }))
+    assert.deepEqual(applied[1], { op: "addons.import_sketchfab_model", args: { uid: "uid-colt" } })
+    assert.equal(imported.task.state, "done")
+    assert.deepEqual(imported.task.created, ["object:Colt"])
+    assert.deepEqual(loaded.permissions, [{ action: "blender_import", resources: ["sketchfab:uid-colt"] }])
+    content(await loaded.tool("blender_import", { source: "file", path: "props/colt.glb" }))
+    assert.equal(applied[2]?.op, "assets.import_file")
+    assert.ok(String(applied[2]?.args.source).endsWith(join("props", "colt.glb")))
+    content(await loaded.tool("blender_import", { source: "blenderkit", id: "abc", target_object: "Wall" }))
+    assert.deepEqual(applied[3], {
+      op: "addons.import_blenderkit_asset",
+      args: { asset_base_id: "abc", target_object: "Wall" },
+    })
+    assert.equal(content(await loaded.tool("blender_import", { task: "task-1" })).state, "done")
+    await assert.rejects(loaded.tool("blender_import", { source: "file", action: "search", query: "x" }), /by path/)
+    await assert.rejects(loaded.tool("blender_import", { source: "sketchfab" }), /needs id/)
+  })
+
+  it("blender_save retries once when the file was briefly held, and says so; other failures are not retried", async () => {
+    const answers = [
+      {
+        status: "failed",
+        message: "RuntimeError: Error: Unable to make version backup: Permission denied",
+        traceback: "",
+      },
+      { status: "executed", result: { saved: "D:/film/western_ia.blend", bytes: 42 } },
+      { status: "failed", message: "RuntimeError: Error: Cannot change old file (file saved with @)", traceback: "" },
+      { status: "failed", message: "RuntimeError: Error: Cannot change old file (file saved with @)", traceback: "" },
+      { status: "failed", message: "ValueError: path must end with .blend", traceback: "" },
+    ]
+    let calls = 0
+    const { loaded } = await attached({ execute_code: () => answers[calls++] })
+    const saved = content(await loaded.tool("blender_save", {}))
+    assert.equal(saved.saved, "D:/film/western_ia.blend")
+    assert.match(saved.retried, /Unable to make version backup/)
+    assert.equal(calls, 2)
+    await assert.rejects(loaded.tool("blender_save", {}), /file saved with @/, "retried once only")
+    assert.equal(calls, 4)
+    await assert.rejects(loaded.tool("blender_save", { path: "x" }), /must end with \.blend/)
+    assert.equal(calls, 5, "not retried")
+  })
+
   it("inspect, verify and save run their fixed programs read only, asking nothing", async () => {
     const sent: Array<Record<string, unknown>> = []
     const results = [
@@ -569,6 +680,47 @@ describe("tools", () => {
     assert.deepEqual(loaded.permissions, [])
   })
 
+  it("blender_render waits for a long render in one call, beyond 2 minutes (journal entry 62)", async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "blender-render-"))
+    const slow = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" })
+    cleanups.push(() => void slow.kill())
+    const { loaded } = await attached({
+      execute_code: () => ({
+        status: "executed",
+        result: {
+          pid: slow.pid,
+          log: join(dir, "long.log"),
+          frames: [join(dir, "film.mp4")],
+          work: dir,
+          kind: "video",
+          output: join(dir, "film.mp4"),
+          targets: [join(dir, "film.mp4")],
+          start: 1,
+          end: 720,
+          scene: "Scene",
+          source: "auto",
+        },
+      }),
+    })
+    const started = content(await loaded.tool("blender_render", { output: "film.mp4" }))
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 })
+    let ended: number | undefined
+    const waiting = loaded.tool("blender_render", { task: started.task, wait_s: 600 }).then((result) => {
+      ended = Date.now()
+      return content(result)
+    })
+    // Simulated time: half-second polls until the call returns.
+    for (let step = 0; step < 2_000 && ended === undefined; step += 1) {
+      t.mock.timers.tick(500)
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    const status = await waiting
+    assert.equal(status.state, "rendering")
+    assert.ok(ended !== undefined && ended - 1_000_000 >= 600_000, `waited ${((ended ?? 0) - 1_000_000) / 1000} s`)
+    t.mock.timers.reset()
+    content(await loaded.tool("blender_render", { task: started.task, cancel: true }))
+  })
+
   it("an add-on without the 0.4 methods is told to update", async () => {
     const { loaded } = await attached()
     const old = await fakeHost({
@@ -579,7 +731,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.1/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.2/)
     assert.ok(loaded)
   })
 })

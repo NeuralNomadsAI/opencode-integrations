@@ -800,6 +800,9 @@ class HostCore(object):
         evaluations = self.app.evaluations()
         # What Blender changes without a depsgraph update (scene settings, keys) is seen by a fingerprint.
         digest = self.app.change_digest() if hasattr(self.app, "change_digest") else None
+        # A read-only run (verify, inspect, a probe) evaluates other frames, renders, makes temporary datablocks:
+        # depsgraph updates all, which say nothing. It changed the document only when its content differs after.
+        content = self.app.content_digest() if not barrier and hasattr(self.app, "content_digest") else None
         saves = self.app.saves() if hasattr(self.app, "saves") else 0
         value = error = trace = restored = step = None
         with self.app.quiet():
@@ -816,7 +819,10 @@ class HostCore(object):
                     self.app.flush()
                 except Exception:  # noqa: BLE001 - the document is restored below
                     pass
-            changed = self.app.evaluations() > evaluations or (digest is not None and self.app.change_digest() != digest)
+            if content is not None:
+                changed = self.app.content_digest() != content
+            else:
+                changed = self.app.evaluations() > evaluations or (digest is not None and self.app.change_digest() != digest)
             saved = (self.app.saves() if hasattr(self.app, "saves") else 0) > saves
             if changed and barrier and error is None and not saved:
                 step = "OpenCode: %s" % label
@@ -839,15 +845,22 @@ class HostCore(object):
             raise HostFailure("invalid_args", "code is required")
         if self.quarantined:
             raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
+        # A script run from a file (blender_execute_code path): its tracebacks name the file and show its lines.
+        filename = params.get("filename")
+        if filename is not None and (not isinstance(filename, str) or not 0 < len(filename) <= 1024
+                                     or any(ord(char) < 32 for char in filename)):
+            raise HostFailure("invalid_args", "filename must be a file path of at most 1024 characters")
         namespace = self.app.exec_namespace()
         namespace["result"] = {}
+        if filename:
+            namespace["__file__"] = filename
         # read_only: no undo barrier or step. The barrier is an undo push, which marks a saved file as
         # modified: inspections and runs after a save leave the file saved; a change is reported, never undone.
         read_only = params.get("read_only") is True
         rotations = self.app.rotation_snapshot() if hasattr(self.app, "rotation_snapshot") else None
 
         def run():
-            exec(compile(code, "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
+            exec(compile(code, filename or "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
             check = namespace.get("check_is_finished")
             return check if callable(check) else None
 

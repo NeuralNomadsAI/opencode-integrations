@@ -1,6 +1,6 @@
 {
   "addon": "opencode_link",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "protocol": 1,
   "method": "apply",
   "wire": "params.operations: [{op, args}] with every op below (an edit batch); unknown ops and fields are refused",
@@ -211,6 +211,173 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "x-maxUtf8Bytes": 255,
+        "x-noNul": true
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "x-maxUtf8Bytes": 255,
+            "x-noNul": true
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$"
+          },
+          "location": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "x-finite": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "label": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "props": {
+            "type": "object"
+          },
+          "ramp": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "x-maxUtf8Bytes": 255,
+              "x-noNul": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "x-maxUtf8Bytes": 255,
+              "x-noNul": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "bones": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "x-maxUtf8Bytes": 255,
+        "x-noNul": true
+      },
+      "minItems": 2,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "description": "[upper, lower] or [upper, lower, end], each the parent of the next"
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "point or object (bone only with object); rotation: the end bone's world orientation",
+      "properties": {
+        "point": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "object": {
+          "$ref": "#/kinds/ref"
+        },
+        "bone": {
+          "type": "string",
+          "minLength": 1,
+          "x-maxUtf8Bytes": 255,
+          "x-noNul": true
+        },
+        "rotation": {
+          "$ref": "#/kinds/rotation"
+        }
+      }
+    },
+    "data_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "x-noNul": true,
+      "description": "an RNA path relative to the owner (or the pose bone): constraints[\"Grab\"].influence"
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": "number",
+          "x-finite": true
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "x-finite": true
+          },
+          "minItems": 1,
+          "maxItems": 32
+        }
+      ]
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -250,7 +417,7 @@
       ]
     },
     "fit_height": {
-      "description": "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put the lowest point at ground_z, measured on the evaluated geometry; without height nothing is scaled.",
+      "description": "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put the lowest point at ground_z, measured on the evaluated geometry (armature pose and modifiers included) at frame (default: the current frame, which stays current); key keys the location (and scale) there, so a falling body touches the ground at each of its key frames. Without height nothing is scaled.",
       "args": {
         "ref": {
           "kind": "ref",
@@ -277,6 +444,13 @@
             "uniform"
           ],
           "default": "z"
+        },
+        "frame": {
+          "kind": "whole_frame"
+        },
+        "key": {
+          "kind": "bool",
+          "default": false
         }
       },
       "rules": [
@@ -340,8 +514,42 @@
         }
       }
     },
+    "reach": {
+      "description": "Two-bone IK solved once and written as a pose: chain is [upper, lower] or [upper, lower, end] (an arm, and its hand), each the parent of the next. The lower bone's tail reaches target (a point, an object or one of its bones), the elbow bends toward pole (a point, an object, a bone or a world direction; default: the side it bends to now), and end takes the target's world orientation (an object or bone target, or target.rotation). At frame (which stays current) it keys the chain's rotations (key, default true with frame). Reports error (metres), end_error_deg and the elbow; refuses a miss above tolerance (default 1 mm), such as a target out of reach.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "chain": {
+          "kind": "bones",
+          "required": true
+        },
+        "target": {
+          "kind": "goal",
+          "required": true
+        },
+        "pole": {
+          "kind": "target"
+        },
+        "frame": {
+          "kind": "whole_frame"
+        },
+        "key": {
+          "kind": "bool"
+        },
+        "tolerance": {
+          "kind": "positive"
+        }
+      },
+      "rules": [
+        "each bone of chain is the parent of the next",
+        "target is point or object (with bone), rotation optional",
+        "key needs frame"
+      ]
+    },
     "insert_key": {
-      "description": "Key the current location, rotation and/or scale of an object or pose bone at a frame.",
+      "description": "Key at a frame the current location, rotation and/or scale (paths) of an object or pose bone, or any animatable property by its RNA path (path), such as constraints[\"Grab\"].influence, key_blocks[\"Blink\"].value with owner shape_keys, lens with owner data, or [\"prop\"]; with bone the path is the pose bone's. value sets the property first; index keys one element of an array.",
       "args": {
         "ref": {
           "kind": "ref",
@@ -351,8 +559,24 @@
           "kind": "name"
         },
         "paths": {
-          "kind": "paths",
-          "required": true
+          "kind": "paths"
+        },
+        "path": {
+          "kind": "data_path"
+        },
+        "index": {
+          "kind": "index"
+        },
+        "owner": {
+          "enum": [
+            "object",
+            "data",
+            "shape_keys"
+          ],
+          "default": "object"
+        },
+        "value": {
+          "kind": "value"
         },
         "frame": {
           "kind": "frame",
@@ -365,10 +589,53 @@
             "BEZIER"
           ]
         }
-      }
+      },
+      "rules": [
+        "give paths or path (one of them)",
+        "value and index go with path",
+        "owner other than object goes with path, without bone"
+      ]
+    },
+    "delete_keys": {
+      "description": "Delete the keys of paths (location, rotation, scale) or of one RNA path (each array element unless index) in frames [first, last] (all without frames); an F-curve left without keys is removed.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "paths": {
+          "kind": "paths"
+        },
+        "path": {
+          "kind": "data_path"
+        },
+        "index": {
+          "kind": "index"
+        },
+        "owner": {
+          "enum": [
+            "object",
+            "data",
+            "shape_keys"
+          ],
+          "default": "object"
+        },
+        "frames": {
+          "kind": "frames"
+        }
+      },
+      "rules": [
+        "give paths or path (one of them)",
+        "index goes with path",
+        "owner other than object goes with path, without bone",
+        "frames is [first, last] with first at most last"
+      ]
     },
     "create_object": {
-      "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height. Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
+      "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height, a cone's base diameter and height; depth sets a cylinder's or cone's height apart (a barrel 0.6 wide and 0.9 high: size 0.6, depth 0.9). Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
       "args": {
         "kind": {
           "enum": [
@@ -392,10 +659,14 @@
             "cube",
             "plane",
             "uv_sphere",
-            "cylinder"
+            "cylinder",
+            "cone"
           ]
         },
         "size": {
+          "kind": "positive"
+        },
+        "depth": {
           "kind": "positive"
         },
         "light_type": {
@@ -450,7 +721,7 @@
         }
       },
       "rules": [
-        "primitive and size apply to a mesh; light_type and energy to a light; lens to a camera; body, size, extrude, align_x and align_y to a text",
+        "primitive and size apply to a mesh; depth to a cylinder or cone; light_type and energy to a light; lens to a camera; body, size, extrude, align_x and align_y to a text",
         "a text needs body"
       ]
     },
@@ -468,13 +739,19 @@
       }
     },
     "delete": {
-      "description": "Delete objects: their names are free for the batch's later operations at once (and their data's when only they used it); they leave the document when the batch succeeds.",
+      "description": "Delete objects (refs) and empty collections (collections): their names are free for the batch's later operations at once (and an object's data's when only it used it); they leave the document when the batch succeeds.",
       "args": {
         "refs": {
-          "kind": "refs",
-          "required": true
+          "kind": "refs"
+        },
+        "collections": {
+          "kind": "names"
         }
-      }
+      },
+      "rules": [
+        "give refs or collections",
+        "a collection is deleted empty: its objects and child collections are deleted by the same batch or moved first"
+      ]
     },
     "duplicate": {
       "description": "Copy an object with its whole hierarchy (children false: alone) into the same collections, moved by offset in world space. linked shares the data (Blender's Alt+D), otherwise each copy gets its own (Shift+D); materials and actions stay shared. name names the copy of ref, suffix is added to every copy's original name (Blender's .001 otherwise); as names the copy of ref $alias.",
@@ -534,6 +811,32 @@
       },
       "rules": [
         "color, roughness and metallic are optional: without them an existing material is only assigned"
+      ]
+    },
+    "material_nodes": {
+      "description": "Build or edit a material's shader graph: nodes adds a node per entry ({name, type, location, label, inputs: {socket: value}, props: {attribute: value}, ramp: [[position, [r, g, b, a]], ...]}) or updates the node of that name (Principled BSDF and Material Output in a new material); links connects {from: [node, output], to: [node, input]}, replacing what fed that input. Procedural textures (ShaderNodeTexNoise, TexVoronoi, TexWave...), mixes, color ramps and bumps included. A material of that name is made when there is none; ref assigns it like set_material.",
+      "args": {
+        "material": {
+          "kind": "name",
+          "required": true
+        },
+        "nodes": {
+          "kind": "nodes"
+        },
+        "links": {
+          "kind": "links"
+        },
+        "ref": {
+          "kind": "ref"
+        },
+        "slot": {
+          "kind": "index"
+        }
+      },
+      "rules": [
+        "give nodes, links or ref",
+        "a new node needs type",
+        "slot goes with ref"
       ]
     },
     "scene_settings": {
@@ -673,7 +976,7 @@
       }
     },
     "add_constraint": {
-      "description": "An object constraint targeting an object (subtarget: one of its bones).",
+      "description": "An object constraint targeting an object (subtarget: one of its bones), with its influence (0 to 1).",
       "args": {
         "ref": {
           "kind": "ref",
@@ -685,6 +988,7 @@
             "DAMPED_TRACK",
             "COPY_LOCATION",
             "COPY_ROTATION",
+            "COPY_TRANSFORMS",
             "CHILD_OF"
           ],
           "required": true
@@ -698,8 +1002,37 @@
         },
         "name": {
           "kind": "name"
+        },
+        "influence": {
+          "kind": "nonnegative"
         }
-      }
+      },
+      "rules": [
+        "influence from 0 to 1"
+      ]
+    },
+    "switch_parent": {
+      "description": "From frame on, the object follows parent (one of its bones with bone; the world without parent) without a jump: an anchor empty is made under parent where the object is at that frame, and a Copy Transforms constraint to it takes over at that frame (influences keyed CONSTANT: this switch's 1, earlier switches' 0). Before frame nothing changes. A revolver goes holster, hand, ground in three operations.",
+      "args": {
+        "ref": {
+          "kind": "ref",
+          "required": true
+        },
+        "parent": {
+          "kind": "ref"
+        },
+        "bone": {
+          "kind": "name"
+        },
+        "frame": {
+          "kind": "whole_frame",
+          "required": true
+        }
+      },
+      "rules": [
+        "bone needs parent",
+        "parent is not the object or one of its children"
+      ]
     }
   }
 }

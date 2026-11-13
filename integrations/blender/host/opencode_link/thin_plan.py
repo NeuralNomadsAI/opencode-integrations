@@ -17,6 +17,13 @@ from . import limits
 ORDERS = ("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX")
 AXES = ("Y", "-Y", "X", "-X", "Z", "-Z")
 PATHS = ("location", "rotation", "scale")
+# Whose animation an RNA path is keyed on: the object, its data (a camera's lens) or its data's shape keys.
+OWNERS = ("object", "data", "shape_keys")
+VALUE_ITEMS = 32
+# A node graph: Blender's node types by their identifier (ShaderNodeTexNoise), and its bounds per operation.
+NODE_TYPE = re.compile(r"^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$")
+MAX_NODES, MAX_LINKS, MAX_RAMP = 100, 200, 32
+NODE_KEYS = ("name", "type", "location", "label", "inputs", "props", "ramp")
 # Blender 5.3 TextCurve.align_x / align_y items (rna_curve.cc).
 ALIGN_X = ("LEFT", "CENTER", "RIGHT", "JUSTIFY", "FLUSH")
 ALIGN_Y = ("TOP", "TOP_BASELINE", "CENTER", "BOTTOM_BASELINE", "BOTTOM")
@@ -43,9 +50,13 @@ SPEC = {
                       "Location, rotation (written in the object's own rotation mode) and scale; delta adds the location."),
     "fit_height": ({"ref": F("ref", True), "height": F("number"), "ground": F("bool", default=True),
                     "ground_z": F("number", default=0.0), "children": F("bool", default=True),
-                    "scale_axes": F({"enum": ("z", "uniform")}, default="z")},
+                    "scale_axes": F({"enum": ("z", "uniform")}, default="z"), "frame": F("whole_frame"),
+                    "key": F("bool", default=False)},
                    "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put "
-                   "the lowest point at ground_z, measured on the evaluated geometry; without height nothing is scaled."),
+                   "the lowest point at ground_z, measured on the evaluated geometry (armature pose and modifiers "
+                   "included) at frame (default: the current frame, which stays current); key keys the location (and "
+                   "scale) there, so a falling body touches the ground at each of its key frames. Without height "
+                   "nothing is scaled."),
     "pose_bone": ({"ref": F("ref", True), "bone": F("name", True), "location": F("vec3"), "rotation": ROTATION,
                    "scale": F("scale")},
                   "A pose bone's location, rotation (in the bone's rotation mode) and scale."),
@@ -53,23 +64,42 @@ SPEC = {
                   "axis": F({"enum": AXES}, default="Y"), "tolerance_deg": F("number")},
                  "Rotate a pose bone about its head so its axis points at a point, an object (or one of its bones) "
                  "or along a world direction; reports error_deg and refuses a miss above tolerance_deg."),
-    "insert_key": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths", True), "frame": F("frame", True),
-                    "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
-                   "Key the current location, rotation and/or scale of an object or pose bone at a frame."),
+    "reach": ({"ref": F("ref", True), "chain": F("bones", True), "target": F("goal", True), "pole": F("target"),
+               "frame": F("whole_frame"), "key": F("bool"), "tolerance": F("positive")},
+              "Two-bone IK solved once and written as a pose: chain is [upper, lower] or [upper, lower, end] (an arm, "
+              "and its hand), each the parent of the next. The lower bone's tail reaches target (a point, an object or "
+              "one of its bones), the elbow bends toward pole (a point, an object, a bone or a world direction; "
+              "default: the side it bends to now), and end takes the target's world orientation (an object or bone "
+              "target, or target.rotation). At frame (which stays current) it keys the chain's rotations (key, "
+              "default true with frame). Reports error (metres), end_error_deg and the elbow; refuses a miss above "
+              "tolerance (default 1 mm), such as a target out of reach."),
+    "insert_key": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths"), "path": F("data_path"),
+                    "index": F("index"), "owner": F({"enum": OWNERS}, default="object"), "value": F("value"),
+                    "frame": F("frame", True), "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
+                   "Key at a frame the current location, rotation and/or scale (paths) of an object or pose bone, or any "
+                   "animatable property by its RNA path (path), such as constraints[\"Grab\"].influence, "
+                   "key_blocks[\"Blink\"].value with owner shape_keys, lens with owner data, or [\"prop\"]; with bone the "
+                   "path is the pose bone's. value sets the property first; index keys one element of an array."),
+    "delete_keys": ({"ref": F("ref", True), "bone": F("name"), "paths": F("paths"), "path": F("data_path"),
+                     "index": F("index"), "owner": F({"enum": OWNERS}, default="object"), "frames": F("frames")},
+                    "Delete the keys of paths (location, rotation, scale) or of one RNA path (each array element unless "
+                    "index) in frames [first, last] (all without frames); an F-curve left without keys is removed."),
     "create_object": ({"kind": F({"enum": ("empty", "camera", "light", "mesh", "text")}, True), "name": F("name", True),
-                       "as": F("alias"), "primitive": F({"enum": ("cube", "plane", "uv_sphere", "cylinder")}),
-                       "size": F("positive"), "light_type": F({"enum": ("POINT", "SUN", "SPOT", "AREA")}),
+                       "as": F("alias"), "primitive": F({"enum": ("cube", "plane", "uv_sphere", "cylinder", "cone")}),
+                       "size": F("positive"), "depth": F("positive"), "light_type": F({"enum": ("POINT", "SUN", "SPOT", "AREA")}),
                        "energy": F("number"), "lens": F("number"), "body": F("text"), "extrude": F("nonnegative"),
                        "align_x": F({"enum": ALIGN_X}), "align_y": F({"enum": ALIGN_Y}),
                        "location": F("vec3"), "rotation": ROTATION, "collection": F("name"), "parent": F("ref")},
                       "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. "
                       "Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's "
-                      "diameter and height. Text: body, size (font size in metres, default 1), extrude (depth), "
+                      "diameter and height, a cone's base diameter and height; depth sets a cylinder's or cone's height "
+                      "apart (a barrel 0.6 wide and 0.9 high: size 0.6, depth 0.9). Text: body, size (font size in metres, default 1), extrude (depth), "
                       "align_x, align_y."),
     "rename": ({"ref": F("ref", True), "name": F("name", True)}, "Rename an object."),
-    "delete": ({"refs": F("refs", True)},
-               "Delete objects: their names are free for the batch's later operations at once (and their data's when "
-               "only they used it); they leave the document when the batch succeeds."),
+    "delete": ({"refs": F("refs"), "collections": F("names")},
+               "Delete objects (refs) and empty collections (collections): their names are free for the batch's later "
+               "operations at once (and an object's data's when only it used it); they leave the document when the "
+               "batch succeeds."),
     "duplicate": ({"ref": F("ref", True), "as": F("alias"), "name": F("name"), "suffix": F("name"),
                    "offset": F("vec3"), "linked": F("bool", default=False), "children": F("bool", default=True)},
                   "Copy an object with its whole hierarchy (children false: alone) into the same collections, moved "
@@ -82,6 +112,14 @@ SPEC = {
                      "name; color (linear RGB, also the viewport colour), roughness and metallic set its Principled "
                      "BSDF, also on an existing material. Without slot: its only slot (added when it has none); slot "
                      "equal to the number of slots adds one."),
+    "material_nodes": ({"material": F("name", True), "nodes": F("nodes"), "links": F("links"), "ref": F("ref"),
+                        "slot": F("index")},
+                       "Build or edit a material's shader graph: nodes adds a node per entry ({name, type, location, label, "
+                       "inputs: {socket: value}, props: {attribute: value}, ramp: [[position, [r, g, b, a]], ...]}) or "
+                       "updates the node of that name (Principled BSDF and Material Output in a new material); links "
+                       "connects {from: [node, output], to: [node, input]}, replacing what fed that input. Procedural "
+                       "textures (ShaderNodeTexNoise, TexVoronoi, TexWave...), mixes, color ramps and bumps included. A "
+                       "material of that name is made when there is none; ref assigns it like set_material."),
     "scene_settings": ({"frame_start": F("whole_frame"), "frame_end": F("whole_frame"), "frame_current": F("whole_frame"),
                         "fps": F("positive")},
                        "The scene's frame range, current frame (animation evaluated there) and frames per second "
@@ -101,22 +139,40 @@ SPEC = {
                    "A timeline marker, optionally bound to a camera."),
     "set_camera": ({"ref": F("ref", True)}, "Make a camera the scene's active camera."),
     "add_constraint": ({"ref": F("ref", True), "type": F({"enum": ("TRACK_TO", "DAMPED_TRACK", "COPY_LOCATION",
-                                                                    "COPY_ROTATION", "CHILD_OF")}, True),
-                        "target": F("ref", True), "subtarget": F("name"), "name": F("name")},
-                       "An object constraint targeting an object (subtarget: one of its bones)."),
+                                                                    "COPY_ROTATION", "COPY_TRANSFORMS", "CHILD_OF")}, True),
+                        "target": F("ref", True), "subtarget": F("name"), "name": F("name"), "influence": F("nonnegative")},
+                       "An object constraint targeting an object (subtarget: one of its bones), with its influence (0 to 1)."),
+    "switch_parent": ({"ref": F("ref", True), "parent": F("ref"), "bone": F("name"), "frame": F("whole_frame", True)},
+                      "From frame on, the object follows parent (one of its bones with bone; the world without parent) "
+                      "without a jump: an anchor empty is made under parent where the object is at that frame, and a "
+                      "Copy Transforms constraint to it takes over at that frame (influences keyed CONSTANT: this "
+                      "switch's 1, earlier switches' 0). Before frame nothing changes. A revolver goes holster, hand, "
+                      "ground in three operations."),
 }
 OPS = tuple(SPEC)
-REFERENCES = ("ref", "parent", "camera", "target")
+REFERENCES = ("ref", "parent", "camera", "target", "pole")
 
 # The rules across fields that validate() checks, as ops.json and the catalog state them.
 RULES = {
     "set_transform": ("give location, rotation or scale",),
     "pose_bone": ("give location, rotation or scale",),
     "fit_height": ("give height or ground true", "height above 0"),
-    "create_object": ("primitive and size apply to a mesh; light_type and energy to a light; lens to a camera; "
+    "create_object": ("primitive and size apply to a mesh; depth to a cylinder or cone; light_type and energy to a "
+                      "light; lens to a camera; "
                       "body, size, extrude, align_x and align_y to a text",
                       "a text needs body"),
     "set_parent": ("bone needs parent",),
+    "insert_key": ("give paths or path (one of them)", "value and index go with path", "owner other than object "
+                   "goes with path, without bone"),
+    "delete_keys": ("give paths or path (one of them)", "index goes with path", "owner other than object goes with "
+                    "path, without bone", "frames is [first, last] with first at most last"),
+    "add_constraint": ("influence from 0 to 1",),
+    "switch_parent": ("bone needs parent", "parent is not the object or one of its children"),
+    "material_nodes": ("give nodes, links or ref", "a new node needs type", "slot goes with ref"),
+    "reach": ("each bone of chain is the parent of the next", "target is point or object (with bone), rotation "
+              "optional", "key needs frame"),
+    "delete": ("give refs or collections", "a collection is deleted empty: its objects and child collections are "
+               "deleted by the same batch or moved first"),
     "duplicate": ("name, suffix and as apply to the copy of ref (suffix to every copy)",),
     "set_material": ("color, roughness and metallic are optional: without them an existing material is only assigned",),
     "scene_settings": ("give at least one field", "frame_start at most frame_end when both are given; one alone may not "
@@ -173,6 +229,20 @@ def _record(value, path, keys):
     if unknown:
         _fail(path, "unknown field %s" % unknown[0])
     return value
+
+
+def _node_value(value, path):
+    """A socket or node attribute value: a number, true/false, a text (an enum item, a datablock name) or 2 to 4
+    numbers (a vector or a color)."""
+    if isinstance(value, (bool, str)):
+        if isinstance(value, str) and (not value or "\x00" in value or len(value) > 1024):
+            _fail(path, "expected a text of 1 to 1024 characters")
+        return value
+    if isinstance(value, list):
+        if not 2 <= len(value) <= 4:
+            _fail(path, "expected 2 to 4 numbers")
+        return [_number(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+    return _number(value, path)
 
 
 def _value(kind, value, path):
@@ -269,6 +339,103 @@ def _value(kind, value, path):
         if "bone" in target:
             out["bone"] = _name(target["bone"], path + ".bone")
         return out
+    if kind == "nodes":
+        if not isinstance(value, list) or not 1 <= len(value) <= MAX_NODES:
+            _fail(path, "expected 1 to %d nodes" % MAX_NODES)
+        names = set()
+        out = []
+        for index, raw in enumerate(value):
+            at = "%s[%d]" % (path, index)
+            node = _record(raw, at, NODE_KEYS)
+            entry = {"name": _name(node.get("name"), at + ".name")}
+            if entry["name"] in names:
+                _fail(at + ".name", "a node is listed twice")
+            names.add(entry["name"])
+            if "type" in node:
+                if not isinstance(node["type"], str) or not NODE_TYPE.match(node["type"]):
+                    _fail(at + ".type", "expected a shader node type such as ShaderNodeTexNoise")
+                entry["type"] = node["type"]
+            if "location" in node:
+                entry["location"] = _vector(node["location"], at + ".location", 2)
+            if "label" in node:
+                entry["label"] = _value("text", node["label"], at + ".label")
+            for key in ("inputs", "props"):
+                if key in node:
+                    given = node[key]
+                    if not isinstance(given, dict) or not given:
+                        _fail("%s.%s" % (at, key), "expected {name: value}")
+                    entry[key] = {_name(k, "%s.%s" % (at, key)): _node_value(v, "%s.%s.%s" % (at, key, k)) for k, v in given.items()}
+            if "ramp" in node:
+                ramp = node["ramp"]
+                if not isinstance(ramp, list) or not 1 <= len(ramp) <= MAX_RAMP:
+                    _fail(at + ".ramp", "expected 1 to %d [position, [r, g, b, a]] stops" % MAX_RAMP)
+                stops = []
+                for number, stop in enumerate(ramp):
+                    where = "%s.ramp[%d]" % (at, number)
+                    if not isinstance(stop, list) or len(stop) != 2:
+                        _fail(where, "expected [position, [r, g, b, a]]")
+                    position = _number(stop[0], where + "[0]")
+                    color = stop[1] if isinstance(stop[1], list) else None
+                    if color is None or len(color) not in (3, 4) or not 0 <= position <= 1:
+                        _fail(where, "expected a position from 0 to 1 and 3 or 4 color components")
+                    stops.append([position, [_number(c, where + "[1]") for c in color] + ([1.0] if len(color) == 3 else [])])
+                entry["ramp"] = stops
+            out.append(entry)
+        return out
+    if kind == "links":
+        if not isinstance(value, list) or not 1 <= len(value) <= MAX_LINKS:
+            _fail(path, "expected 1 to %d links" % MAX_LINKS)
+        out = []
+        for index, raw in enumerate(value):
+            at = "%s[%d]" % (path, index)
+            link = _record(raw, at, ("from", "to"))
+            entry = {}
+            for end in ("from", "to"):
+                pair = link.get(end)
+                if not isinstance(pair, list) or len(pair) != 2:
+                    _fail("%s.%s" % (at, end), "expected [node name, socket name]")
+                entry[end] = [_name(pair[0], "%s.%s[0]" % (at, end)), _name(pair[1], "%s.%s[1]" % (at, end))]
+            out.append(entry)
+        return out
+    if kind == "bones":
+        if not isinstance(value, list) or not 2 <= len(value) <= 3:
+            _fail(path, "expected [upper, lower] or [upper, lower, end] bone names")
+        names = [_name(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        if len(set(names)) != len(names):
+            _fail(path, "a bone is listed twice")
+        return names
+    if kind == "goal":
+        goal = _record(value, path, ("point", "object", "bone", "rotation"))
+        if ("point" in goal) == ("object" in goal):
+            _fail(path, "expected point or object")
+        if "bone" in goal and "object" not in goal:
+            _fail(path + ".bone", "belongs to object")
+        out = {"point": _vector(goal["point"], path + ".point", 3)} if "point" in goal else {
+            "object": _ref(goal["object"], path + ".object")}
+        if "bone" in goal:
+            out["bone"] = _name(goal["bone"], path + ".bone")
+        if "rotation" in goal:
+            out["rotation"] = _value("rotation", goal["rotation"], path + ".rotation")
+        return out
+    if kind == "data_path":
+        if not isinstance(value, str) or not value or "\x00" in value or len(value) > 1024 or value.startswith("."):
+            _fail(path, "expected an RNA path of 1 to 1024 characters (constraints[\"Grab\"].influence)")
+        return value
+    if kind == "value":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, list):
+            if not 1 <= len(value) <= VALUE_ITEMS:
+                _fail(path, "expected 1 to %d numbers" % VALUE_ITEMS)
+            return [_number(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        return _number(value, path)
+    if kind == "names":
+        if not isinstance(value, list) or not value:
+            _fail(path, "expected a list of names")
+        names = [_name(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        if len(set(names)) != len(names):
+            _fail(path, "a name is listed twice")
+        return names
     if kind == "refs":
         if not isinstance(value, list) or not value:
             _fail(path, "expected a list of object names")
@@ -310,7 +477,7 @@ def validate(operations):
             args[key] = _value(spec["kind"], given[key], "%s.args.%s" % (path, key))
         for key in REFERENCES + ("refs",):
             values = args.get(key) if key == "refs" else [args.get(key)]
-            if key == "target" and isinstance(args.get(key), dict):
+            if key in ("target", "pole") and isinstance(args.get(key), dict):
                 values = [args[key].get("object")]
             for value in values or ():
                 if isinstance(value, str) and value.startswith("$") and value[1:] not in aliases:
@@ -327,12 +494,35 @@ def validate(operations):
             _fail(path + ".args.height", "expected a height above 0")
         if op == "create_object":
             extra = {"empty": (), "camera": ("lens",), "light": ("light_type", "energy"),
-                     "mesh": ("primitive", "size"), "text": ("body", "size", "extrude", "align_x", "align_y")}[args["kind"]]
-            for key in ("primitive", "size", "light_type", "energy", "lens", "body", "extrude", "align_x", "align_y"):
+                     "mesh": ("primitive", "size", "depth"), "text": ("body", "size", "extrude", "align_x", "align_y")}[args["kind"]]
+            for key in ("primitive", "size", "depth", "light_type", "energy", "lens", "body", "extrude", "align_x", "align_y"):
                 if key in args and key not in extra:
                     _fail("%s.args.%s" % (path, key), "does not apply to a %s" % args["kind"])
+            if "depth" in args and args.get("primitive") not in ("cylinder", "cone"):
+                _fail(path + ".args.depth", "applies to a cylinder or cone")
             if args["kind"] == "text" and "body" not in args:
                 _fail(path + ".args", "missing body (a text's characters)")
+        if op in ("insert_key", "delete_keys"):
+            if ("paths" in args) == ("path" in args):
+                _fail(path + ".args", "give paths or path (one of them)")
+            for key in ("value", "index") if op == "insert_key" else ("index",):
+                if key in args and "path" not in args:
+                    _fail("%s.args.%s" % (path, key), "goes with path")
+            if args["owner"] != "object" and ("path" not in args or "bone" in args):
+                _fail(path + ".args.owner", "%s goes with path, without bone" % args["owner"])
+        if op == "material_nodes":
+            if not any(key in args for key in ("nodes", "links", "ref")):
+                _fail(path + ".args", "nothing to do: give nodes, links or ref")
+            if "slot" in args and "ref" not in args:
+                _fail(path + ".args.slot", "goes with ref")
+        if op == "reach" and args.get("key") and "frame" not in args:
+            _fail(path + ".args.key", "needs frame")
+        if op == "add_constraint" and args.get("influence", 0) > 1:
+            _fail(path + ".args.influence", "expected 0 to 1")
+        if op == "switch_parent" and "bone" in args and "parent" not in args:
+            _fail(path + ".args.bone", "belongs to parent")
+        if op == "delete" and "refs" not in args and "collections" not in args:
+            _fail(path + ".args", "nothing to delete: give refs or collections")
         if op == "set_parent" and "bone" in args and "parent" not in args:
             _fail(path + ".args.bone", "belongs to parent")
         if op == "scene_settings":
@@ -395,5 +585,26 @@ def kinds():
                    "description": "exactly one of point, object, direction; bone only with object; direction not 0",
                    "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name, "direction": vec3}},
         "refs": {"type": "array", "items": {"$ref": "#/kinds/ref"}, "minItems": 1, "uniqueItems": True},
+        "names": {"type": "array", "items": name, "minItems": 1, "uniqueItems": True},
+        "nodes": {"type": "array", "minItems": 1, "maxItems": MAX_NODES, "items": {
+            "type": "object", "required": ["name"], "additionalProperties": False, "properties": {
+                "name": name, "type": {"type": "string", "pattern": NODE_TYPE.pattern},
+                "location": {"type": "array", "items": number, "minItems": 2, "maxItems": 2}, "label": {"type": "string"},
+                "inputs": {"type": "object"}, "props": {"type": "object"},
+                "ramp": {"type": "array", "maxItems": MAX_RAMP, "items": {"type": "array", "minItems": 2, "maxItems": 2}}}}},
+        "links": {"type": "array", "minItems": 1, "maxItems": MAX_LINKS, "items": {
+            "type": "object", "required": ["from", "to"], "additionalProperties": False, "properties": {
+                "from": {"type": "array", "items": name, "minItems": 2, "maxItems": 2},
+                "to": {"type": "array", "items": name, "minItems": 2, "maxItems": 2}}}},
+        "bones": {"type": "array", "items": name, "minItems": 2, "maxItems": 3, "uniqueItems": True,
+                  "description": "[upper, lower] or [upper, lower, end], each the parent of the next"},
+        "goal": {"type": "object", "additionalProperties": False,
+                 "description": "point or object (bone only with object); rotation: the end bone's world orientation",
+                 "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name,
+                                "rotation": {"$ref": "#/kinds/rotation"}}},
+        "data_path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-noNul": True,
+                      "description": "an RNA path relative to the owner (or the pose bone): constraints[\"Grab\"].influence"},
+        "value": {"oneOf": [number, {"type": "boolean"}, {"type": "array", "items": number, "minItems": 1,
+                                                           "maxItems": VALUE_ITEMS}]},
         "paths": {"type": "array", "items": {"enum": list(PATHS)}, "minItems": 1},
     }
