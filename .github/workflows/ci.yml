@@ -127,6 +127,11 @@ jobs:
           export BLENDER_TEST_BIN="$HOME/blender-${{ matrix.blender }}/blender"
           "$BLENDER_TEST_BIN" --version
           node --test integrations/blender/test/blender.test.ts integrations/blender/test/conformance.test.ts
+      # The committed archive as users get it: extension validate, install-file in a private profile, hello judged ok.
+      - name: Payload archive through Blender's extension system
+        run: |
+          export BLENDER_TEST_BIN="$HOME/blender-${{ matrix.blender }}/blender"
+          node --test integrations/blender/test/extension.test.ts
 
   trace-scan:
     name: Trace scan

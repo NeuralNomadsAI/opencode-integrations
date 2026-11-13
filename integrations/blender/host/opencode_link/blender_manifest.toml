@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "opencode_link"
-version = "0.4.0"
+version = "0.4.1"
 name = "OpenCode Link"
 tagline = "Lets OpenCode work on this Blender session"
 maintainer = "NeuralNomads"
@@ -14,5 +14,5 @@ blender_version_min = "5.3.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]
-network = "The OpenCode service on this computer (loopback); the BlenderKit and Sketchfab web APIs when you ask OpenCode to search or import from them"
-files = "Reads the OpenCode service registration and the files named by OpenCode operations"
+network = "Local OpenCode service; BlenderKit and Sketchfab on request"
+files = "OpenCode service registration and files named by operations"
