@@ -39,6 +39,47 @@ async function hostScript<T extends Result>(script: string, args: (scratch: stri
   }
 }
 
+// The add-on of these sources served by a private background Blender, and a plugin attached to it.
+async function served(seconds = 240) {
+  const iso = isolatedRoot("blender-tools-")
+  const stopFile = join(iso.root, "stop")
+  installTestAddon(iso)
+  const run = runBlender(iso, join(folder, "serve.py"), [
+    "--listen-only",
+    "--seconds",
+    String(seconds),
+    "--stop-file",
+    stopFile,
+  ])
+  const plugin = await loadPlugin()
+  const stop = async () => {
+    writeFileSync(stopFile, "")
+    await run.exited
+    await plugin.cleanup()
+    iso.cleanup()
+  }
+  try {
+    let line: string | undefined
+    for (let attempt = 0; attempt < 600 && !line; attempt += 1) {
+      line = run
+        .output()
+        .split("\n")
+        .find((entry) => entry.startsWith("ENDPOINT "))
+      if (!line) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.ok(line, run.output().slice(-2000))
+    const { port, token, script_handle } = JSON.parse(line.slice("ENDPOINT ".length))
+    assert.deepEqual(await plugin.rpc("advertise", announcement({ port, token }, script_handle)), {
+      outcome: "accepted",
+    })
+  } catch (error) {
+    await stop()
+    throw error
+  }
+  const json = (result: { content?: unknown }) => JSON.parse(String(result.content))
+  return { iso, plugin, stop, json }
+}
+
 describe("OpenCode Link in Blender (background)", { skip }, () => {
   it("passes the host tests and runs every bundled Lab tool", async () => {
     // Its renders and imports take minutes on a runner without a GPU.
@@ -70,6 +111,79 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
 
   it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
     assert.equal((await hostScript("ops042_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS042_TESTS)
+  })
+
+  it("blender_verify renders a free viewpoint over several frames as one sheet (journal entries 47, 51)", async () => {
+    const { plugin, stop, json } = await served()
+    try {
+      // Workbench renders on runners without a GPU.
+      json(await plugin.tool("blender_execute_code", { code: "bpy.context.scene.render.engine = 'BLENDER_WORKBENCH'" }))
+      const scene = json(await plugin.tool("blender_context"))
+      // The film's set-up: a camera bound to a marker, an animated holster nobody frames.
+      json(
+        await plugin.tool("blender_apply", {
+          operations: [
+            { op: "create_object", kind: "camera", name: "Cam_Wide", as: "cam", location: [0, -30, 2] },
+            { op: "add_marker", name: "Wide", frame: 1, camera: "$cam" },
+            { op: "set_camera", ref: "$cam" },
+            { op: "create_object", kind: "mesh", primitive: "cube", name: "Holster", as: "h", size: 0.3 },
+            { op: "insert_key", ref: "$h", paths: ["location"], frame: 1 },
+            { op: "create_object", kind: "light", light_type: "SUN", name: "Sun", energy: 3 },
+          ],
+        }),
+      )
+      json(
+        await plugin.tool("blender_apply", {
+          operations: [
+            { op: "set_transform", ref: "Holster", location: [0, 0, 1] },
+            { op: "insert_key", ref: "Holster", paths: ["location"], frame: 20 },
+            // Evaluated from its keys: nothing unkeyed for a frame change to overwrite.
+            { op: "scene_settings", frame_current: 1 },
+          ],
+        }),
+      )
+      const before = json(await plugin.tool("blender_context")).revision
+      assert.ok(before > scene.revision)
+      const result = (
+        await plugin.tool("blender_verify", {
+          view: { location: [1.5, -1.5, 1.2], target: "Holster", lens: 35 },
+          frames: [1, 10, 20],
+          size: 160,
+        })
+      ).content as ReadonlyArray<{ type: string; text?: string; uri?: string }>
+      const facts = JSON.parse(String(result[0]?.text)).facts
+      assert.equal(facts.frames.length, 3)
+      assert.deepEqual(
+        facts.frames.map((frame: { frame: number }) => frame.frame),
+        [1, 10, 20],
+      )
+      assert.match(facts.frames[0].camera_used.via, /^view: from/)
+      assert.ok(
+        facts.frames.every((frame: { image: { black: boolean } }) => !frame.image.black),
+        JSON.stringify(facts),
+      )
+      assert.deepEqual([facts.sheet.columns, facts.sheet.rows], [2, 2])
+      assert.match(String(result[1]?.uri), /^data:image\/png;base64,iVBOR/)
+      const after = json(await plugin.tool("blender_context"))
+      assert.equal(after.revision, before, "verify leaves the revision")
+      assert.equal(after.scene.camera, "Cam_Wide")
+      assert.deepEqual(after.markers, [{ name: "Wide", frame: 1, camera: "Cam_Wide" }])
+      assert.ok(!after.objects.some((object: { name: string }) => object.name.startsWith("OpenCode verify")))
+      // The usual output still works, and if_revision from before the verifies still applies.
+      const plain = (await plugin.tool("blender_verify", { frame: 1, size: 96 })).content as ReadonlyArray<{
+        text?: string
+      }>
+      assert.equal(JSON.parse(String(plain[0]?.text)).facts.camera_used.camera, "Cam_Wide")
+      const write = json(
+        await plugin.tool("blender_apply", {
+          if_revision: before,
+          operations: [{ op: "rename", ref: "Sun", name: "Key light" }],
+        }),
+      )
+      assert.equal(write.status, "applied", JSON.stringify(write).slice(0, 500))
+    } finally {
+      await stop()
+    }
   })
 
   it("the plugin's tools act on the attached Blender document", async () => {
