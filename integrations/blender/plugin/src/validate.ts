@@ -37,6 +37,8 @@ type Kind =
   | "names"
   | "data_path"
   | "bones"
+  | "nodes"
+  | "links"
   | "goal"
   | "value"
   | "paths"
@@ -131,6 +133,13 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     color: F("rgb"),
     roughness: F("nonnegative"),
     metallic: F("nonnegative"),
+    slot: F("index"),
+  },
+  material_nodes: {
+    material: F("name", true),
+    nodes: F("nodes"),
+    links: F("links"),
+    ref: F("ref"),
     slot: F("index"),
   },
   scene_settings: {
@@ -289,6 +298,38 @@ function value(kind: Kind, v: unknown, path: string): unknown {
       if (new Set(list).size !== list.length) fail(path, "duplicate name")
       return list
     }
+    case "nodes": {
+      if (!Array.isArray(v) || v.length < 1 || v.length > 100) fail(path, "expected 1 to 100 nodes")
+      const names = new Set<string>()
+      return (v as unknown[]).map((raw, i) => {
+        const at = `${path}[${i}]`
+        const n = record(raw, at, ["name", "type", "location", "label", "inputs", "props", "ramp"])
+        const name = str(n.name, `${at}.name`)
+        if (names.has(name)) fail(`${at}.name`, "a node is listed twice")
+        names.add(name)
+        if (n.type !== undefined) str(n.type, `${at}.type`, /^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$/)
+        if (n.location !== undefined) vec(n.location, `${at}.location`, 2)
+        for (const key of ["inputs", "props"])
+          if (n[key] !== undefined && (typeof n[key] !== "object" || n[key] === null || Array.isArray(n[key])))
+            fail(`${at}.${key}`, "expected {name: value}")
+        if (n.ramp !== undefined && (!Array.isArray(n.ramp) || n.ramp.length < 1 || n.ramp.length > 32))
+          fail(`${at}.ramp`, "expected 1 to 32 [position, [r, g, b, a]] stops")
+        return n
+      })
+    }
+    case "links": {
+      if (!Array.isArray(v) || v.length < 1 || v.length > 200) fail(path, "expected 1 to 200 links")
+      return (v as unknown[]).map((raw, i) => {
+        const l = record(raw, `${path}[${i}]`, ["from", "to"])
+        for (const end of ["from", "to"]) {
+          const pair = l[end]
+          if (!Array.isArray(pair) || pair.length !== 2)
+            fail(`${path}[${i}].${end}`, "expected [node name, socket name]")
+          for (const [k, x] of (pair as unknown[]).entries()) str(x, `${path}[${i}].${end}[${k}]`)
+        }
+        return l
+      })
+    }
     case "bones": {
       if (!Array.isArray(v) || v.length < 2 || v.length > 3)
         fail(path, "expected [upper, lower] or [upper, lower, end]")
@@ -369,6 +410,10 @@ function rules(op: string, o: Json, path: string) {
     fail(`${path}.influence`, "expected 0 to 1")
   if (op === "switch_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
   if (op === "reach" && o.key === true && o.frame === undefined) fail(`${path}.key`, "needs frame")
+  if (op === "material_nodes") {
+    if (!has("nodes", "links", "ref")) fail(path, "give nodes, links or ref")
+    if (o.slot !== undefined && o.ref === undefined) fail(`${path}.slot`, "goes with ref")
+  }
 }
 
 export function validatePlan(input: Json) {

@@ -346,13 +346,14 @@ describe("tools", () => {
     return { loaded, host }
   }
 
-  it("has ten tools and no skill", async () => {
+  it("has eleven tools and no skill", async () => {
     const loaded = await plugin()
     assert.deepEqual(loaded.toolNames(), [
       "blender_apply",
       "blender_context",
       "blender_execute_code",
       "blender_hosts",
+      "blender_import",
       "blender_inspect",
       "blender_install_host",
       "blender_lab",
@@ -490,6 +491,61 @@ describe("tools", () => {
     writeFileSync(join(dir, "big.py"), Buffer.alloc(SCRIPT_MAX_BYTES + 1, 0x20))
     await assert.rejects(loaded.tool("blender_execute_code", { path: join(dir, "big.py") }), /over/)
     assert.equal(runs.length, 1)
+  })
+
+  it("blender_import searches without asking, imports with permission and follows the task (journal entry 58)", async () => {
+    const applied: Array<{ op: string; args: Record<string, unknown> }> = []
+    let polls = 0
+    const loaded = await plugin()
+    const host = await fakeHost({
+      capabilities: { ...CAPABILITIES, methods: [...CAPABILITIES.methods, "tasks"] },
+      methods: {
+        apply: (params) => {
+          const operation = (params.operations as Array<{ op: string; args: Record<string, unknown> }>)[0]
+          applied.push(operation as { op: string; args: Record<string, unknown> })
+          const result = operation?.op.includes("search")
+            ? { results: [{ asset_base_id: "abc", name: "Weathered planks" }] }
+            : { task: { id: "task-1", state: "running", title: "Colt" } }
+          return { status: "applied", results: [{ op: operation?.op, result }] }
+        },
+        tasks: (params) => {
+          polls += 1
+          return { id: params.task_id, state: polls < 3 ? "running" : "done", created: ["object:Colt"] }
+        },
+      },
+    })
+    await loaded.rpc("advertise", announcement(host.endpoint, host.scriptHandle))
+    loaded.registry.attach(loaded.registry.hosts().offers[0]?.offerID as string, "ses_test")
+    const found = content(
+      await loaded.tool("blender_import", {
+        source: "blenderkit",
+        action: "search",
+        query: "planks",
+        asset_type: "material",
+      }),
+    )
+    assert.equal(found.results[0].asset_base_id, "abc")
+    assert.deepEqual(applied[0], {
+      op: "addons.search_blenderkit_assets",
+      args: { query: "planks", page: 1, asset_type: "material" },
+    })
+    assert.deepEqual(loaded.permissions, [], "a search asks nothing")
+    const imported = content(await loaded.tool("blender_import", { source: "sketchfab", id: "uid-colt", wait_s: 30 }))
+    assert.deepEqual(applied[1], { op: "addons.import_sketchfab_model", args: { uid: "uid-colt" } })
+    assert.equal(imported.task.state, "done")
+    assert.deepEqual(imported.task.created, ["object:Colt"])
+    assert.deepEqual(loaded.permissions, [{ action: "blender_import", resources: ["sketchfab:uid-colt"] }])
+    content(await loaded.tool("blender_import", { source: "file", path: "props/colt.glb" }))
+    assert.equal(applied[2]?.op, "assets.import_file")
+    assert.ok(String(applied[2]?.args.source).endsWith(join("props", "colt.glb")))
+    content(await loaded.tool("blender_import", { source: "blenderkit", id: "abc", target_object: "Wall" }))
+    assert.deepEqual(applied[3], {
+      op: "addons.import_blenderkit_asset",
+      args: { asset_base_id: "abc", target_object: "Wall" },
+    })
+    assert.equal(content(await loaded.tool("blender_import", { task: "task-1" })).state, "done")
+    await assert.rejects(loaded.tool("blender_import", { source: "file", action: "search", query: "x" }), /by path/)
+    await assert.rejects(loaded.tool("blender_import", { source: "sketchfab" }), /needs id/)
   })
 
   it("inspect, verify and save run their fixed programs read only, asking nothing", async () => {

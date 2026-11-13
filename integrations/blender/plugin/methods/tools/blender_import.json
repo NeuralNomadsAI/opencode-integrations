@@ -1,0 +1,75 @@
+{
+  "name": "blender_import",
+  "domain": "tools",
+  "description": "Search and import assets into the attached Blender: BlenderKit (models, materials, HDRIs; needs the BlenderKit add-on), Sketchfab (downloadable models; needs the Sketchfab add-on, activated when its session was lost) or a file (glTF, FBX, OBJ, USD: a path or an https URL). search lists results without asking; import asks the blender_import permission and returns a task (downloads run in the background): call again with task and wait_s to follow it, or cancel. The task's result names what it created.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "source": {
+      "type": "string",
+      "enum": ["blenderkit", "sketchfab", "file"],
+      "description": "Where from (not with task)."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["search", "import"],
+      "description": "search (blenderkit, sketchfab) or import.",
+      "default": "import"
+    },
+    "query": {
+      "type": "string",
+      "description": "search: words to look for."
+    },
+    "asset_type": {
+      "type": "string",
+      "description": "BlenderKit: model, material, hdr, scene, brush or nodegroup (default model)."
+    },
+    "id": {
+      "type": "string",
+      "description": "import: a BlenderKit asset_base_id or a Sketchfab uid, from a search."
+    },
+    "path": {
+      "type": "string",
+      "description": "import from file: a file path (absolute or relative to the project) or an https:// URL."
+    },
+    "target_object": {
+      "type": "string",
+      "description": "BlenderKit material: the object that receives it."
+    },
+    "location": {
+      "type": "array",
+      "items": { "type": "number" },
+      "description": "BlenderKit model: [x, y, z] where it lands."
+    },
+    "page": {
+      "type": "integer",
+      "description": "search: result page (from 1).",
+      "default": 1
+    },
+    "free_only": {
+      "type": "boolean",
+      "description": "BlenderKit search: free assets only.",
+      "default": false
+    },
+    "task": {
+      "type": "string",
+      "description": "A task from an earlier import: its progress and result."
+    },
+    "wait_s": {
+      "type": "integer",
+      "description": "With import or task: wait up to this long for the task to finish (0 to 3600).",
+      "default": 0
+    },
+    "cancel": {
+      "type": "boolean",
+      "description": "With task: stop it."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "apply"
+  },
+  "requires": {
+    "hostMethods": ["apply", "tasks"]
+  }
+}

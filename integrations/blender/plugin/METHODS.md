@@ -29,12 +29,18 @@ New in 0.4.0:
 | `blender_render`  | A render in a separate background Blender to an exact output, followed as a task (fixed program).   |
 | `blender_save`    | Save, save as or save a copy (fixed program).                                                       |
 
+New in 0.4.2:
+
+| Tool             | What it does                                                                                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `blender_import` | Exposes the catalog's `addons.search_blenderkit_assets`, `addons.search_sketchfab_models`, `addons.import_blenderkit_asset`, `addons.import_sketchfab_model` and `assets.import_file` again, with their tasks (asks `blender_import` for an import). |
+
 ## Catalog reads and operations
 
 The 30 reads and 49 operations of 0.2.0 (`methods/host`) are **retired from the plugin**: no tool sends them. The add-on still
 answers 76 of them on its host methods `context` and `apply` (`test/blender/host_tests.py` exercises its whole
 catalog), so a plugin can expose them again; 3 left the add-on in 0.3. In 0.4.0 the typed operations of `blender_apply` and the fixed programs cover
-what the trials needed; anything else goes through `blender_execute_code`.
+what the trials needed; anything else goes through `blender_execute_code`. 0.4.2 exposes the asset searches and imports again through `blender_import`.
 
 | Domain         | Name                                           | Kind      | In the 0.4.0 add-on |
 | -------------- | ---------------------------------------------- | --------- | ------------------- |

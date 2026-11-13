@@ -222,6 +222,94 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "x-maxUtf8Bytes": 255,
+            "x-noNul": true
+          },
+          "type": {
+            "type": "string",
+            "pattern": "^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$"
+          },
+          "location": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "x-finite": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "label": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "props": {
+            "type": "object"
+          },
+          "ramp": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "x-maxUtf8Bytes": 255,
+              "x-noNul": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "x-maxUtf8Bytes": 255,
+              "x-noNul": true
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
     "bones": {
       "type": "array",
       "items": {
@@ -723,6 +811,32 @@
       },
       "rules": [
         "color, roughness and metallic are optional: without them an existing material is only assigned"
+      ]
+    },
+    "material_nodes": {
+      "description": "Build or edit a material's shader graph: nodes adds a node per entry ({name, type, location, label, inputs: {socket: value}, props: {attribute: value}, ramp: [[position, [r, g, b, a]], ...]}) or updates the node of that name (Principled BSDF and Material Output in a new material); links connects {from: [node, output], to: [node, input]}, replacing what fed that input. Procedural textures (ShaderNodeTexNoise, TexVoronoi, TexWave...), mixes, color ramps and bumps included. A material of that name is made when there is none; ref assigns it like set_material.",
+      "args": {
+        "material": {
+          "kind": "name",
+          "required": true
+        },
+        "nodes": {
+          "kind": "nodes"
+        },
+        "links": {
+          "kind": "links"
+        },
+        "ref": {
+          "kind": "ref"
+        },
+        "slot": {
+          "kind": "index"
+        }
+      },
+      "rules": [
+        "give nodes, links or ref",
+        "a new node needs type",
+        "slot goes with ref"
       ]
     },
     "scene_settings": {

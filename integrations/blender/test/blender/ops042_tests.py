@@ -465,6 +465,71 @@ def e52_reach_puts_the_hand_on_the_grip_with_the_elbow_toward_the_pole():
           "key without frame refused")
 
 
+# -- entries 57, 58: a shader graph described as JSON ----------------------------------------------------------------
+PAINT = [
+    {"name": "Coords", "type": "ShaderNodeTexCoord", "location": [-900, 0]},
+    {"name": "Grain", "type": "ShaderNodeTexWave", "location": [-650, 200], "props": {"wave_type": "BANDS"},
+     "inputs": {"Scale": 3.5, "Distortion": 6.0}},
+    {"name": "Chips", "type": "ShaderNodeTexNoise", "location": [-650, -150], "inputs": {"Scale": 8.0, "Detail": 6.0}},
+    {"name": "Mask", "type": "ShaderNodeValToRGB", "location": [-400, -150],
+     "ramp": [[0.48, [0, 0, 0, 1]], [0.52, [1, 1, 1, 1]]]},
+    {"name": "Paint", "type": "ShaderNodeMix", "location": [-150, 100], "props": {"data_type": "RGBA"},
+     "inputs": {"A": [0.25, 0.14, 0.07], "B": [0.62, 0.12, 0.08]}},
+    {"name": "Relief", "type": "ShaderNodeBump", "location": [-150, -200], "inputs": {"Strength": 0.3}},
+    {"name": "Principled BSDF", "inputs": {"Roughness": 0.85}},
+]
+PAINT_LINKS = [
+    {"from": ["Coords", "Object"], "to": ["Grain", "Vector"]},
+    {"from": ["Coords", "Object"], "to": ["Chips", "Vector"]},
+    {"from": ["Chips", "Fac"], "to": ["Mask", "Fac"]},
+    {"from": ["Mask", "Color"], "to": ["Paint", "Factor"]},
+    {"from": ["Paint", "Result"], "to": ["Principled BSDF", "Base Color"]},
+    {"from": ["Chips", "Fac"], "to": ["Relief", "Height"]},
+    {"from": ["Relief", "Normal"], "to": ["Principled BSDF", "Normal"]},
+]
+
+
+def links_of(material):
+    return sorted((l.from_node.name, l.from_socket.name, l.to_node.name, l.to_socket.name) for l in material.node_tree.links)
+
+
+@test
+def e57_58_a_chipped_paint_siding_is_one_material_nodes_operation():
+    empty()
+    applied(("create_object", {"kind": "mesh", "primitive": "cube", "name": "Facade", "size": 3}))
+    out = applied(("material_nodes", {"material": "Siding", "nodes": PAINT, "links": PAINT_LINKS, "ref": "Facade"}))
+    material = bpy.data.materials["Siding"]
+    check(obj("Facade").material_slots[0].material == material, "assigned")
+    nodes = material.node_tree.nodes
+    check(nodes["Grain"].wave_type == "BANDS" and abs(nodes["Chips"].inputs["Scale"].default_value - 8) < 1e-6, "props, inputs")
+    check([round(e.position, 3) for e in nodes["Mask"].color_ramp.elements] == [0.48, 0.52], "ramp")
+    check(near(nodes["Paint"].inputs[7].default_value, (0.62, 0.12, 0.08, 1)) or near(
+        [s for s in nodes["Paint"].inputs if s.name == "B" and s.enabled][0].default_value, (0.62, 0.12, 0.08, 1)), "the colour B")
+    check(("Paint", "Result", "Principled BSDF", "Base Color") in links_of(material), "linked: %s" % links_of(material))
+    check(("Relief", "Normal", "Principled BSDF", "Normal") in links_of(material), "bump linked")
+    check(not out.get("warnings"), "the output is fed: %s" % out.get("warnings"))
+    check({c["name"] for c in out["created"] if c.get("material")} == {n["name"] for n in PAINT if "type" in n}, "listed")
+    # An existing material edited, then a failing batch restores it exactly: node gone, value and link back.
+    links, roughness = links_of(material), nodes["Principled BSDF"].inputs["Roughness"].default_value
+    failed_and_restored(("material_nodes", {"material": "Siding", "nodes": [
+        {"name": "Rust", "type": "ShaderNodeTexVoronoi", "inputs": {"Scale": 20}},
+        {"name": "Principled BSDF", "inputs": {"Roughness": 0.2}},
+        {"name": "Mask", "ramp": [[0.3, [0, 0, 0, 1]], [0.4, [1, 1, 1, 1]], [0.9, [0.5, 0.5, 0.5, 1]]]}],
+        "links": [{"from": ["Rust", "Distance"], "to": ["Paint", "Factor"]}]}), FAIL)
+    check("Rust" not in material.node_tree.nodes and links_of(material) == links, "graph back: %s" % links_of(material))
+    check(abs(nodes["Principled BSDF"].inputs["Roughness"].default_value - roughness) < 1e-6, "value back")
+    check([round(e.position, 3) for e in nodes["Mask"].color_ramp.elements] == [0.48, 0.52], "ramp back")
+    for bad, words in ((("material_nodes", {"material": "Siding", "nodes": [{"name": "X"}]}), "needs type"),
+                       (("material_nodes", {"material": "Siding", "nodes": [{"name": "X", "type": "ShaderNodeNope"}]}),
+                        "not a shader node type"),
+                       (("material_nodes", {"material": "Siding", "links": [{"from": ["Chips", "Nope"], "to": ["Mask", "Fac"]}]}),
+                        "no socket")):
+        out = edit(bad)
+        check(out["status"] == "failed" and words in out["message"] and out["restored"], "%s: %s" % (words, out.get("message")))
+    check(refused(("material_nodes", {"material": "Siding", "nodes": [{"name": "X", "type": "import os"}]})) is not None,
+          "a type that is not a node type is refused before running")
+
+
 def _curves_of(owner):
     from bpy_extras import anim_utils
 

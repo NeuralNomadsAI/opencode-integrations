@@ -1286,8 +1286,13 @@ def op_set_material(args, batch, index):
             before = batch.remember(material, "diffuse_color")
             material.diffuse_color = list(args["color"]) + [1.0]
             batch.record(index, material.name, "viewport color", before, material.diffuse_color)
+    _assign(obj, material, args.get("slot"), batch, index)
+
+
+def _assign(obj, material, slot, batch, index):
+    """Puts material in obj's slot (its only slot without slot; slot equal to the count adds one)."""
+    data = obj.data
     count = len(obj.material_slots)
-    slot = args.get("slot")
     if slot is None:
         if count > 1:
             raise PlanError("%r has %d material slots (%s): give slot" % (
@@ -1312,6 +1317,164 @@ def op_set_material(args, batch, index):
     if obj.material_slots[slot].link == "DATA" and data.users > 1:
         batch.warnings.append("%s: its data %r is shared by %d objects, which all show %r in slot %d" % (
             obj.name, data.name, data.users, material.name, slot))
+
+
+def _socket(sockets, name, label):
+    """The socket named name (or with that identifier); among several, the first enabled one (a Mix node's A)."""
+    found = [socket for socket in sockets if socket.name == name or socket.identifier == name]
+    enabled = [socket for socket in found if socket.enabled]
+    if not found:
+        raise PlanError("%s has no socket %r (it has %s)" % (label, name, ", ".join(sorted({s.name for s in sockets if s.enabled}))))
+    return (enabled or found)[0]
+
+
+def _node_set(target, attr, value, batch, owner, label, journal=True):
+    """Sets a node attribute or a socket's default value, journaled; a datablock attribute takes a name."""
+    rna = target.bl_rna.properties.get(attr)
+    if rna is None or rna.is_readonly:
+        raise PlanError("%s has no settable %s" % (label, attr))
+    if rna.type == "POINTER":
+        collection = {"Image": "images", "ShaderNodeTree": "node_groups", "Object": "objects", "Text": "texts"}.get(
+            rna.fixed_type.identifier)
+        if collection is None or not isinstance(value, str):
+            raise PlanError("%s.%s takes a %s, which this operation does not set" % (label, attr, rna.fixed_type.identifier))
+        found = getattr(bpy.data, collection).get(value)
+        if found is None:
+            raise PlanError("%s.%s: no %s %r" % (label, attr, rna.fixed_type.identifier, value))
+        value = found
+    # A node this batch adds goes whole when it fails: its own fields need no journal.
+    before = batch.remember(target, attr, owner=owner) if journal else _copy(getattr(target, attr))
+    current = getattr(target, attr)
+    if isinstance(value, list) and hasattr(current, "__len__") and not isinstance(current, str):
+        if len(value) == 3 and len(current) == 4:
+            value = value + [1.0]  # a color given as RGB
+        if len(value) != len(current):
+            raise PlanError("%s.%s takes %d numbers" % (label, attr, len(current)))
+    try:
+        setattr(target, attr, value)
+    except (TypeError, ValueError) as error:
+        raise PlanError("%s.%s: %s" % (label, attr, error)) from None
+    after = _copy(getattr(target, attr))
+    wanted = tuple(value) if isinstance(value, list) else value
+    if isinstance(wanted, (int, float)) and not isinstance(wanted, bool) and not _same(after, float(wanted)):
+        raise PlanError("%s.%s: Blender holds %s, not %s (out of its range)" % (label, attr, _r(after), value))
+    if isinstance(wanted, tuple) and not _same(after, wanted):
+        raise PlanError("%s.%s: Blender holds %s, not %s (out of its range)" % (label, attr, _r(after), list(value)))
+    return before, after
+
+
+def _ramp_state(ramp):
+    return [(element.position, tuple(element.color)) for element in ramp.elements]
+
+
+def _set_ramp(ramp, stops):
+    elements = ramp.elements
+    while len(elements) > len(stops):
+        elements.remove(elements[-1])
+    while len(elements) < len(stops):
+        elements.new(1.0)
+    # Positions in order: new() sorts by position, so each element takes its stop in turn.
+    for element, (position, color) in zip(elements, sorted(stops, key=lambda stop: stop[0])):
+        element.position = position
+        element.color = color
+
+
+def op_material_nodes(args, batch, index):
+    name = args["material"]
+    material = bpy.data.materials.get(name)
+    if material is not None and material.library is not None:
+        raise PlanError("material %r is linked from a library" % name)
+    if material is None:
+        material = bpy.data.materials.new(name)
+        batch.journal.append((lambda material=material: _removed(material) or bpy.data.materials.remove(material),
+                              lambda material=material: _removed(material), "created material %s" % name))
+        batch.make(material)
+        batch.created.append({"op": index, "name": material.name, "type": "MATERIAL"})
+    if material.node_tree is None:
+        material.use_nodes = True
+    tree = material.node_tree
+    made = _pointer(material) in batch.made
+    for spec in args.get("nodes", ()):
+        node = tree.nodes.get(spec["name"])
+        label = "%s:%s" % (material.name, spec["name"])
+        fresh = node is None
+        if node is None:
+            if "type" not in spec:
+                raise PlanError("%s: no such node; a new node needs type (nodes now: %s)" % (
+                    label, ", ".join(sorted(n.name for n in tree.nodes))))
+            try:
+                node = tree.nodes.new(spec["type"])
+            except RuntimeError:
+                raise PlanError("%s: %s is not a shader node type of this Blender" % (label, spec["type"])) from None
+            node.name = spec["name"]
+            if not made:
+                batch.journal.append((lambda node=node: tree.nodes.remove(node) if tree.nodes.get(node.name) == node else None,
+                                      lambda name=spec["name"]: tree.nodes.get(name) is None, "node %s" % label))
+            batch.created.append({"op": index, "name": node.name, "type": node.bl_idname, "material": material.name})
+        elif "type" in spec and node.bl_idname != spec["type"]:
+            raise PlanError("%s is a %s, not a %s" % (label, node.bl_idname, spec["type"]))
+        if "location" in spec:
+            _node_set(node, "location", spec["location"], batch, material, label, not fresh)
+        if "label" in spec:
+            _node_set(node, "label", spec["label"], batch, material, label, not fresh)
+        for attr, value in spec.get("props", {}).items():
+            before, after = _node_set(node, attr, value, batch, material, label, not fresh)
+            batch.record(index, label, attr, before, after)
+        for socket_name, value in spec.get("inputs", {}).items():
+            socket = _socket(node.inputs, socket_name, label)
+            if not hasattr(socket, "default_value"):
+                raise PlanError("%s: input %r has no value to set (link it)" % (label, socket_name))
+            before, after = _node_set(socket, "default_value", value, batch, material, "%s.%s" % (label, socket_name), not fresh)
+            batch.record(index, label, socket_name, before, after)
+        if "ramp" in spec:
+            ramp = getattr(node, "color_ramp", None)
+            if ramp is None:
+                raise PlanError("%s (%s) has no color ramp" % (label, node.bl_idname))
+            state = _ramp_state(ramp)
+            if not fresh:
+                batch.add(lambda ramp=ramp, state=state: made and _removed(material) or _set_ramp(ramp, state),
+                          lambda ramp=ramp, state=state: (made and _removed(material)) or _same(_ramp_state(ramp), state),
+                          "%s ramp" % label, ("ramp", _pointer(material), node.name))
+            _set_ramp(ramp, spec["ramp"])
+            batch.record(index, label, "ramp", [list(stop) for stop in state], [list(stop) for stop in _ramp_state(ramp)])
+    for link in args.get("links", ()):
+        nodes = []
+        for end, sockets in (("from", "outputs"), ("to", "inputs")):
+            node = tree.nodes.get(link[end][0])
+            if node is None:
+                raise PlanError("%s: no node %r to link %s" % (material.name, link[end][0], end))
+            nodes.append(_socket(getattr(node, sockets), link[end][1], "%s:%s" % (material.name, node.name)))
+        output, socket = nodes
+        old = [(l.from_node.name, l.from_socket.identifier) for l in socket.links]
+        made_link = tree.links.new(output, socket)
+        if not made_link.is_valid:
+            raise PlanError("%s: %s.%s cannot feed %s.%s" % (material.name, link["from"][0], link["from"][1], link["to"][0],
+                                                            link["to"][1]))
+
+        def undo(socket=socket, output=output, old=old):
+            if made and _removed(material):
+                return
+            for found in list(socket.links):
+                tree.links.remove(found)
+            for node_name, identifier in old:
+                source = tree.nodes.get(node_name)
+                if source is not None:
+                    tree.links.new(next(s for s in source.outputs if s.identifier == identifier), socket)
+
+        # A node this batch adds is removed with its links: nothing of it is left to prove.
+        batch.add(undo, lambda socket=socket, old=old, to=link["to"][0]: (made and _removed(material)) or tree.nodes.get(to) is None or sorted(
+            (l.from_node.name, l.from_socket.identifier) for l in socket.links) == sorted(old),
+            "link into %s" % link["to"][0], ("link", _pointer(material), link["to"][0], socket.identifier))
+        batch.record(index, material.name, "link %s.%s -> %s.%s" % (link["from"][0], link["from"][1], link["to"][0],
+                                                                    link["to"][1]), old or None, "linked")
+    output = next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL" and n.is_active_output), None)
+    if output is None or not output.inputs["Surface"].is_linked:
+        batch.warnings.append("%s: nothing feeds its Material Output's Surface: it renders black or empty" % material.name)
+    if args.get("ref"):
+        obj = batch.ref(args["ref"])
+        if obj.data is None or not hasattr(obj.data, "materials"):
+            raise PlanError("%r (%s) has no material slots" % (obj.name, obj.type))
+        _assign(obj, material, args.get("slot"), batch, index)
 
 
 def op_scene_settings(args, batch, index):
@@ -1619,6 +1782,7 @@ OPS = {
     "delete": op_delete, "link": op_link, "unlink": op_unlink, "create_collection": op_create_collection,
     "set_parent": op_set_parent, "add_marker": op_add_marker, "set_camera": op_set_camera,
     "add_constraint": op_add_constraint, "duplicate": op_duplicate, "set_material": op_set_material,
+    "material_nodes": op_material_nodes,
     "scene_settings": op_scene_settings, "shift_keys": op_shift_keys,
 }
 
@@ -1730,7 +1894,7 @@ def precheck(checked):
                                     "copy %r.001; choose another name or suffix" % (where, name, name))
                 claimed[name] = index
                 created[name] = (index, alias)
-        if op == "set_material" and obj is not None:
+        if op in ("set_material", "material_nodes") and obj is not None:
             if obj.data is None or not hasattr(obj.data, "materials"):
                 raise PlanError("%s: %r (%s) has no material slots" % (where, obj.name, obj.type))
             # No operation removes a slot: several now means several when it runs.

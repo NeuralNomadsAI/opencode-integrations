@@ -40,9 +40,9 @@ describe("generated host artifacts", () => {
     assert.ok(!entries.some((entry) => /__pycache__|\.pyc$/.test(entry.name)))
   })
 
-  it("the tools need four host methods of the add-on (its hello lists them: blender.test.ts)", () => {
+  it("the tools need five host methods of the add-on (its hello lists them: blender.test.ts)", () => {
     const used = new Set(toolManifests().flatMap((manifest) => manifest.requires?.hostMethods ?? []))
-    assert.deepEqual([...used].sort(), ["apply", "execute_code", "lab_tool", "scene"])
+    assert.deepEqual([...used].sort(), ["apply", "execute_code", "lab_tool", "scene", "tasks"])
   })
 })
 

@@ -42,6 +42,7 @@ export const PERMISSIONS = {
   attach: "blender_attach",
   install: "blender_install_host",
   executeCode: "blender_execute_code",
+  import: "blender_import",
 } as const
 
 // The Lab tools the add-on runs (host method lab_tool, their code bundled in the add-on).
@@ -530,6 +531,89 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       const started = (await program(context, "render", params)) as RenderStart
       const task = addTask(started)
       return json({ ...taskStatus(task), ...(started.saved_first ? { saved_first: true } : {}) })
+    },
+
+    async blender_import(args, context) {
+      // A task from an earlier import: its state, waited for up to wait_s, or cancelled.
+      const follow = async (id: string) => {
+        const until = Date.now() + Math.min(Math.max(Number(args.wait_s ?? 0), 0), RENDER_WAIT_MAX_S) * 1_000
+        let task = (await callHost(context, "tasks", {
+          task_id: id,
+          ...(args.cancel === true ? { cancel: true } : {}),
+        })) as { state?: string }
+        while (task.state === "running" && Date.now() < until && !context.signal.aborted && args.cancel !== true) {
+          const seconds = Math.max(1, Math.min(60, Math.ceil((until - Date.now()) / 1_000)))
+          task = (await callHost(context, "tasks", { task_id: id, wait_seconds: seconds }, (seconds + 30) * 1_000)) as {
+            state?: string
+          }
+        }
+        return task
+      }
+      if (typeof args.task === "string") return json(await follow(args.task))
+      const source = args.source
+      if (source !== "blenderkit" && source !== "sketchfab" && source !== "file")
+        throw new Error("source is required: blenderkit, sketchfab or file (or give task).")
+      const searching = args.action === "search"
+      let op: string
+      let opArgs: Record<string, unknown>
+      let resource: string
+      if (searching) {
+        if (source === "file") throw new Error("search is for blenderkit and sketchfab; a file is imported by path.")
+        if (typeof args.query !== "string" || !args.query.trim()) throw new Error("search needs query.")
+        const page = Number.isInteger(args.page) ? (args.page as number) : 1
+        op = source === "blenderkit" ? "addons.search_blenderkit_assets" : "addons.search_sketchfab_models"
+        opArgs =
+          source === "blenderkit"
+            ? {
+                query: args.query,
+                page,
+                asset_type: args.asset_type ?? "model",
+                ...(args.free_only === true ? { free_only: true } : {}),
+              }
+            : { query: args.query, page, downloadable: true }
+        resource = ""
+      } else if (source === "file") {
+        if (typeof args.path !== "string" || !args.path) throw new Error("import from file needs path.")
+        const remote = /^https:\/\//i.test(args.path)
+        const path = remote ? args.path : resolve(ctx.location?.directory ?? process.cwd(), args.path)
+        op = "assets.import_file"
+        opArgs = { source: path }
+        resource = path
+      } else {
+        if (typeof args.id !== "string" || !args.id) throw new Error(`import from ${source} needs id (from a search).`)
+        if (source === "blenderkit") {
+          op = "addons.import_blenderkit_asset"
+          opArgs = {
+            asset_base_id: args.id,
+            ...(args.asset_type ? { asset_type: args.asset_type } : {}),
+            ...(typeof args.target_object === "string" ? { target_object: args.target_object } : {}),
+            ...(Array.isArray(args.location) ? { model_location: args.location } : {}),
+          }
+        } else {
+          op = "addons.import_sketchfab_model"
+          opArgs = { uid: args.id }
+        }
+        resource = `${source}:${args.id}`
+      }
+      const held = await ticket(context)
+      if (!searching) await assert(context, PERMISSIONS.import, [resource], { source, id: args.id, path: args.path })
+      const result = (await callHost(
+        context,
+        "apply",
+        {
+          command_id: `i-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          if_revision: (await hello(held.bound, context.signal)).revision,
+          operations: [{ op, args: opArgs }],
+        },
+        undefined,
+        held,
+      )) as { status?: string; message?: string; results?: Array<{ result?: Record<string, unknown> }> }
+      if (result.status !== "applied") throw new Error(`blender_import: ${String(result.message ?? result.status)}`)
+      const out = result.results?.[0]?.result ?? {}
+      const task = (out.task as { id?: string; state?: string } | undefined) ?? undefined
+      if (!searching && task?.id && task.state === "running" && Number(args.wait_s ?? 0) > 0)
+        return json({ ...out, task: await follow(task.id) })
+      return json(out)
     },
 
     async blender_save(args, context) {

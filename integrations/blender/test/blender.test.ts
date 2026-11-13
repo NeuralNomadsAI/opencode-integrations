@@ -13,7 +13,7 @@ import { announcement, loadPlugin } from "./helpers/plugin.ts"
 
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 // The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
-const OPS042_TESTS = 9
+const OPS042_TESTS = 10
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -219,6 +219,42 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     }
   })
 
+  it("blender_import brings a model file in through the tool (journal entry 58)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      const file = join(iso.root, "colt.glb")
+      // A model on disk: a barrel exported as glTF, then removed from the scene.
+      const exported = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy",
+            "bpy.ops.mesh.primitive_cylinder_add(radius=0.02, depth=0.2)",
+            "bpy.context.object.name = 'Colt barrel'",
+            `bpy.ops.export_scene.gltf(filepath=${JSON.stringify(file)}, use_selection=True)`,
+            "bpy.data.objects.remove(bpy.data.objects['Colt barrel'])",
+          ].join("\n"),
+        }),
+      )
+      assert.equal(exported.status, "executed", JSON.stringify(exported).slice(0, 1500))
+      assert.ok(existsSync(file))
+      const out = json(await plugin.tool("blender_import", { source: "file", path: file, wait_s: 120 }))
+      const task = out.task ?? out
+      assert.equal(task.state, "done", JSON.stringify(out).slice(0, 1500))
+      assert.ok(JSON.stringify(task.created).includes("Colt barrel"), JSON.stringify(task.created))
+      const scene = json(await plugin.tool("blender_context", { match: "Colt*" }))
+      assert.deepEqual(
+        scene.objects.map((object: { name: string }) => object.name),
+        ["Colt barrel"],
+      )
+      assert.deepEqual(
+        plugin.permissions.map((request) => request.action),
+        ["blender_execute_code", "blender_import"],
+      )
+    } finally {
+      await stop()
+    }
+  })
+
   it("the plugin's tools act on the attached Blender document", async () => {
     const iso = isolatedRoot("blender-tools-")
     const stopFile = join(iso.root, "stop")
@@ -245,7 +281,7 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       const hello = (await requestHost({ host: "127.0.0.1", port, token }, "hello", {})) as {
         capabilities: { methods: string[] }
       }
-      for (const method of ["scene", "apply", "execute_code", "lab_tool"])
+      for (const method of ["scene", "apply", "execute_code", "lab_tool", "tasks"])
         assert.ok(hello.capabilities.methods.includes(method), `hello lists ${method}`)
       assert.deepEqual(await plugin.rpc("advertise", announcement({ port, token }, script_handle)), {
         outcome: "accepted",

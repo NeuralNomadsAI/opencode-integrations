@@ -20,6 +20,10 @@ PATHS = ("location", "rotation", "scale")
 # Whose animation an RNA path is keyed on: the object, its data (a camera's lens) or its data's shape keys.
 OWNERS = ("object", "data", "shape_keys")
 VALUE_ITEMS = 32
+# A node graph: Blender's node types by their identifier (ShaderNodeTexNoise), and its bounds per operation.
+NODE_TYPE = re.compile(r"^(ShaderNode[A-Za-z0-9]+|NodeFrame|NodeReroute)$")
+MAX_NODES, MAX_LINKS, MAX_RAMP = 100, 200, 32
+NODE_KEYS = ("name", "type", "location", "label", "inputs", "props", "ramp")
 # Blender 5.3 TextCurve.align_x / align_y items (rna_curve.cc).
 ALIGN_X = ("LEFT", "CENTER", "RIGHT", "JUSTIFY", "FLUSH")
 ALIGN_Y = ("TOP", "TOP_BASELINE", "CENTER", "BOTTOM_BASELINE", "BOTTOM")
@@ -108,6 +112,14 @@ SPEC = {
                      "name; color (linear RGB, also the viewport colour), roughness and metallic set its Principled "
                      "BSDF, also on an existing material. Without slot: its only slot (added when it has none); slot "
                      "equal to the number of slots adds one."),
+    "material_nodes": ({"material": F("name", True), "nodes": F("nodes"), "links": F("links"), "ref": F("ref"),
+                        "slot": F("index")},
+                       "Build or edit a material's shader graph: nodes adds a node per entry ({name, type, location, label, "
+                       "inputs: {socket: value}, props: {attribute: value}, ramp: [[position, [r, g, b, a]], ...]}) or "
+                       "updates the node of that name (Principled BSDF and Material Output in a new material); links "
+                       "connects {from: [node, output], to: [node, input]}, replacing what fed that input. Procedural "
+                       "textures (ShaderNodeTexNoise, TexVoronoi, TexWave...), mixes, color ramps and bumps included. A "
+                       "material of that name is made when there is none; ref assigns it like set_material."),
     "scene_settings": ({"frame_start": F("whole_frame"), "frame_end": F("whole_frame"), "frame_current": F("whole_frame"),
                         "fps": F("positive")},
                        "The scene's frame range, current frame (animation evaluated there) and frames per second "
@@ -156,6 +168,7 @@ RULES = {
                     "path, without bone", "frames is [first, last] with first at most last"),
     "add_constraint": ("influence from 0 to 1",),
     "switch_parent": ("bone needs parent", "parent is not the object or one of its children"),
+    "material_nodes": ("give nodes, links or ref", "a new node needs type", "slot goes with ref"),
     "reach": ("each bone of chain is the parent of the next", "target is point or object (with bone), rotation "
               "optional", "key needs frame"),
     "delete": ("give refs or collections", "a collection is deleted empty: its objects and child collections are "
@@ -216,6 +229,20 @@ def _record(value, path, keys):
     if unknown:
         _fail(path, "unknown field %s" % unknown[0])
     return value
+
+
+def _node_value(value, path):
+    """A socket or node attribute value: a number, true/false, a text (an enum item, a datablock name) or 2 to 4
+    numbers (a vector or a color)."""
+    if isinstance(value, (bool, str)):
+        if isinstance(value, str) and (not value or "\x00" in value or len(value) > 1024):
+            _fail(path, "expected a text of 1 to 1024 characters")
+        return value
+    if isinstance(value, list):
+        if not 2 <= len(value) <= 4:
+            _fail(path, "expected 2 to 4 numbers")
+        return [_number(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+    return _number(value, path)
 
 
 def _value(kind, value, path):
@@ -311,6 +338,64 @@ def _value(kind, value, path):
         out = {"object": _ref(target["object"], path + ".object")}
         if "bone" in target:
             out["bone"] = _name(target["bone"], path + ".bone")
+        return out
+    if kind == "nodes":
+        if not isinstance(value, list) or not 1 <= len(value) <= MAX_NODES:
+            _fail(path, "expected 1 to %d nodes" % MAX_NODES)
+        names = set()
+        out = []
+        for index, raw in enumerate(value):
+            at = "%s[%d]" % (path, index)
+            node = _record(raw, at, NODE_KEYS)
+            entry = {"name": _name(node.get("name"), at + ".name")}
+            if entry["name"] in names:
+                _fail(at + ".name", "a node is listed twice")
+            names.add(entry["name"])
+            if "type" in node:
+                if not isinstance(node["type"], str) or not NODE_TYPE.match(node["type"]):
+                    _fail(at + ".type", "expected a shader node type such as ShaderNodeTexNoise")
+                entry["type"] = node["type"]
+            if "location" in node:
+                entry["location"] = _vector(node["location"], at + ".location", 2)
+            if "label" in node:
+                entry["label"] = _value("text", node["label"], at + ".label")
+            for key in ("inputs", "props"):
+                if key in node:
+                    given = node[key]
+                    if not isinstance(given, dict) or not given:
+                        _fail("%s.%s" % (at, key), "expected {name: value}")
+                    entry[key] = {_name(k, "%s.%s" % (at, key)): _node_value(v, "%s.%s.%s" % (at, key, k)) for k, v in given.items()}
+            if "ramp" in node:
+                ramp = node["ramp"]
+                if not isinstance(ramp, list) or not 1 <= len(ramp) <= MAX_RAMP:
+                    _fail(at + ".ramp", "expected 1 to %d [position, [r, g, b, a]] stops" % MAX_RAMP)
+                stops = []
+                for number, stop in enumerate(ramp):
+                    where = "%s.ramp[%d]" % (at, number)
+                    if not isinstance(stop, list) or len(stop) != 2:
+                        _fail(where, "expected [position, [r, g, b, a]]")
+                    position = _number(stop[0], where + "[0]")
+                    color = stop[1] if isinstance(stop[1], list) else None
+                    if color is None or len(color) not in (3, 4) or not 0 <= position <= 1:
+                        _fail(where, "expected a position from 0 to 1 and 3 or 4 color components")
+                    stops.append([position, [_number(c, where + "[1]") for c in color] + ([1.0] if len(color) == 3 else [])])
+                entry["ramp"] = stops
+            out.append(entry)
+        return out
+    if kind == "links":
+        if not isinstance(value, list) or not 1 <= len(value) <= MAX_LINKS:
+            _fail(path, "expected 1 to %d links" % MAX_LINKS)
+        out = []
+        for index, raw in enumerate(value):
+            at = "%s[%d]" % (path, index)
+            link = _record(raw, at, ("from", "to"))
+            entry = {}
+            for end in ("from", "to"):
+                pair = link.get(end)
+                if not isinstance(pair, list) or len(pair) != 2:
+                    _fail("%s.%s" % (at, end), "expected [node name, socket name]")
+                entry[end] = [_name(pair[0], "%s.%s[0]" % (at, end)), _name(pair[1], "%s.%s[1]" % (at, end))]
+            out.append(entry)
         return out
     if kind == "bones":
         if not isinstance(value, list) or not 2 <= len(value) <= 3:
@@ -425,6 +510,11 @@ def validate(operations):
                     _fail("%s.args.%s" % (path, key), "goes with path")
             if args["owner"] != "object" and ("path" not in args or "bone" in args):
                 _fail(path + ".args.owner", "%s goes with path, without bone" % args["owner"])
+        if op == "material_nodes":
+            if not any(key in args for key in ("nodes", "links", "ref")):
+                _fail(path + ".args", "nothing to do: give nodes, links or ref")
+            if "slot" in args and "ref" not in args:
+                _fail(path + ".args.slot", "goes with ref")
         if op == "reach" and args.get("key") and "frame" not in args:
             _fail(path + ".args.key", "needs frame")
         if op == "add_constraint" and args.get("influence", 0) > 1:
@@ -496,6 +586,16 @@ def kinds():
                    "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name, "direction": vec3}},
         "refs": {"type": "array", "items": {"$ref": "#/kinds/ref"}, "minItems": 1, "uniqueItems": True},
         "names": {"type": "array", "items": name, "minItems": 1, "uniqueItems": True},
+        "nodes": {"type": "array", "minItems": 1, "maxItems": MAX_NODES, "items": {
+            "type": "object", "required": ["name"], "additionalProperties": False, "properties": {
+                "name": name, "type": {"type": "string", "pattern": NODE_TYPE.pattern},
+                "location": {"type": "array", "items": number, "minItems": 2, "maxItems": 2}, "label": {"type": "string"},
+                "inputs": {"type": "object"}, "props": {"type": "object"},
+                "ramp": {"type": "array", "maxItems": MAX_RAMP, "items": {"type": "array", "minItems": 2, "maxItems": 2}}}}},
+        "links": {"type": "array", "minItems": 1, "maxItems": MAX_LINKS, "items": {
+            "type": "object", "required": ["from", "to"], "additionalProperties": False, "properties": {
+                "from": {"type": "array", "items": name, "minItems": 2, "maxItems": 2},
+                "to": {"type": "array", "items": name, "minItems": 2, "maxItems": 2}}}},
         "bones": {"type": "array", "items": name, "minItems": 2, "maxItems": 3, "uniqueItems": True,
                   "description": "[upper, lower] or [upper, lower, end], each the parent of the next"},
         "goal": {"type": "object", "additionalProperties": False,
