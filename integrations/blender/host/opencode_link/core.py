@@ -800,6 +800,9 @@ class HostCore(object):
         evaluations = self.app.evaluations()
         # What Blender changes without a depsgraph update (scene settings, keys) is seen by a fingerprint.
         digest = self.app.change_digest() if hasattr(self.app, "change_digest") else None
+        # A read-only run (verify, inspect, a probe) evaluates other frames, renders, makes temporary datablocks:
+        # depsgraph updates all, which say nothing. It changed the document only when its content differs after.
+        content = self.app.content_digest() if not barrier and hasattr(self.app, "content_digest") else None
         saves = self.app.saves() if hasattr(self.app, "saves") else 0
         value = error = trace = restored = step = None
         with self.app.quiet():
@@ -816,7 +819,10 @@ class HostCore(object):
                     self.app.flush()
                 except Exception:  # noqa: BLE001 - the document is restored below
                     pass
-            changed = self.app.evaluations() > evaluations or (digest is not None and self.app.change_digest() != digest)
+            if content is not None:
+                changed = self.app.content_digest() != content
+            else:
+                changed = self.app.evaluations() > evaluations or (digest is not None and self.app.change_digest() != digest)
             saved = (self.app.saves() if hasattr(self.app, "saves") else 0) > saves
             if changed and barrier and error is None and not saved:
                 step = "OpenCode: %s" % label

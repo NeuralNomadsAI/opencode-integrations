@@ -118,9 +118,10 @@ def context(query):
     transforms (rotation in its own mode); `ref` reads one object in detail (bounds, pose bones)."""
     if not isinstance(query, dict):
         raise PlanError("scene: expected an object")
-    unknown = sorted(set(query) - {"ref", "match", "types", "include", "bone_match", "limit", "offset"})
+    unknown = sorted(set(query) - {"ref", "match", "types", "include", "bone_match", "limit", "offset", "region"})
     if unknown:
         raise PlanError("scene: unknown field %s" % unknown[0])
+    region = _region(query.get("region"))
     scene = bpy.context.scene
     layer = bpy.context.view_layer
     page_max = limits.value("page")
@@ -131,9 +132,13 @@ def context(query):
     if type(offset) is not int or offset < 0:
         raise PlanError("offset: expected an integer of 0 or more")
     include = set(query.get("include") or ())
-    if not include <= {"bounds", "bones"}:
-        raise PlanError("include: expected bounds and/or bones")
+    if not include <= {"bounds", "bones", "parts"}:
+        raise PlanError("include: expected bounds, bones and/or parts")
     detail = query.get("ref")
+    if ("parts" in include or region is not None) and detail is None:
+        raise PlanError("parts and region read one mesh: give ref")
+    if region is not None and "parts" not in include:
+        raise PlanError("region narrows parts: include parts")
     items_max = limits.value("context_items")
     if detail is not None:
         objects = [_obj(detail)]
@@ -166,6 +171,8 @@ def context(query):
             item["bounds"] = world_bounds(_hierarchy(obj))
         if obj.type == "ARMATURE" and ("bones" in include or detail is not None):
             item.update(_bones(obj, query.get("bone_match")))
+        if "parts" in include:
+            item.update(_parts(obj, region))
         items.append(item)
     out = {
         "scene": {"name": scene.name, "frames": [scene.frame_start, scene.frame_end, scene.frame_current],
@@ -195,6 +202,105 @@ def context(query):
         for key, found in (("collections_total", len(groups)), ("markers_total", len(markers))):
             if found > items_max:
                 out[key] = found
+    return out
+
+
+def _region(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"min", "max"}:
+        raise PlanError("region: expected {min: [x, y, z], max: [x, y, z]} in world space")
+    low, high = [[float(item) for item in value[key]] for key in ("min", "max")]
+    if len(low) != 3 or len(high) != 3 or any(a > b for a, b in zip(low, high)):
+        raise PlanError("region: min and max are 3 numbers each, min at most max")
+    return low, high
+
+
+def _parts(obj, region):
+    """The loose parts (islands) of a mesh as evaluated now (deformed by its armature and modifiers): for each,
+    its vertex count, world bounds and centre, its main material and its dominant vertex group, largest first;
+    region keeps the parts whose bounds meet that world box. A baked prop inside a body is found by its box."""
+    import numpy
+
+    if obj.type != "MESH":
+        raise PlanError("%r is a %s: parts read a mesh" % (obj.name, obj.type))
+    graph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj.evaluated_get(graph)
+    mesh = evaluated.to_mesh()
+    try:
+        count = len(mesh.vertices)
+        co = numpy.empty(count * 3, dtype=numpy.float64)
+        mesh.vertices.foreach_get("co", co)
+        co = co.reshape(count, 3)
+        matrix = numpy.array(evaluated.matrix_world)
+        world = co @ matrix[:3, :3].T + matrix[:3, 3]
+        edges = numpy.empty(len(mesh.edges) * 2, dtype=numpy.int64)
+        mesh.edges.foreach_get("vertices", edges)
+        parent = numpy.arange(count)
+
+        def root(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for a, b in edges.reshape(-1, 2).tolist():
+            ra, rb = root(a), root(b)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+        labels = numpy.array([root(i) for i in range(count)])
+        materials = numpy.zeros(len(mesh.polygons), dtype=numpy.int64)
+        mesh.polygons.foreach_get("material_index", materials)
+        loops = numpy.empty(len(mesh.polygons), dtype=numpy.int64)
+        mesh.polygons.foreach_get("loop_start", loops)
+        corner = numpy.empty(len(mesh.loops), dtype=numpy.int64)
+        mesh.loops.foreach_get("vertex_index", corner)
+        polygon_part = labels[corner[loops]] if len(loops) else numpy.empty(0, dtype=numpy.int64)
+        same = len(obj.data.vertices) == count
+        groups = {group.index: group.name for group in obj.vertex_groups}
+        weights = {}
+        if same and groups:
+            for vertex in obj.data.vertices:
+                if vertex.groups:
+                    best = max(vertex.groups, key=lambda entry: entry.weight)
+                    weights[vertex.index] = best.group
+        slot_votes = {}
+        for label, slot in zip(polygon_part.tolist(), materials.tolist()):
+            votes = slot_votes.setdefault(label, {})
+            votes[slot] = votes.get(slot, 0) + 1
+        order = numpy.argsort(labels, kind="stable")
+        ordered = labels[order]
+        starts = numpy.flatnonzero(numpy.r_[True, ordered[1:] != ordered[:-1]]) if count else numpy.empty(0, dtype=int)
+        ends = numpy.r_[starts[1:], count]
+        low_box, high_box = (numpy.array(region[0]), numpy.array(region[1])) if region is not None else (None, None)
+        parts = []
+        for start, end in zip(starts.tolist(), ends.tolist()):
+            members = order[start:end]
+            label = int(ordered[start])
+            points = world[members]
+            low, high = points.min(axis=0), points.max(axis=0)
+            if region is not None and (numpy.any(low > high_box) or numpy.any(high < low_box)):
+                continue
+            part = {"vertices": int(len(members)), "min": _r(low.tolist()), "max": _r(high.tolist()),
+                    "center": _r(points.mean(axis=0).tolist())}
+            votes = slot_votes.get(label)
+            if votes:
+                slot = max(votes, key=votes.get)
+                if slot < len(obj.material_slots) and obj.material_slots[slot].material is not None:
+                    part["material"] = obj.material_slots[slot].material.name
+            if weights:
+                tally = {}
+                for i in members.tolist():
+                    if i in weights:
+                        tally[weights[i]] = tally.get(weights[i], 0) + 1
+                if tally:
+                    part["vertex_group"] = groups.get(max(tally, key=tally.get))
+            parts.append(part)
+    finally:
+        evaluated.to_mesh_clear()
+    parts.sort(key=lambda part: -part["vertices"])
+    shown = parts[:limits.value("context_items")]
+    out = {"parts": shown, "parts_total": len(parts)}
     return out
 
 
@@ -231,6 +337,7 @@ class Batch(object):
         self.journal = []  # (inverse, proof, label, key): run in reverse order on failure, then each proof re-read
         self._keys = set()
         self.deletes = []
+        self.collection_deletes = []
         self.deleted = 0  # deletions cannot be inverted: a failure after one is never restored
         self.made = set()  # pointers of the datablocks this batch created: undoing it removes them
 
@@ -627,7 +734,9 @@ def op_create_object(args, batch, index):
         elif primitive == "uv_sphere":
             bmesh.ops.create_uvsphere(mesh, u_segments=32, v_segments=16, radius=size / 2)
         else:
-            bmesh.ops.create_cone(mesh, cap_ends=True, segments=32, radius1=size / 2, radius2=size / 2, depth=size)
+            top = size / 2 if primitive == "cylinder" else 0.0
+            bmesh.ops.create_cone(mesh, cap_ends=True, segments=32, radius1=size / 2, radius2=top,
+                                  depth=args.get("depth", size))
         mesh.to_mesh(data)
         mesh.free()
     elif kind == "text":
@@ -682,8 +791,27 @@ def op_rename(args, batch, index):
 
 def op_delete(args, batch, index):
     """Frees each object's name at once (and its data's when only it uses the data), so a later operation of the
-    batch may give it to a new object; the object itself is removed once the whole batch succeeded."""
-    for name in args["refs"]:
+    batch may give it to a new object; the object itself is removed once the whole batch succeeded. A collection
+    is deleted empty (its objects deleted by this batch count as gone), its name freed the same way."""
+    _delete_objects(args.get("refs", ()), batch, index)
+    for name in args.get("collections", ()):
+        group = _collection(name)
+        if group == bpy.context.scene.collection:
+            raise PlanError("the scene's own collection cannot be deleted")
+        going = {id(obj) for _index, obj, _original, _data in batch.deletes}
+        staying = [obj.name for obj in group.objects if id(obj) not in going]
+        if staying or group.children:
+            raise PlanError("collection %r holds %s: delete its objects in this batch (refs) or move them first" % (
+                name, ", ".join(staying[:5] + [child.name + "/" for child in group.children][:5])))
+        original = group.name
+        group.name = "ocl-deleted-%x" % group.as_pointer()
+        batch.add(lambda group=group, original=original: setattr(group, "name", original),
+                  lambda group=group, original=original: group.name == original, "deleted collection %s" % original)
+        batch.collection_deletes.append((index, group, original))
+
+
+def _delete_objects(refs, batch, index):
+    for name in refs:
         obj = batch.ref(name)
         original = obj.name
         data = obj.data if obj.data is not None and obj.data.users == 1 and obj.data.library is None else None
@@ -1149,6 +1277,8 @@ def precheck(checked):
                 raise PlanError("%s: %s" % (where, error)) from None
         for name in args.get("refs", ()):
             need(name)
+        for name in args.get("collections", ()):
+            need(name, True)
         if args.get("collection"):
             need(args["collection"], True)
         if op == "add_constraint" and args.get("subtarget") and holder is not None:
@@ -1160,7 +1290,7 @@ def precheck(checked):
         if op == "create_object":
             created[args["name"]] = (index, args.get("as"))
         if op == "delete":
-            for name in args["refs"]:
+            for name in args.get("refs", ()):
                 deleted[name] = index
         if op == "duplicate":
             names = [(args["name"], args.get("as"))] if "name" in args else []
@@ -1243,6 +1373,10 @@ def run(checked):
             batch.deleted += 1
             if data is not None and data.users == 0:
                 bpy.data.batch_remove([data])
+        for index, group, original in batch.collection_deletes:
+            batch.changes.append({"op": index, "ref": original, "field": "deleted collection"})
+            bpy.data.collections.remove(group)
+            batch.deleted += 1
         bpy.context.view_layer.update()
     except PlanError as error:
         where = checked[min(index, len(checked) - 1)][0]

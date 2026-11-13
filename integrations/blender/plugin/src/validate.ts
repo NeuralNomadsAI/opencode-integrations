@@ -34,6 +34,7 @@ type Kind =
   | "rotation"
   | "target"
   | "refs"
+  | "names"
   | "paths"
   | { enum: readonly string[] }
 
@@ -68,8 +69,9 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     kind: F({ enum: ["empty", "camera", "light", "mesh", "text"] }, true),
     name: F("name", true),
     as: F("alias"),
-    primitive: F({ enum: ["cube", "plane", "uv_sphere", "cylinder"] }),
+    primitive: F({ enum: ["cube", "plane", "uv_sphere", "cylinder", "cone"] }),
     size: F("positive"),
+    depth: F("positive"),
     light_type: F({ enum: ["POINT", "SUN", "SPOT", "AREA"] }),
     energy: F("number"),
     lens: F("number"),
@@ -83,7 +85,7 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     parent: F("ref"),
   },
   rename: { ref: F("ref", true), name: F("name", true) },
-  delete: { refs: F("refs", true) },
+  delete: { refs: F("refs"), collections: F("names") },
   duplicate: {
     ref: F("ref", true),
     as: F("alias"),
@@ -133,6 +135,7 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
 const KIND_FIELDS: Record<string, string[]> = {
   primitive: ["mesh"],
   size: ["mesh", "text"],
+  depth: ["mesh"],
   light_type: ["light"],
   energy: ["light"],
   lens: ["camera"],
@@ -245,6 +248,12 @@ function value(kind: Kind, v: unknown, path: string): unknown {
       if (new Set(list).size !== list.length) fail(path, "duplicate ref")
       return list
     }
+    case "names": {
+      if (!Array.isArray(v) || v.length < 1) fail(path, "expected at least one name")
+      const list = (v as unknown[]).map((x, i) => str(x, `${path}[${i}]`))
+      if (new Set(list).size !== list.length) fail(path, "duplicate name")
+      return list
+    }
     case "paths": {
       if (!Array.isArray(v) || v.length < 1) fail(path, "expected location, rotation and/or scale")
       for (const p of v as unknown[])
@@ -269,6 +278,8 @@ function rules(op: string, o: Json, path: string) {
       if (o[field] !== undefined && !kinds.includes(o.kind as string))
         fail(`${path}.${field}`, `applies to ${kinds.join(" or ")} only`)
     if (o.kind === "text" && o.body === undefined) fail(path, "a text needs body")
+    if (o.depth !== undefined && o.primitive !== "cylinder" && o.primitive !== "cone")
+      fail(`${path}.depth`, "applies to a cylinder or cone")
   }
   if (op === "scene_settings") {
     if (!has("frame_start", "frame_end", "frame_current", "fps")) fail(path, "give at least one field")
@@ -281,6 +292,7 @@ function rules(op: string, o: Json, path: string) {
       fail(path, "give offset (not 0) or delete true, not both")
   }
   if (op === "set_parent" && o.bone !== undefined && o.parent === undefined) fail(path, "bone needs parent")
+  if (op === "delete" && !has("refs", "collections")) fail(path, "give refs or collections")
 }
 
 export function validatePlan(input: Json) {

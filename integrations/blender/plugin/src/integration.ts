@@ -66,6 +66,8 @@ export const LAB_TOOLS = [
 
 const MAX_TEXT = 100_000
 const VERIFY_TIMEOUT_MS = 600_000
+// Longest wait of one blender_render call that follows a task.
+export const RENDER_WAIT_MAX_S = 3_600
 
 const HINTS: Record<string, string> = {
   stale_handle:
@@ -482,7 +484,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         const task = getTask(String(id))
         if (!task) throw new Error(`No render task ${String(id)} in this OpenCode.`)
         if (cancel === true) return json(cancelTask(task))
-        const until = Date.now() + Math.min(Number(wait_s ?? 0), 120) * 1_000
+        // A whole render can be waited for in one call (the tool call itself has no time limit).
+        const until = Date.now() + Math.min(Math.max(Number(wait_s ?? 0), 0), RENDER_WAIT_MAX_S) * 1_000
         let status = taskStatus(task)
         while (
           (status.state === "rendering" || status.state === "encoding") &&

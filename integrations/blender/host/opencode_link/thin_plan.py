@@ -57,19 +57,21 @@ SPEC = {
                     "interpolation": F({"enum": ("CONSTANT", "LINEAR", "BEZIER")})},
                    "Key the current location, rotation and/or scale of an object or pose bone at a frame."),
     "create_object": ({"kind": F({"enum": ("empty", "camera", "light", "mesh", "text")}, True), "name": F("name", True),
-                       "as": F("alias"), "primitive": F({"enum": ("cube", "plane", "uv_sphere", "cylinder")}),
-                       "size": F("positive"), "light_type": F({"enum": ("POINT", "SUN", "SPOT", "AREA")}),
+                       "as": F("alias"), "primitive": F({"enum": ("cube", "plane", "uv_sphere", "cylinder", "cone")}),
+                       "size": F("positive"), "depth": F("positive"), "light_type": F({"enum": ("POINT", "SUN", "SPOT", "AREA")}),
                        "energy": F("number"), "lens": F("number"), "body": F("text"), "extrude": F("nonnegative"),
                        "align_x": F({"enum": ALIGN_X}), "align_y": F({"enum": ALIGN_Y}),
                        "location": F("vec3"), "rotation": ROTATION, "collection": F("name"), "parent": F("ref")},
                       "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. "
                       "Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's "
-                      "diameter and height. Text: body, size (font size in metres, default 1), extrude (depth), "
+                      "diameter and height, a cone's base diameter and height; depth sets a cylinder's or cone's height "
+                      "apart (a barrel 0.6 wide and 0.9 high: size 0.6, depth 0.9). Text: body, size (font size in metres, default 1), extrude (depth), "
                       "align_x, align_y."),
     "rename": ({"ref": F("ref", True), "name": F("name", True)}, "Rename an object."),
-    "delete": ({"refs": F("refs", True)},
-               "Delete objects: their names are free for the batch's later operations at once (and their data's when "
-               "only they used it); they leave the document when the batch succeeds."),
+    "delete": ({"refs": F("refs"), "collections": F("names")},
+               "Delete objects (refs) and empty collections (collections): their names are free for the batch's later "
+               "operations at once (and an object's data's when only it used it); they leave the document when the "
+               "batch succeeds."),
     "duplicate": ({"ref": F("ref", True), "as": F("alias"), "name": F("name"), "suffix": F("name"),
                    "offset": F("vec3"), "linked": F("bool", default=False), "children": F("bool", default=True)},
                   "Copy an object with its whole hierarchy (children false: alone) into the same collections, moved "
@@ -113,10 +115,13 @@ RULES = {
     "set_transform": ("give location, rotation or scale",),
     "pose_bone": ("give location, rotation or scale",),
     "fit_height": ("give height or ground true", "height above 0"),
-    "create_object": ("primitive and size apply to a mesh; light_type and energy to a light; lens to a camera; "
+    "create_object": ("primitive and size apply to a mesh; depth to a cylinder or cone; light_type and energy to a "
+                      "light; lens to a camera; "
                       "body, size, extrude, align_x and align_y to a text",
                       "a text needs body"),
     "set_parent": ("bone needs parent",),
+    "delete": ("give refs or collections", "a collection is deleted empty: its objects and child collections are "
+               "deleted by the same batch or moved first"),
     "duplicate": ("name, suffix and as apply to the copy of ref (suffix to every copy)",),
     "set_material": ("color, roughness and metallic are optional: without them an existing material is only assigned",),
     "scene_settings": ("give at least one field", "frame_start at most frame_end when both are given; one alone may not "
@@ -269,6 +274,13 @@ def _value(kind, value, path):
         if "bone" in target:
             out["bone"] = _name(target["bone"], path + ".bone")
         return out
+    if kind == "names":
+        if not isinstance(value, list) or not value:
+            _fail(path, "expected a list of names")
+        names = [_name(item, "%s[%d]" % (path, index)) for index, item in enumerate(value)]
+        if len(set(names)) != len(names):
+            _fail(path, "a name is listed twice")
+        return names
     if kind == "refs":
         if not isinstance(value, list) or not value:
             _fail(path, "expected a list of object names")
@@ -327,12 +339,16 @@ def validate(operations):
             _fail(path + ".args.height", "expected a height above 0")
         if op == "create_object":
             extra = {"empty": (), "camera": ("lens",), "light": ("light_type", "energy"),
-                     "mesh": ("primitive", "size"), "text": ("body", "size", "extrude", "align_x", "align_y")}[args["kind"]]
-            for key in ("primitive", "size", "light_type", "energy", "lens", "body", "extrude", "align_x", "align_y"):
+                     "mesh": ("primitive", "size", "depth"), "text": ("body", "size", "extrude", "align_x", "align_y")}[args["kind"]]
+            for key in ("primitive", "size", "depth", "light_type", "energy", "lens", "body", "extrude", "align_x", "align_y"):
                 if key in args and key not in extra:
                     _fail("%s.args.%s" % (path, key), "does not apply to a %s" % args["kind"])
+            if "depth" in args and args.get("primitive") not in ("cylinder", "cone"):
+                _fail(path + ".args.depth", "applies to a cylinder or cone")
             if args["kind"] == "text" and "body" not in args:
                 _fail(path + ".args", "missing body (a text's characters)")
+        if op == "delete" and "refs" not in args and "collections" not in args:
+            _fail(path + ".args", "nothing to delete: give refs or collections")
         if op == "set_parent" and "bone" in args and "parent" not in args:
             _fail(path + ".args.bone", "belongs to parent")
         if op == "scene_settings":
@@ -395,5 +411,6 @@ def kinds():
                    "description": "exactly one of point, object, direction; bone only with object; direction not 0",
                    "properties": {"point": vec3, "object": {"$ref": "#/kinds/ref"}, "bone": name, "direction": vec3}},
         "refs": {"type": "array", "items": {"$ref": "#/kinds/ref"}, "minItems": 1, "uniqueItems": True},
+        "names": {"type": "array", "items": name, "minItems": 1, "uniqueItems": True},
         "paths": {"type": "array", "items": {"enum": list(PATHS)}, "minItems": 1},
     }

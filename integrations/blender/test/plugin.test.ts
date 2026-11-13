@@ -569,6 +569,47 @@ describe("tools", () => {
     assert.deepEqual(loaded.permissions, [])
   })
 
+  it("blender_render waits for a long render in one call, beyond 2 minutes (journal entry 62)", async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "blender-render-"))
+    const slow = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" })
+    cleanups.push(() => void slow.kill())
+    const { loaded } = await attached({
+      execute_code: () => ({
+        status: "executed",
+        result: {
+          pid: slow.pid,
+          log: join(dir, "long.log"),
+          frames: [join(dir, "film.mp4")],
+          work: dir,
+          kind: "video",
+          output: join(dir, "film.mp4"),
+          targets: [join(dir, "film.mp4")],
+          start: 1,
+          end: 720,
+          scene: "Scene",
+          source: "auto",
+        },
+      }),
+    })
+    const started = content(await loaded.tool("blender_render", { output: "film.mp4" }))
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_000_000 })
+    let ended: number | undefined
+    const waiting = loaded.tool("blender_render", { task: started.task, wait_s: 600 }).then((result) => {
+      ended = Date.now()
+      return content(result)
+    })
+    // Simulated time: half-second polls until the call returns.
+    for (let step = 0; step < 2_000 && ended === undefined; step += 1) {
+      t.mock.timers.tick(500)
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    const status = await waiting
+    assert.equal(status.state, "rendering")
+    assert.ok(ended !== undefined && ended - 1_000_000 >= 600_000, `waited ${((ended ?? 0) - 1_000_000) / 1000} s`)
+    t.mock.timers.reset()
+    content(await loaded.tool("blender_render", { task: started.task, cancel: true }))
+  })
+
   it("an add-on without the 0.4 methods is told to update", async () => {
     const { loaded } = await attached()
     const old = await fakeHost({

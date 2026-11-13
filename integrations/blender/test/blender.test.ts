@@ -12,6 +12,8 @@ import { blenderBin, installAddon, installTestAddon, isolatedRoot, runBlender } 
 import { announcement, loadPlugin } from "./helpers/plugin.ts"
 
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
+// The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
+const OPS042_TESTS = 4
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -64,6 +66,10 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     const ops = join(import.meta.dirname, "..", "host", "ops.json")
     assert.equal((await hostScript("ops040_tests.py", (scratch) => [scratch, ops])).passed.length, 9)
     assert.equal((await hostScript("defects_tests.py", (scratch) => [scratch])).passed.length, 6)
+  })
+
+  it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
+    assert.equal((await hostScript("ops042_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS042_TESTS)
   })
 
   it("the plugin's tools act on the attached Blender document", async () => {

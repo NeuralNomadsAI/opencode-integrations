@@ -211,6 +211,17 @@
       "minItems": 1,
       "uniqueItems": true
     },
+    "names": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "x-maxUtf8Bytes": 255,
+        "x-noNul": true
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -368,7 +379,7 @@
       }
     },
     "create_object": {
-      "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height. Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
+      "description": "A new empty, camera, light, mesh primitive or text; as names it $alias for later operations. Mesh size (default 1 m): a cube's edge, a plane's side, a uv_sphere's diameter, a cylinder's diameter and height, a cone's base diameter and height; depth sets a cylinder's or cone's height apart (a barrel 0.6 wide and 0.9 high: size 0.6, depth 0.9). Text: body, size (font size in metres, default 1), extrude (depth), align_x, align_y.",
       "args": {
         "kind": {
           "enum": [
@@ -392,10 +403,14 @@
             "cube",
             "plane",
             "uv_sphere",
-            "cylinder"
+            "cylinder",
+            "cone"
           ]
         },
         "size": {
+          "kind": "positive"
+        },
+        "depth": {
           "kind": "positive"
         },
         "light_type": {
@@ -450,7 +465,7 @@
         }
       },
       "rules": [
-        "primitive and size apply to a mesh; light_type and energy to a light; lens to a camera; body, size, extrude, align_x and align_y to a text",
+        "primitive and size apply to a mesh; depth to a cylinder or cone; light_type and energy to a light; lens to a camera; body, size, extrude, align_x and align_y to a text",
         "a text needs body"
       ]
     },
@@ -468,13 +483,19 @@
       }
     },
     "delete": {
-      "description": "Delete objects: their names are free for the batch's later operations at once (and their data's when only they used it); they leave the document when the batch succeeds.",
+      "description": "Delete objects (refs) and empty collections (collections): their names are free for the batch's later operations at once (and an object's data's when only it used it); they leave the document when the batch succeeds.",
       "args": {
         "refs": {
-          "kind": "refs",
-          "required": true
+          "kind": "refs"
+        },
+        "collections": {
+          "kind": "names"
         }
-      }
+      },
+      "rules": [
+        "give refs or collections",
+        "a collection is deleted empty: its objects and child collections are deleted by the same batch or moved first"
+      ]
     },
     "duplicate": {
       "description": "Copy an object with its whole hierarchy (children false: alone) into the same collections, moved by offset in world space. linked shares the data (Blender's Alt+D), otherwise each copy gets its own (Shift+D); materials and actions stay shared. name names the copy of ref, suffix is added to every copy's original name (Blender's .001 otherwise); as names the copy of ref $alias.",
