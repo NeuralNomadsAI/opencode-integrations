@@ -288,7 +288,7 @@
       ]
     },
     "fit_height": {
-      "description": "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put the lowest point at ground_z, measured on the evaluated geometry; without height nothing is scaled.",
+      "description": "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put the lowest point at ground_z, measured on the evaluated geometry (armature pose and modifiers included) at frame (default: the current frame, which stays current); key keys the location (and scale) there, so a falling body touches the ground at each of its key frames. Without height nothing is scaled.",
       "args": {
         "ref": {
           "kind": "ref",
@@ -315,6 +315,13 @@
             "uniform"
           ],
           "default": "z"
+        },
+        "frame": {
+          "kind": "whole_frame"
+        },
+        "key": {
+          "kind": "bool",
+          "default": false
         }
       },
       "rules": [

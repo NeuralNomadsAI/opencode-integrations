@@ -339,6 +339,62 @@ def e59_61_shape_key_influence_and_property_keys_and_one_deleted_key():
     check(out["status"] == "failed" and "no property" in out["message"] and out["restored"], "unknown path: %s" % out.get("message"))
 
 
+# -- entry 54: ground a falling body at its key frames, on the deformed pose ------------------------------------------
+def falling_body():
+    """A rig whose Spine bone (deforming a body) sinks 0.5 m between frames 1 and 20, keyed at frame 1."""
+    data = bpy.data.armatures.new("Outlaw")
+    rig = link(bpy.data.objects.new("Outlaw", data))
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    spine = data.edit_bones.new("Spine")
+    spine.head, spine.tail = (0, 0, 0), (0, 0, 1)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    body = link(bpy.data.objects.new("Outlaw_Body", cube_mesh("Outlaw_Body", offset=(0, 0, 0.9), size=1.8)))
+    body.parent = rig
+    body.vertex_groups.new(name="Spine").add(list(range(len(body.data.vertices))), 1.0, "REPLACE")
+    body.modifiers.new("Armature", "ARMATURE").object = rig
+    bone = rig.pose.bones["Spine"]
+    for frame, y in ((1, 0.0), (20, -0.5)):
+        bone.location = (0, y, 0)  # the bone's Y is world Z: it sinks
+        bone.keyframe_insert("location", frame=frame)
+    rig.keyframe_insert("location", frame=1)
+    bpy.context.scene.frame_set(1)
+    return rig, body
+
+
+def lowest(name, frame):
+    bpy.context.scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    graph = bpy.context.evaluated_depsgraph_get()
+    evaluated = obj(name).evaluated_get(graph)
+    mesh = evaluated.to_mesh()
+    low = min((evaluated.matrix_world @ v.co).z for v in mesh.vertices)
+    evaluated.to_mesh_clear()
+    return low
+
+
+@test
+def e54_fit_height_grounds_the_deformed_pose_at_a_frame_and_keys_it():
+    empty()
+    falling_body()
+    check(abs(lowest("Outlaw_Body", 20) + 0.5) < 1e-4, "sunk 0.5 m at frame 20")
+    bpy.context.scene.frame_set(1)
+    out = applied(("fit_height", {"ref": "Outlaw", "ground": True, "frame": 20, "key": True}))
+    check(bpy.context.scene.frame_current == 1, "the current frame stays")
+    check(abs(lowest("Outlaw_Body", 20)) < 1e-4, "on the ground at 20: %s" % lowest("Outlaw_Body", 20))
+    check(abs(lowest("Outlaw_Body", 1)) < 1e-4, "still on the ground at 1 (no jump): %s" % lowest("Outlaw_Body", 1))
+    bounds = next(c for c in out["changes"] if c["field"] == "bounds")
+    check(bounds["frame"] == 20 and abs(bounds["after"]["min"][2]) < 1e-4, "measured at 20: %s" % bounds)
+    check(not out.get("warnings"), "keyed, so nothing to warn: %s" % out.get("warnings"))
+    # A failing batch: the key and the location undone, frame 1 back.
+    bpy.context.scene.frame_set(1)
+    falling = failed_and_restored(("fit_height", {"ref": "Outlaw", "ground": True, "ground_z": 1, "frame": 10, "key": True}), FAIL)
+    keys = sorted({p.co[0] for c in _curves_of(obj("Outlaw")) if c.data_path == "location" for p in c.keyframe_points})
+    check(bpy.context.scene.frame_current == 1 and keys == [1.0, 20.0], "restored: frame %d, keys %s" % (
+        bpy.context.scene.frame_current, keys))
+    check(abs(lowest("Outlaw_Body", 20)) < 1e-4, "the earlier key holds: %s" % falling.get("message"))
+
+
 def _curves_of(owner):
     from bpy_extras import anim_utils
 

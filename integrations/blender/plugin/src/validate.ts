@@ -53,6 +53,8 @@ export const OPERATIONS: Record<string, Record<string, { kind: Kind; required: b
     ground_z: F("number"),
     children: F("bool"),
     scale_axes: F({ enum: ["z", "uniform"] }),
+    frame: F("whole_frame"),
+    key: F("bool"),
   },
   pose_bone: { ref: F("ref", true), bone: F("name", true), location: F("vec3"), rotation: ROT, scale: F("scale") },
   aim_bone: {

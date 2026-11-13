@@ -46,9 +46,13 @@ SPEC = {
                       "Location, rotation (written in the object's own rotation mode) and scale; delta adds the location."),
     "fit_height": ({"ref": F("ref", True), "height": F("number"), "ground": F("bool", default=True),
                     "ground_z": F("number", default=0.0), "children": F("bool", default=True),
-                    "scale_axes": F({"enum": ("z", "uniform")}, default="z")},
+                    "scale_axes": F({"enum": ("z", "uniform")}, default="z"), "frame": F("whole_frame"),
+                    "key": F("bool", default=False)},
                    "Scale to a height in metres (Z only by default; scale_axes uniform keeps the proportions) and/or put "
-                   "the lowest point at ground_z, measured on the evaluated geometry; without height nothing is scaled."),
+                   "the lowest point at ground_z, measured on the evaluated geometry (armature pose and modifiers "
+                   "included) at frame (default: the current frame, which stays current); key keys the location (and "
+                   "scale) there, so a falling body touches the ground at each of its key frames. Without height "
+                   "nothing is scaled."),
     "pose_bone": ({"ref": F("ref", True), "bone": F("name", True), "location": F("vec3"), "rotation": ROTATION,
                    "scale": F("scale")},
                   "A pose bone's location, rotation (in the bone's rotation mode) and scale."),

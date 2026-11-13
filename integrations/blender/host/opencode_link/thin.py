@@ -372,7 +372,8 @@ class Batch(object):
             # A field of a datablock this batch created is undone with it: removed is restored.
             if made and _removed(owner):
                 return True
-            return _same(getattr(holder, attr), before)
+            # An animated field takes its keys' value at the frame the rollback puts back: its keys prove it.
+            return _same(getattr(holder, attr), before) or _animated(holder, attr)
 
         def undo():
             if not (made and _removed(owner)):
@@ -385,6 +386,14 @@ class Batch(object):
         for datablock in datablocks:
             if datablock is not None:
                 self.made.add(_pointer(datablock))
+
+
+def _animated(holder, attr):
+    try:
+        path = holder.path_from_id(attr)
+    except (AttributeError, ValueError, TypeError):
+        return False
+    return any(curve.data_path == path for curve in _curves(holder.id_data))
 
 
 def _pointer(datablock):
@@ -483,6 +492,32 @@ def op_set_transform(args, batch, index):
 def op_fit_height(args, batch, index):
     obj = batch.ref(args["ref"])
     objects = _hierarchy(obj, args["children"])
+    scene = bpy.context.scene
+    current = scene.frame_current
+    frame = args.get("frame", current)
+    if frame != current:
+        # Measured on the pose at that frame; the current frame comes back after (and with a failing batch).
+        batch.add(lambda: scene.frame_set(current), lambda: scene.frame_current == current, "%s.frame_current" % scene.name,
+                  ("field", _pointer(scene), "frame_current"))
+        scene.frame_set(frame)
+    _fit(obj, objects, args, batch, index)
+    if args["key"]:
+        new_curve = _curve(obj, "location", 0) is None
+        _key(batch, index, obj, obj, "location", "", None, frame, None, obj.name, "location")
+        if "height" in args:
+            _key(batch, index, obj, obj, "scale", "", None, frame, None, obj.name, "scale")
+        if new_curve:
+            batch.warnings.append("%s: its location is keyed at frame %d only, so it holds at every frame; key it at its "
+                                  "other frames too (fit_height with key at each, or insert_key)." % (obj.name, frame))
+    elif _keyed(obj, ("location", "scale")):
+        batch.warnings.append("%s is keyed on %s: its animation overrides this at the next frame change; give key true "
+                              "(with frame) or edit its keys." % (obj.name, ", ".join(_keyed(obj, ("location", "scale")))))
+    batch.changes.append({"op": index, "ref": obj.name, "field": "bounds", "frame": frame, "after": world_bounds(objects)})
+    if frame != current:
+        scene.frame_set(current)
+
+
+def _fit(obj, objects, args, batch, index):
     bpy.context.view_layer.update()
     bounds = world_bounds(objects)
     if bounds is None:
@@ -512,11 +547,6 @@ def op_fit_height(args, batch, index):
     if args["ground"]:
         _set_vector(obj, "location", [0.0, 0.0, args["ground_z"] - bounds["min"][2]], batch, index, obj.name, delta=True)
     bpy.context.view_layer.update()
-    keyed = _keyed(obj, ("location", "scale"))
-    if keyed:
-        batch.warnings.append("%s is keyed on %s: its animation overrides this at the next frame change; key it "
-                              "(insert_key) or edit its keys." % (obj.name, ", ".join(keyed)))
-    batch.changes.append({"op": index, "ref": obj.name, "field": "bounds", "after": world_bounds(objects)})
 
 
 def op_pose_bone(args, batch, index):
