@@ -505,12 +505,18 @@ describe("tools", () => {
           applied.push(operation as { op: string; args: Record<string, unknown> })
           const result = operation?.op.includes("search")
             ? { results: [{ asset_base_id: "abc", name: "Weathered planks" }] }
-            : { task: { id: "task-1", state: "running", title: "Colt" } }
+            : { task: { task_id: "task-1", kind: "sketchfab", state: "running", title: "Colt", elapsed_s: 0.1 } }
           return { status: "applied", results: [{ op: operation?.op, result }] }
         },
         tasks: (params) => {
           polls += 1
-          return { id: params.task_id, state: polls < 3 ? "running" : "done", created: ["object:Colt"] }
+          // The add-on's snapshot (tasks.py Task.snapshot).
+          return {
+            task_id: params.task_id,
+            kind: "sketchfab",
+            state: polls < 3 ? "running" : "done",
+            created: ["object:Colt"],
+          }
         },
       },
     })
@@ -546,6 +552,30 @@ describe("tools", () => {
     assert.equal(content(await loaded.tool("blender_import", { task: "task-1" })).state, "done")
     await assert.rejects(loaded.tool("blender_import", { source: "file", action: "search", query: "x" }), /by path/)
     await assert.rejects(loaded.tool("blender_import", { source: "sketchfab" }), /needs id/)
+  })
+
+  it("blender_save retries once when the file was briefly held, and says so; other failures are not retried", async () => {
+    const answers = [
+      {
+        status: "failed",
+        message: "RuntimeError: Error: Unable to make version backup: Permission denied",
+        traceback: "",
+      },
+      { status: "executed", result: { saved: "D:/film/western_ia.blend", bytes: 42 } },
+      { status: "failed", message: "RuntimeError: Error: Cannot change old file (file saved with @)", traceback: "" },
+      { status: "failed", message: "RuntimeError: Error: Cannot change old file (file saved with @)", traceback: "" },
+      { status: "failed", message: "ValueError: path must end with .blend", traceback: "" },
+    ]
+    let calls = 0
+    const { loaded } = await attached({ execute_code: () => answers[calls++] })
+    const saved = content(await loaded.tool("blender_save", {}))
+    assert.equal(saved.saved, "D:/film/western_ia.blend")
+    assert.match(saved.retried, /Unable to make version backup/)
+    assert.equal(calls, 2)
+    await assert.rejects(loaded.tool("blender_save", {}), /file saved with @/, "retried once only")
+    assert.equal(calls, 4)
+    await assert.rejects(loaded.tool("blender_save", { path: "x" }), /must end with \.blend/)
+    assert.equal(calls, 5, "not retried")
   })
 
   it("inspect, verify and save run their fixed programs read only, asking nothing", async () => {

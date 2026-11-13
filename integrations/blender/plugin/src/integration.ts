@@ -67,6 +67,9 @@ export const LAB_TOOLS = [
 
 const MAX_TEXT = 100_000
 const VERIFY_TIMEOUT_MS = 600_000
+// A save that failed while the .blend was briefly held by another process, retried once after SAVE_RETRY_MS.
+export const TRANSIENT_SAVE = /unable to make version backup|file saved with @/i
+export const SAVE_RETRY_MS = 1_000
 // Longest wait of one blender_render call that follows a task.
 export const RENDER_WAIT_MAX_S = 3_600
 
@@ -610,14 +613,25 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       )) as { status?: string; message?: string; results?: Array<{ result?: Record<string, unknown> }> }
       if (result.status !== "applied") throw new Error(`blender_import: ${String(result.message ?? result.status)}`)
       const out = result.results?.[0]?.result ?? {}
-      const task = (out.task as { id?: string; state?: string } | undefined) ?? undefined
-      if (!searching && task?.id && task.state === "running" && Number(args.wait_s ?? 0) > 0)
-        return json({ ...out, task: await follow(task.id) })
+      // The add-on's task snapshot names its task task_id; wait_s holds on this first call too.
+      const task = out.task as { task_id?: string; state?: string } | undefined
+      if (!searching && typeof task?.task_id === "string" && task.state === "running" && Number(args.wait_s ?? 0) > 0)
+        return json({ ...out, task: await follow(task.task_id) })
       return json(out)
     },
 
     async blender_save(args, context) {
-      return json(await program(context, "save", args))
+      try {
+        return json(await program(context, "save", args))
+      } catch (error) {
+        // Blender renames the file aside while saving; another process holding it a moment (a background render
+        // reading it) fails that rename, and the save changed nothing: once more, a second later, and said.
+        const message = error instanceof Error ? error.message : String(error)
+        if (!TRANSIENT_SAVE.test(message)) throw error
+        await new Promise((done) => setTimeout(done, SAVE_RETRY_MS))
+        const saved = (await program(context, "save", args)) as Record<string, unknown>
+        return json({ ...saved, retried: message.split("\n")[0]?.slice(0, 300) })
+      }
     },
   }
 
