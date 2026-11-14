@@ -20,6 +20,8 @@ const OPS043_TESTS = 3
 const OPS044_TESTS = 12
 // The tests of ops045_tests.py: the 0.4.4 exercises' findings (QA journal, Luna section).
 const OPS045_TESTS = 8
+// The tests of ops046_tests.py: the 0.4.5 exercises' findings (QA journal, Luna section).
+const OPS046_TESTS = 3
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -343,6 +345,49 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       // A save with nothing pending from OpenCode says so (the trial's second save of the library).
       assert.deepEqual(json(await plugin.tool("blender_save", {})).wrote_steps, ["OpenCode: code"])
       assert.deepEqual(json(await plugin.tool("blender_save", {})).wrote_steps, [])
+    } finally {
+      await stop()
+    }
+  })
+
+  it("passes the tests of the 0.4.5 exercises' findings (0.4.6)", async () => {
+    assert.equal((await hostScript("ops046_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS046_TESTS)
+  })
+
+  it("blender_inspect says what lets a refused operator run; blender_verify reads the saved file (0.4.6)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      const code = async (text: string) => {
+        const out = json(await plugin.tool("blender_execute_code", { code: text }))
+        assert.equal(out.status, "executed", JSON.stringify(out).slice(0, 1200))
+        return out
+      }
+      await code(
+        "import bpy\nbpy.ops.mesh.primitive_plane_add()\nbpy.context.object.name = 'Sheet'\n" +
+          "bpy.context.object.modifiers.new('Cloth', 'CLOTH')",
+      )
+      const poll = json(await plugin.tool("blender_inspect", { operator: "ptcache.bake" })).operator.poll
+      assert.equal(poll.in_this_context, false)
+      assert.ok(poll.same_group_passing.includes("ptcache.bake_all"), JSON.stringify(poll))
+      assert.deepEqual(poll.passes_with[0], {
+        temp_override: { point_cache: "bpy.context.active_object.modifiers['Cloth'].point_cache" },
+      })
+      // ex09: the open document moved the sheet after the save; the file still has it where it was.
+      const file = join(iso.root, "shot.blend")
+      await code(
+        `import bpy\nbpy.data.objects['Sheet'].location.z = 1\nbpy.ops.wm.save_as_mainfile(filepath=${JSON.stringify(file)})`,
+      )
+      await code("import bpy\nbpy.data.objects['Sheet'].location.z = 5")
+      const criteria = [{ label: "sheet height", expr: "world('Sheet').z", op: "==", value: 5 }]
+      const live = json(await plugin.tool("blender_verify", { criteria }))
+      assert.equal(live.criteria[0].measured, 5)
+      assert.equal(live.read, undefined)
+      const saved = json(await plugin.tool("blender_verify", { criteria, saved: true }))
+      assert.equal(saved.criteria[0].measured, 1, JSON.stringify(saved).slice(0, 1500))
+      assert.equal(saved.criteria[0].passed, false)
+      assert.equal(saved.read.file, file)
+      assert.equal(saved.unsaved.file, "shot.blend", "and the open document still differs from it")
+      await assert.rejects(plugin.tool("blender_verify", { criteria, saved: join(iso.root, "none.blend") }), /no file/)
     } finally {
       await stop()
     }

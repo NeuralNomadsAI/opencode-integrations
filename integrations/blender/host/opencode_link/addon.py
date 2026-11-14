@@ -322,7 +322,7 @@ def register():
 
 def _start_offer():
     # A Blender that OpenCode Link started to render (render.render_animation) is never offered.
-    if os.environ.get("OPENCODE_LINK_ROLE") == "render":
+    if os.environ.get("OPENCODE_LINK_ROLE") in ("render", "verify"):  # a background Blender of blender_render or verify
         return None
     if _session is not None:
         _session.start(preferences())

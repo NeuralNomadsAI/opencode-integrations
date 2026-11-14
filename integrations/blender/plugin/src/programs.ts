@@ -13,13 +13,17 @@ const PROGRAMS = {
   verify: read("verify.py"),
   render: read("render.py"),
   save: read("save.py"),
+  verify_saved: read("verify_saved.py"),
 }
-// The background render Blender's script, which render.py writes next to its log.
-const RENDER_JOB = read("render_job.py")
+// The background Blender's script: render.py's job, and for verify_saved the verify program itself.
+const JOBS: Partial<Record<keyof typeof PROGRAMS, string>> = {
+  render: read("render_job.py"),
+  verify_saved: PROGRAMS.verify,
+}
 
 export type ProgramName = keyof typeof PROGRAMS
 
 export function programCode(name: ProgramName, params: unknown) {
-  const job = name === "render" ? `JOB = ${JSON.stringify(RENDER_JOB)}\n` : ""
+  const job = JOBS[name] === undefined ? "" : `JOB = ${JSON.stringify(JOBS[name])}\n`
   return `import json\nPARAMS = json.loads(${JSON.stringify(JSON.stringify(params))})\n${job}${PROGRAMS[name]}`
 }

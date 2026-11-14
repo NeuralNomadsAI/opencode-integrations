@@ -154,14 +154,124 @@ def _operator_poll(error, text, code, filename):
             seen[member] = value.type
         else:
             seen[member] = getattr(value, "name", None) or type(value).__name__
-    hint = {"operator": idname, "poll": m.group(3).strip()[:300], "context": seen,
-            "give_context": "with bpy.context.temp_override(window=..., area=..., region=..., id=..., active_object=...)"}
+    hint = {"operator": idname, "poll": m.group(3).strip()[:300], "context": seen}
     try:
         rna = getattr(getattr(bpy.ops, m.group(1)), m.group(2)).get_rna_type()
         hint["description"] = (rna.description or "")[:300]
     except Exception:  # noqa: BLE001
         pass
+    hint.update(context_help(m.group(1), m.group(2)))
     return hint
+
+
+# -- what would let a refused operator run: its poll() tried, the operator never executed ---------------------------
+TRIES = 400  # poll() calls at most per refused operator
+_ROOTS = ("active_object", "scene", "view_layer")
+
+
+def context_help(module, name):
+    """For an operator whose poll refuses the current context: the operators of its group whose poll passes now,
+    and the context members that make its poll pass, found by trying, with temp_override, the data reachable from
+    the active object, the scene and the view layer (a member is named after the property that leads to it, or after
+    a collection's item type), then the screen's areas. Only poll() runs."""
+    out = {}
+    try:
+        group = getattr(bpy.ops, module)
+        op = getattr(group, name)
+    except Exception:  # noqa: BLE001
+        return out
+    passing = []
+    for other in sorted(dir(group)):
+        if other != name and _polls(getattr(group, other, None)):
+            passing.append("%s.%s" % (module, other))
+    if passing:
+        out["same_group_passing"] = passing[:12]
+    found, tries = [], [0]
+
+    def attempt(override, shown):
+        if tries[0] >= TRIES or len(found) >= 4:
+            return
+        tries[0] += 1
+        try:
+            with bpy.context.temp_override(**override):
+                if op.poll():
+                    found.append(shown)
+        except Exception:  # noqa: BLE001 - a member this context does not take
+            pass
+
+    for member, value, path in _candidates():
+        attempt({member: value}, {member: path})
+    window = getattr(bpy.context, "window", None)
+    if not found and window is not None:
+        for area in window.screen.areas:
+            region = next((r for r in area.regions if r.type == "WINDOW"), None)
+            attempt({"window": window, "area": area, "region": region},
+                    {"area": "the %s area of bpy.context.window.screen, with its WINDOW region" % area.type})
+    if found:
+        out["passes_with"] = [{"temp_override": shown} for shown in found]
+        out["note"] = "found by trying poll() only; the operator did not run"
+    else:
+        out["give_context"] = "with bpy.context.temp_override(window=..., area=..., region=..., id=..., active_object=...)"
+    return out
+
+
+def _polls(op):
+    try:
+        return bool(op.poll())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _snake(identifier):
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", identifier).lower()
+
+
+def _candidates():
+    """(member, value, Python path) for the data two steps from the context's roots: pointers named after their
+    property, collection items after the collection's item type (modifiers -> modifier), IDs also as id."""
+    seen = set()
+    for root in _ROOTS:
+        value = getattr(bpy.context, root, None)
+        if value is None:
+            continue
+        base = "bpy.context.%s" % root
+        if isinstance(value, bpy.types.ID):
+            yield "id", value, base
+        for member, item, path in _children(value, base):
+            key = (member, item.as_pointer() if hasattr(item, "as_pointer") else id(item))
+            if key not in seen:
+                seen.add(key)
+                yield member, item, path
+            for member2, item2, path2 in _children(item, path):
+                key = (member2, item2.as_pointer() if hasattr(item2, "as_pointer") else id(item2))
+                if key not in seen:
+                    seen.add(key)
+                    yield member2, item2, path2
+
+
+def _children(struct, path):
+    rna = getattr(struct, "bl_rna", None)
+    if rna is None or isinstance(struct, bpy.types.PropertyGroup):
+        return
+    for p in rna.properties:
+        if p.identifier == "rna_type" or p.type not in ("POINTER", "COLLECTION"):
+            continue
+        try:
+            value = getattr(struct, p.identifier)
+        except Exception:  # noqa: BLE001
+            continue
+        if value is None:
+            continue
+        if p.type == "POINTER":
+            yield p.identifier, value, "%s.%s" % (path, p.identifier)
+        else:
+            member = _snake(p.fixed_type.identifier)
+            for index, item in enumerate(value):
+                if index >= 8:
+                    break
+                key = getattr(item, "name", None)
+                shown = "%s.%s[%r]" % (path, p.identifier, key) if key else "%s.%s[%d]" % (path, p.identifier, index)
+                yield member, item, shown
 
 
 def _operator_arguments(error, text, code, filename):

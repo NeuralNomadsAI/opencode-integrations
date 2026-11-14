@@ -598,7 +598,11 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
 
     async blender_verify(args, context) {
-      const run = await programRun(context, "verify", args, VERIFY_TIMEOUT_MS)
+      // saved: the file as written on disk, read by a background Blender, instead of the open document.
+      const saved = args.saved !== undefined && args.saved !== false
+      if (saved && args.saved !== true && typeof args.saved !== "string")
+        throw new Error("saved: true (the open file as saved) or a .blend path.")
+      const run = await programRun(context, saved ? "verify_saved" : "verify", args, VERIFY_TIMEOUT_MS)
       const { image_base64, ...rest } = run.result as { image_base64?: string } & Record<string, unknown>
       // Criteria first: what passed and failed, measured, then what the saved file lacks, then the facts.
       const { blender, facts, ...checks } = rest

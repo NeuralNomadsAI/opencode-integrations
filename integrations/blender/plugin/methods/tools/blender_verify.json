@@ -16,6 +16,10 @@
       "type": "object",
       "description": "{object, frame or frames}: does it show in the render, and why not."
     },
+    "saved": {
+      "type": "any",
+      "description": "true: read the open file as saved on disk (a background Blender opens it; same criteria, visible and render), or a .blend path. Compare it with the open document."
+    },
     "render": {
       "type": "boolean",
       "description": "Also render (default: only without criteria and visible)."
