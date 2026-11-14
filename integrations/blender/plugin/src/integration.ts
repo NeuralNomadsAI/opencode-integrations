@@ -70,6 +70,8 @@ const VERIFY_TIMEOUT_MS = 600_000
 // A save that failed while the .blend was briefly held by another process, retried once after SAVE_RETRY_MS.
 export const TRANSIENT_SAVE = /unable to make version backup|file saved with @/i
 export const SAVE_RETRY_MS = 1_000
+// Ownership snapshots taken again when other conversations or offers moved the shared registry meanwhile.
+const OWNERSHIP_ATTEMPTS = 5
 // Longest wait of one blender_render call that follows a task.
 export const RENDER_WAIT_MAX_S = 3_600
 
@@ -165,7 +167,8 @@ export function createRegistry(marker: IntegrationMarker, options: BlenderOption
   })
 }
 
-type Ticket = { authority: BindingAuthority; bound: HostBinding }
+// label: the attached offer's label when the ticket was taken (a permission prompt shows it).
+type Ticket = { authority: BindingAuthority; bound: HostBinding; label?: string }
 type Hello = { script_handle: string; revision: number; host_version?: string; document?: unknown }
 
 export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) {
@@ -258,10 +261,50 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     return registry.counts().attachedSessions - (registry.binding(sessionID)?.offerID === offerID ? 1 : 0) > 0
   }
 
+  // This conversation's ownership, fenced by the registry's revision. That revision is shared by every offer and
+  // conversation: another conversation attaching another Blender, or an offer appearing, during the native
+  // lookup moves it. Only then is the snapshot taken again (an ownership that does not hold fails at once).
+  const ownership = async (sessionID: string, signal?: AbortSignal) => {
+    for (let attempt = 0; attempt < OWNERSHIP_ATTEMPTS; attempt += 1) {
+      const before = registry.authority()
+      const authority = await bindings.snapshot(sessionID, signal)
+      if (authority || signal?.aborted) return authority
+      const after = registry.authority()
+      const moved =
+        before &&
+        after &&
+        before.serviceGeneration === after.serviceGeneration &&
+        (before.registryGeneration !== after.registryGeneration || before.revision !== after.revision)
+      if (!moved) return null
+    }
+    return null
+  }
+
+  // After a wait (a permission): this conversation still owned, still attached to the same offer. Unrelated
+  // changes of other offers and conversations do not count.
+  const reheld = async (context: ToolContext, held: Ticket): Promise<Ticket | null> => {
+    const authority = await ownership(context.sessionID, context.signal)
+    const bound = authority && registry.current(authority) ? registry.binding(context.sessionID) : null
+    const label = attachedTo(context.sessionID)?.label
+    return bound &&
+      bound.offerID === held.bound.offerID &&
+      bound.scriptHandle === held.bound.scriptHandle &&
+      label === held.label
+      ? { authority: authority as BindingAuthority, bound, label }
+      : null
+  }
+
+  // The Blender this conversation acts on, as blender_hosts and blender_context name it.
+  const attachedTo = (sessionID: string) => {
+    const bound = registry.binding(sessionID)
+    const offer = bound && registry.hosts().offers.find((candidate) => candidate.offerID === bound.offerID)
+    return offer ? { offerID: offer.offerID, label: offer.label } : null
+  }
+
   // The conversation's attached Blender. Without one, the only offered Blender, compatible and attached to no
   // conversation, attaches itself (spec FAM-5): checked against the ownership snapshot with no wait in between.
   const ticket = async (context: ToolContext): Promise<Ticket> => {
-    const authority = await bindings.snapshot(context.sessionID, context.signal)
+    const authority = await ownership(context.sessionID, context.signal)
     if (!authority || context.signal.aborted || !registry.current(authority)) {
       throw new Error("This conversation's ownership is unverifiable: try again.")
     }
@@ -302,7 +345,7 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     const current = registry.authority()
     if (!current) throw new Error("This conversation's ownership is unverifiable: try again.")
     await attachMethod(context.sessionID)
-    return { authority: current, bound }
+    return { authority: current, bound, label: attachedTo(context.sessionID)?.label }
   }
 
   const callHost = async (
@@ -312,10 +355,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     timeoutMs = options.requestTimeoutMs,
     captured?: Ticket,
   ) => {
-    const held = captured ?? (await ticket(context))
-    if (captured && !(await bindings.verify(context.sessionID, held.authority, context.signal))) {
-      throw new Error("Application attachment changed during permission; retry the action.")
-    }
+    const held = captured ? await reheld(context, captured) : await ticket(context)
+    if (!held) throw new Error("This conversation's Blender changed while permission was asked; retry the action.")
     if (context.signal.aborted || !registry.current(held.authority))
       throw new Error("Application attachment is unverifiable.")
     const { bound } = held
@@ -367,21 +408,24 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     async blender_hosts(args, context) {
       const out: Record<string, unknown> = {}
       // Only a conversation of this Location sees and changes its attachment (RPC-12).
-      if (!(await bindings.snapshot(context.sessionID, context.signal)))
-        throw new Error("This conversation's ownership is unverifiable: try again.")
+      const owned = await ownership(context.sessionID, context.signal)
+      if (!owned) throw new Error("This conversation's ownership is unverifiable: try again.")
       if (args.detach === true) {
         await attachments.forget(context.sessionID) // first: the detach's change event must not restore it
-        out.detached = (await bindings.detach(context.sessionID, context.signal)).outcome
+        const authority = await ownership(context.sessionID, context.signal)
+        if (!authority || !registry.current(authority))
+          throw new Error("This conversation's ownership is unverifiable: try again.")
+        out.detached = registry.detach(context.sessionID).outcome
       }
       if (typeof args.attach === "string") {
-        const authority = await bindings.snapshot(context.sessionID, context.signal)
-        if (!authority) throw new Error("This conversation's ownership is unverifiable: try again.")
         const offer = registry.hosts().offers.find((candidate) => candidate.offerID === args.attach)
         if (!offer) throw new Error(`No offered Blender ${String(args.attach)}: call blender_hosts again.`)
         await assert(context, PERMISSIONS.attach, [offer.label], { label: offer.label })
-        if (!(await bindings.verify(context.sessionID, authority, context.signal)) || !registry.current(authority)) {
-          throw new Error("The offers or this conversation changed while permission was asked: try again.")
-        }
+        // After the permission: this conversation still owned, the chosen offer still the same Blender.
+        const authority = await ownership(context.sessionID, context.signal)
+        const still = registry.hosts().offers.find((candidate) => candidate.offerID === offer.offerID)
+        if (!authority || !registry.current(authority) || !still || still.label !== offer.label)
+          throw new Error("This conversation or the chosen Blender changed while permission was asked: try again.")
         out.attached = registry.attach(offer.offerID, context.sessionID).outcome
         if (out.attached === "attached") {
           await attachments.remember(context.sessionID)
@@ -391,6 +435,7 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       void legacy.refresh()
       const status = await rpc.status()
       const mine = registry.binding(context.sessionID)?.offerID
+      out.attached_to = attachedTo(context.sessionID)
       out.host = status.host
       out.blenders = registry.hosts().offers.map((offer) => ({
         ...offer,
@@ -411,11 +456,19 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
 
     async blender_context(args, context) {
       const { release_quarantine: release, ...query } = args
-      if (release === undefined) return json(await callHost(context, "scene", query))
+      if (release === undefined)
+        return json({
+          ...((await callHost(context, "scene", query)) as object),
+          attached_to: attachedTo(context.sessionID),
+        })
       // After a failed change whose undo could not be proven: the agent read the scene (this revision) and
       // lifts the quarantine; the scene is read again with it.
       const released = (await callHost(context, "release", { revision: release })) as { released?: boolean }
-      return json({ ...((await callHost(context, "scene", query)) as object), released: released.released === true })
+      return json({
+        ...((await callHost(context, "scene", query)) as object),
+        attached_to: attachedTo(context.sessionID),
+        released: released.released === true,
+      })
     },
 
     async blender_apply(args, context) {

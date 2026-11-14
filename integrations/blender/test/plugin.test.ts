@@ -441,6 +441,58 @@ describe("tools", () => {
     )
   })
 
+  it("other conversations attaching other Blenders never make this one's ownership unverifiable (Luna 06)", async () => {
+    const { location } = { location: { directory: join(tmpdir(), "location") } }
+    const sessions = new Map(["ses_test", "ses_one", "ses_two"].map((id) => [id, { id, location: { ...location } }]))
+    let during: (() => void) | undefined
+    const loaded = await plugin({
+      location,
+      sessions,
+      // OpenCode's session lookup takes time; meanwhile another conversation changes the shared offers.
+      nativeGet: async ({ sessionID }) => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        const run = during
+        during = undefined
+        run?.()
+        return sessions.get(sessionID)
+      },
+      answer: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        loaded.registry.detach("ses_two")
+        loaded.registry.attach(offerOf("Blender: b.blend"), "ses_two")
+        return "allow" as const
+      },
+    })
+    const methods = {
+      scene: () => ({ revision: 0, objects: [] }),
+      execute_code: () => ({ status: "executed", result: {} }),
+    }
+    const blenders = await Promise.all(
+      ["a", "b", "c"].map((name) => fakeHost({ scriptHandle: `blend-${name}`, methods })),
+    )
+    for (const [index, host] of blenders.entries())
+      await loaded.rpc("advertise", {
+        ...announcement(host.endpoint, host.scriptHandle, `offer-${index}`),
+        label: `Blender: ${"abc"[index]}.blend`,
+      })
+    const offerOf = (label: string) =>
+      loaded.registry.hosts().offers.find((offer) => offer.label === label)?.offerID ?? ""
+    const listed = content(await loaded.tool("blender_hosts", { attach: offerOf("Blender: a.blend") }))
+    assert.equal(listed.attached, "attached")
+    assert.deepEqual(listed.attached_to, { offerID: offerOf("Blender: a.blend"), label: "Blender: a.blend" })
+    // Another conversation attaches c while this one's ownership is looked up.
+    during = () => loaded.registry.attach(offerOf("Blender: c.blend"), "ses_one")
+    const scene = content(await loaded.tool("blender_context"))
+    assert.deepEqual(scene.attached_to, { offerID: offerOf("Blender: a.blend"), label: "Blender: a.blend" })
+    // And another attaches b while this one's code run waits for its permission.
+    content(await loaded.tool("blender_execute_code", { code: "x = 1" }))
+    assert.ok(
+      blenders[0]?.requests.some((request) => request.method === "execute_code"),
+      "ran on a.blend",
+    )
+    assert.ok(!blenders[1]?.requests.some((request) => request.method === "execute_code"), "never on b.blend")
+  })
+
   it("blender_execute_code asks permission on every run; a denied run reaches nothing", async () => {
     let answer: "allow" | "deny" = "allow"
     const runs: Array<Record<string, unknown>> = []
