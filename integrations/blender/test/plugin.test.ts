@@ -27,9 +27,9 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.0 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.3 host lists, on Blender 5.3.
 const CAPABILITIES = {
-  methods: ["hello", "scene", "apply", "execute_code", "lab_tool"],
+  methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
   undo: "grouped_best_effort" as const,
   background: false,
@@ -491,6 +491,42 @@ describe("tools", () => {
       "ran on a.blend",
     )
     assert.ok(!blenders[1]?.requests.some((request) => request.method === "execute_code"), "never on b.blend")
+  })
+
+  it("blender_context releases a quarantine with the revision of a read, then reads again", async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    let quarantined = true
+    const { loaded } = await attached({
+      release: (params) => {
+        calls.push(["release", params])
+        quarantined = false
+        return { released: true, revision: 8 }
+      },
+      scene: (params) => {
+        calls.push(["scene", params])
+        return quarantined
+          ? {
+              revision: 7,
+              quarantined: true,
+              quarantine: { cause: "failed code", may_have_changed: ["Object 'Stray' added"] },
+            }
+          : { revision: 8 }
+      },
+    })
+    const read = content(await loaded.tool("blender_context"))
+    assert.deepEqual(read.quarantine.may_have_changed, ["Object 'Stray' added"])
+    const released = content(await loaded.tool("blender_context", { release_quarantine: read.revision }))
+    assert.equal(released.released, true)
+    assert.equal(released.quarantined, undefined)
+    assert.deepEqual(
+      calls.map(([method, params]) => [method, params.revision]),
+      [
+        ["scene", undefined],
+        ["release", 7],
+        ["scene", undefined],
+      ],
+    )
+    assert.deepEqual(loaded.permissions, [], "a release asks nothing: the agent read the scene")
   })
 
   it("blender_execute_code asks permission on every run; a denied run reaches nothing", async () => {
