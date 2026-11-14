@@ -410,7 +410,12 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
 
     async blender_context(args, context) {
-      return json(await callHost(context, "scene", args))
+      const { release_quarantine: release, ...query } = args
+      if (release === undefined) return json(await callHost(context, "scene", query))
+      // After a failed change whose undo could not be proven: the agent read the scene (this revision) and
+      // lifts the quarantine; the scene is read again with it.
+      const released = (await callHost(context, "release", { revision: release })) as { released?: boolean }
+      return json({ ...((await callHost(context, "scene", query)) as object), released: released.released === true })
     },
 
     async blender_apply(args, context) {

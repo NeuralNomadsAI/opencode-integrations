@@ -14,6 +14,8 @@ import { announcement, loadPlugin } from "./helpers/plugin.ts"
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 // The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
 const OPS042_TESTS = 10
+// The tests of ops043_tests.py: the blockers of the 0.4.2 exercises (QA journal, Luna section).
+const OPS043_TESTS = 3
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -107,6 +109,10 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     const ops = join(import.meta.dirname, "..", "host", "ops.json")
     assert.equal((await hostScript("ops040_tests.py", (scratch) => [scratch, ops])).passed.length, 9)
     assert.equal((await hostScript("defects_tests.py", (scratch) => [scratch])).passed.length, 6)
+  })
+
+  it("passes the tests of the 0.4.2 exercises' blockers (0.4.3)", async () => {
+    assert.equal((await hostScript("ops043_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS043_TESTS)
   })
 
   it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
