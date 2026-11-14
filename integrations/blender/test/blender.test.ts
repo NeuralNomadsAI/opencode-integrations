@@ -18,6 +18,8 @@ const OPS042_TESTS = 10
 const OPS043_TESTS = 3
 // The tests of ops044_tests.py: the 0.4.3 exercises' findings (QA journal, Luna section).
 const OPS044_TESTS = 12
+// The tests of ops045_tests.py: the 0.4.4 exercises' findings (QA journal, Luna section).
+const OPS045_TESTS = 5
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -287,6 +289,59 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       await run.exited
       await plugin.cleanup()
       iso.cleanup()
+    }
+  })
+
+  it("passes the tests of the 0.4.4 exercises' findings (0.4.5)", async () => {
+    assert.equal((await hostScript("ops045_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS045_TESTS)
+  })
+
+  it("results say what the saved file lacks, blender_save what it wrote, blender_verify the stale caches (0.4.5)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      const code = async (text: string) => {
+        const out = json(await plugin.tool("blender_execute_code", { code: text }))
+        assert.equal(out.status, "executed", JSON.stringify(out).slice(0, 1200))
+        return out
+      }
+      const built = await code(
+        "import bpy\nbpy.ops.mesh.primitive_cube_add(location=(0, 0, 3))\nbpy.context.object.name = 'Brick'\n" +
+          "bpy.ops.rigidbody.object_add()",
+      )
+      assert.equal(built.unsaved.never_saved, true)
+      const file = join(iso.root, "ex06.blend")
+      const saved = json(await plugin.tool("blender_save", { path: file }))
+      assert.ok(saved.wrote_steps.includes("OpenCode: code"), JSON.stringify(saved))
+      assert.equal(saved.unsaved, undefined)
+      // Luna 06: the cache is checked at the frames verified; never baked here.
+      const checks = { criteria: [{ expr: "world('Brick').z", op: "<", value: 3, frame: 40 }] }
+      const fresh = json(await plugin.tool("blender_verify", checks))
+      assert.equal(fresh.unsaved, undefined)
+      assert.deepEqual(
+        fresh.caches.map((c: { cache: string; baked: boolean }) => [c.cache, c.baked]),
+        [["rigid body world", false]],
+      )
+      // Baked, then a change: the bake is outdated, and the file lacks the change.
+      await code(
+        "import bpy\npc = bpy.context.scene.rigidbody_world.point_cache\npc.frame_end = 60\n" +
+          "with bpy.context.temp_override(scene=bpy.context.scene, point_cache=pc):\n    bpy.ops.ptcache.bake(bake=True)",
+      )
+      json(await plugin.tool("blender_save", {}))
+      const moved = await code("import bpy\nbpy.data.objects['Brick'].location.x = 2")
+      assert.deepEqual(moved.unsaved, { file: "ex06.blend", opencode_steps: ["OpenCode: code"] })
+      assert.equal(json(await plugin.tool("blender_context")).unsaved.file, "ex06.blend")
+      const stale = json(
+        await plugin.tool("blender_verify", { criteria: [{ ...checks.criteria[0], frames: [40, 90] }] }),
+      )
+      assert.equal(stale.unsaved.file, "ex06.blend")
+      assert.equal(stale.caches[0].outdated, true, JSON.stringify(stale.caches))
+      assert.deepEqual(stale.caches[0].checked_frames_outside, [90])
+      // A copy leaves the open file as it was.
+      const copy = json(await plugin.tool("blender_save", { path: join(iso.root, "copy.blend"), copy: true }))
+      assert.equal(copy.unsaved.file, "ex06.blend", JSON.stringify(copy))
+      assert.equal(copy.wrote_steps, undefined)
+    } finally {
+      await stop()
     }
   })
 

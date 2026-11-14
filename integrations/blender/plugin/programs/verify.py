@@ -8,6 +8,7 @@
 # criteria: the agent's own checks (a read-only expression or a bpy.data path, a comparison, a value, frames),
 # each measured on the evaluated scene and passed or failed. visible: whether an object shows in the render at
 # a frame, with every reason found when it does not. With either, the render runs only when asked (render, view).
+# caches: the simulation caches the checked frames read without a current bake (not baked, outdated, outside).
 # PARAMS is prepended by the plugin: {"scene"?, "frame"?, "frames"?, "view"?, "size"?, "criteria"?, "visible"?,
 # "render"?}
 import base64
@@ -594,6 +595,64 @@ def render_frames():
 
 
 
+def checked_frames():
+    found = set(frames) if RENDER else set()
+    for c in CRITERIA:
+        found.update(criterion_frames(c))
+    if VISIBLE:
+        spec = {"object": VISIBLE} if isinstance(VISIBLE, str) else VISIBLE
+        found.update(int(x) for x in spec.get("frames") or [spec.get("frame", frames[0])])
+    return sorted(found)
+
+
+def simulation_caches(checked):
+    """The simulation caches whose frames the checks read without a valid bake: not baked (a frame is right only
+    when Blender stepped to it from the start), baked but outdated (made before a later change), or baked without
+    the checked frames. A baked, current cache covering them is not listed."""
+    out = []
+
+    def add(owner, baked, outdated, start, end, info=""):
+        outside = [f for f in checked if not start <= f <= end]
+        if baked and not outdated and not outside:
+            return
+        entry = {"cache": owner, "baked": bool(baked), "frames": [start, end]}
+        if baked and outdated:
+            entry["outdated"] = True
+        if outside:
+            entry["checked_frames_outside"] = outside
+        if info:
+            entry["info"] = info[:120]
+        out.append(entry)
+
+    def point_cache(owner, pc):
+        if pc is not None:
+            add(owner, pc.is_baked, pc.is_outdated, pc.frame_start, pc.frame_end, pc.info)
+
+    world = scene.rigidbody_world
+    if world is not None and world.enabled:
+        point_cache("rigid body world", world.point_cache)
+    for obj in scene.objects:
+        for m in obj.modifiers:
+            if not m.show_render and not m.show_viewport:
+                continue
+            point_cache("%s: %s" % (obj.name, m.name), getattr(m, "point_cache", None))
+            settings = getattr(m, "domain_settings", None) if getattr(m, "fluid_type", None) == "DOMAIN" else None
+            if settings is not None:
+                add("%s: %s" % (obj.name, m.name), settings.has_cache_baked_any, False,
+                    settings.cache_frame_start, settings.cache_frame_end)
+            canvas = getattr(m, "canvas_settings", None) if getattr(m, "ui_type", None) == "CANVAS" else None
+            for surface in getattr(canvas, "canvas_surfaces", []) if canvas is not None else []:
+                point_cache("%s: %s %s" % (obj.name, m.name, surface.name), surface.point_cache)
+        for ps in obj.particle_systems:
+            if ps.settings is None or (ps.settings.type == "HAIR" and not ps.use_hair_dynamics):
+                continue  # still hair: nothing simulated
+            point_cache("%s: particles %s" % (obj.name, ps.name), ps.point_cache)
+    return out[:20]
+
+
+caches = simulation_caches(checked_frames())
+if caches:
+    checks["caches"] = caches
 image_b64 = render_frames() if RENDER else None
 if len(per_frame) > 1:
     summary["frames"] = per_frame

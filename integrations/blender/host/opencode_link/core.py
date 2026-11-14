@@ -372,6 +372,9 @@ class HostCore(object):
             state["quarantined"] = True
             if self.quarantine:
                 state["quarantine"] = self.quarantine
+        unsaved = self.app.unsaved() if hasattr(self.app, "unsaved") else None
+        if unsaved:
+            state["unsaved"] = unsaved  # the file on disk lacks changes of the open document
         return state
 
     def _context(self, params):
@@ -381,6 +384,9 @@ class HostCore(object):
             output = self.app.native_context(params["query"])
             if self.quarantined:
                 output["quarantined"] = True
+            unsaved = self.app.unsaved() if hasattr(self.app, "unsaved") else None
+            if unsaved:
+                output["unsaved"] = unsaved
             return output
         reads = params.get("reads", [])
         if not isinstance(reads, list) or len(reads) > MAX_READS:
@@ -852,6 +858,7 @@ class HostCore(object):
         # depsgraph updates all, which say nothing. It changed the document only when its content differs after.
         content = self.app.content_digest() if not barrier and hasattr(self.app, "content_digest") else None
         saves = self.app.saves() if hasattr(self.app, "saves") else 0
+        loads = self.app.loads() if hasattr(self.app, "loads") else 0
         value = error = trace = restored = step = None
         with self.app.quiet():
             if barrier:
@@ -872,7 +879,11 @@ class HostCore(object):
             else:
                 changed = self.app.evaluations() > evaluations or (digest is not None and self.app.change_digest() != digest)
             saved = (self.app.saves() if hasattr(self.app, "saves") else 0) > saves
-            if changed and barrier and error is None and not saved:
+            # The run opened another file: the barrier was the old document's; the new one is as loaded.
+            replaced = (self.app.loads() if hasattr(self.app, "loads") else 0) > loads
+            if replaced:
+                changed = True
+            elif changed and barrier and error is None and not saved:
                 step = "OpenCode: %s" % label
                 self.app.undo_push(step)
             elif changed and barrier and error is None:
@@ -884,8 +895,8 @@ class HostCore(object):
                 restored = before is not None and self._restore(before, label)
                 if not restored:
                     self._quarantine("failed %s: %s" % (label, error))
-            if changed:
-                self.app.bump_revision()
+            if changed and not replaced:
+                self.app.bump_revision()  # a load already moved the revision
         return _Run(value=value, error=error, trace=trace, changed=changed, restored=restored, undo_step=step,
                     stdout=out.getvalue(), stderr=err.getvalue(), revision_before=revision, saved=saved)
 
@@ -910,6 +921,7 @@ class HostCore(object):
         # modified: inspections and runs after a save leave the file saved; a change is reported, never undone.
         read_only = params.get("read_only") is True
         rotations = self.app.rotation_snapshot() if hasattr(self.app, "rotation_snapshot") else None
+        unsaved_before = self.app.unsaved() if hasattr(self.app, "unsaved") else None
         notes, hint = [], []
 
         def run():
@@ -947,6 +959,8 @@ class HostCore(object):
                 output["undo_step"] = done.undo_step
             if done.saved:
                 output["saved"] = True
+                if unsaved_before and unsaved_before.get("opencode_steps"):
+                    output["saved_steps"] = unsaved_before["opencode_steps"]  # what that save wrote of OpenCode's
             if warnings:
                 output["warnings"] = warnings
             if done.error:
