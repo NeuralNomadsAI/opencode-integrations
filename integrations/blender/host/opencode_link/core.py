@@ -345,6 +345,8 @@ class HostCore(object):
         document = self.app.document()
         if document:
             hello["document"] = document
+        if hasattr(self.app, "process"):
+            hello["process"] = self.app.process()  # the plugin says where the crash report is if Blender closes
         return hello
 
     def _reload(self, params):
@@ -908,14 +910,28 @@ class HostCore(object):
         # modified: inspections and runs after a save leave the file saved; a change is reported, never undone.
         read_only = params.get("read_only") is True
         rotations = self.app.rotation_snapshot() if hasattr(self.app, "rotation_snapshot") else None
+        notes, hint = [], []
 
         def run():
-            exec(compile(code, filename or "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
+            # Operator calls watched (guards, the failing operator named); a failure on Blender's API explained
+            # by what is valid there, read before the failed run is undone.
+            watch = self.app.watch_operators() if hasattr(self.app, "watch_operators") else contextlib.nullcontext()
+            with watch as watched:
+                try:
+                    exec(compile(code, filename or "<opencode execute_code>", "exec"), namespace)  # noqa: S102 - the dangerous method
+                except Exception as error:
+                    found = self.app.explain(error, code, filename) if hasattr(self.app, "explain") else None
+                    if found:
+                        hint.append(found)
+                    raise
+                finally:
+                    notes.extend(getattr(watched, "notes", None) or [])
             check = namespace.get("check_is_finished")
             return check if callable(check) else None
 
         done = self._guarded(run, "code", barrier=not read_only)
         warnings = self.app.rotation_warnings(rotations) if rotations is not None else []
+        warnings.extend(notes)
         if read_only and done.changed:
             warnings.append("OpenCode: this read_only run changed the document; no undo step groups or undoes it.")
 
@@ -935,6 +951,8 @@ class HostCore(object):
                 output["warnings"] = warnings
             if done.error:
                 output.update(message=done.error, traceback=done.trace)
+                if hint:
+                    output["hint"] = hint[0]
                 if done.changed:
                     output["restored"] = done.restored
                     if self.residue:

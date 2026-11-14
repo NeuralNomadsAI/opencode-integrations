@@ -4,13 +4,12 @@
 export const METHOD_KEY = "blender.method"
 export const METHOD_TEXT = [
   "Working on the open Blender:",
-  "- Read its version first (blender_hosts, blender_inspect): your knowledge of its Python API may be older than it.",
-  "- Before writing code for modifiers or Geometry Nodes inputs, the sequencer, compositing, Grease Pencil, animation",
-  "  or render output, ask Blender itself with blender_inspect (type, operator or live data).",
-  "- If it is still unclear, read the official docs and the Python API release notes of THIS version (links in",
-  "  blender_inspect's result).",
-  "- Verify each step by its result, not by the absence of an error: read back what changed, and use blender_verify",
-  "  for anything that renders (black or transparent image, camera used, sequencer and compositing state).",
+  "- Your knowledge of its Python API may be older than it: read its version (blender_hosts, blender_inspect).",
+  "- Inspect the exact element before coding it: blender_inspect search (words) finds where a setting lives; then its type, operator, node type in its tree or live data.",
+  "- After an error, read its hint (closest names, real signature, keys, sockets) and inspect again; never guess twice.",
+  "- An operator that needs a context gets it from bpy.context.temp_override(window, area, region, id, ...).",
+  "- Before finishing, turn your acceptance criteria into checks (value, comparison, frames): blender_verify criteria, and visible for what must be seen. Report measured values; a failed check is not done.",
+  "- Still unclear: the docs and Python API release notes of THIS version (links in blender_inspect).",
   "- Write down what you discover (a recent change, a silent failure) in your report, with the Blender version.",
 ].join("\n")
 

@@ -27,7 +27,7 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.3 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.4 host lists, on Blender 5.3.
 const CAPABILITIES = {
   methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
@@ -268,9 +268,10 @@ describe("attachment", () => {
     await loaded.tool("blender_context")
     assert.equal(loaded.registry.binding("ses_test")?.offerID, offerIDs[0])
     assert.deepEqual(loaded.permissions, [])
+    // The offer's hello, then this conversation's: it names the process, for a call after Blender closed.
     assert.deepEqual(
       hosts[0]?.requests.map((request) => request.method),
-      ["hello", "scene"],
+      ["hello", "hello", "scene"],
     )
     // The method joins the conversation once.
     await loaded.tool("blender_context")
@@ -819,7 +820,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.3/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.4/)
     assert.ok(loaded)
   })
 })

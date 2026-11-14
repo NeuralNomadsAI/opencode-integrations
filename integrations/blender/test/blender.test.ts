@@ -16,6 +16,8 @@ const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 const OPS042_TESTS = 10
 // The tests of ops043_tests.py: the blockers of the 0.4.2 exercises (QA journal, Luna section).
 const OPS043_TESTS = 3
+// The tests of ops044_tests.py: the 0.4.3 exercises' findings (QA journal, Luna section).
+const OPS044_TESTS = 12
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -135,6 +137,157 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
 
   it("passes the tests of the 0.4.2 exercises' blockers (0.4.3)", async () => {
     assert.equal((await hostScript("ops043_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS043_TESTS)
+  })
+
+  it("passes the tests of the 0.4.3 exercises' findings (0.4.4)", async () => {
+    assert.equal((await hostScript("ops044_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS044_TESTS)
+  })
+
+  it("blender_inspect finds the API by words and shows elements, sockets and names beyond its limit (0.4.4)", async () => {
+    const { plugin, stop, json } = await served()
+    try {
+      const inspect = async (args: Record<string, unknown>) => json(await plugin.tool("blender_inspect", args))
+      const paths = (found: { search: { results: Array<{ path: string }> } }) => found.search.results.map((r) => r.path)
+      // Luna 07 (light linking on Object) and 08 (the 5.3 compositing tree on the scene).
+      assert.ok(paths(await inspect({ search: "light linking" })).includes("Object.light_linking"))
+      assert.ok(paths(await inspect({ search: "compositing node group" })).includes("Scene.compositing_node_group"))
+      // Luna 02: the stroke's elements, and the poll with Blender's reason.
+      const stroke = (await inspect({ operator: "sculpt.brush_stroke" })).operator
+      const elements = stroke.properties.find((p: { id: string }) => p.id === "stroke").element
+      assert.equal(elements.type, "OperatorStrokeElement")
+      assert.ok(elements.properties.some((p: { id: string }) => p.id === "x_tilt"))
+      assert.equal(stroke.poll.in_this_context, false)
+      assert.match(stroke.poll.blender_says, /poll\(\)/)
+      // Luna 04 and 08: a node type made in the tree named, or what that tree makes instead.
+      const simulation = (await inspect({ type: "GeometryNodeSimulationInput", tree: "geometry" })).type
+      assert.equal(simulation.tree_type, "GeometryNodeTree")
+      assert.ok(
+        simulation.outputs.some((s: { name: string }) => s.name === "Delta Time"),
+        JSON.stringify(simulation),
+      )
+      const composite = (await inspect({ type: "CompositorNodeComposite", tree: "compositing" })).type
+      assert.ok(Array.isArray(composite.creatable_in_CompositorNodeTree), JSON.stringify(composite).slice(0, 800))
+      // Luna 05: entries beyond the limit are named, not cut.
+      const fluid = (await inspect({ type: "FluidDomainSettings", limit: 40 })).type
+      assert.equal(fluid.properties.length, 40)
+      assert.ok(fluid.properties_more.count > 0 && fluid.properties_more.names.length === fluid.properties_more.count)
+      assert.ok((await inspect({ type: "FluidDomainSettings", match: "cache" })).type.properties.length > 0)
+    } finally {
+      await stop()
+    }
+  })
+
+  it("blender_verify measures the agent's criteria and says why an object is not seen (0.4.4)", async () => {
+    const { plugin, stop, json } = await served()
+    try {
+      const built = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy, math",
+            "sc = bpy.context.scene",
+            "bpy.data.objects.remove(bpy.data.objects['Cube'])",
+            "bpy.ops.object.camera_add(location=(0, -10, 1), rotation=(math.radians(90), 0, 0))",
+            "sc.camera = bpy.context.object",
+            "bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 1.38))",
+            "t = bpy.context.object; t.name = 'Tissue'",
+            "t.keyframe_insert('rotation_euler', frame=1)",
+            "t.rotation_euler.z = math.radians(90); t.keyframe_insert('rotation_euler', frame=10)",
+            "bpy.ops.mesh.primitive_cube_add(size=1, location=(1, 0, 1)); bpy.context.object.name = 'Hidden'",
+            "bpy.context.object.hide_render = True",
+            "bpy.ops.mesh.primitive_cube_add(size=1, location=(100, 0, 1)); bpy.context.object.name = 'Away'",
+            "c = bpy.data.collections.new('Props'); sc.collection.children.link(c)",
+            "o = bpy.data.objects.new('Crate', bpy.data.meshes['Cube']); c.objects.link(o)",
+            "bpy.context.view_layer.layer_collection.children['Props'].exclude = True",
+            "sc.frame_set(1)",
+          ].join("\n"),
+        }),
+      )
+      assert.equal(built.status, "executed", JSON.stringify(built).slice(0, 1500))
+      const verify = async (args: Record<string, unknown>) => {
+        const out = await plugin.tool("blender_verify", args)
+        assert.equal(typeof out.content, "string", "no render without render or view")
+        return json(out)
+      }
+      // Luna 06: z-min 0.88 against a "< 0.7" threshold is a failed check, measured.
+      const checked = await verify({
+        criteria: [
+          { label: "tissue under 0.7", expr: "bounds('Tissue').min.z", op: "<", value: 0.7 },
+          { label: "top above 1", path: "objects['Tissue'].location.z", op: ">", value: 1 },
+          // Luna 09: the pose is measured at its frames, not assumed.
+          {
+            label: "turned",
+            expr: "ev('Tissue').rotation_euler.z",
+            op: "approx",
+            value: 1.5708,
+            tol: 0.001,
+            frames: [1, 10],
+          },
+        ],
+      })
+      assert.equal(checked.all_passed, false)
+      assert.deepEqual(checked.failed, ["tissue under 0.7", "turned"])
+      const [under, top, turned] = checked.criteria
+      assert.equal(under.measured, 0.88)
+      assert.equal(top.passed, true)
+      assert.deepEqual(
+        turned.frames.map((f: { frame: number; passed: boolean }) => [f.frame, f.passed]),
+        [
+          [1, false],
+          [10, true],
+        ],
+      )
+      const seen = async (object: string) => (await verify({ visible: { object, frame: 1 } })).visible
+      assert.equal((await seen("Tissue")).visible, true)
+      assert.match((await seen("Hidden")).reasons.join(" "), /hidden in render/)
+      assert.match((await seen("Away")).reasons.join(" "), /out of frame/)
+      assert.match((await seen("Crate")).reasons.join(" "), /excluded from view layer/)
+      await assert.rejects(
+        plugin.tool("blender_verify", { criteria: [{ expr: "bpy.ops.render.render()", op: "==", value: 1 }] }),
+        /not a read/,
+      )
+    } finally {
+      await stop()
+    }
+  })
+
+  it("a call after Blender closed says so, with the crash report Blender wrote (0.4.4)", async () => {
+    const iso = isolatedRoot("blender-closed-")
+    const stopFile = join(iso.root, "stop")
+    installTestAddon(iso)
+    const run = runBlender(iso, join(folder, "serve.py"), [
+      "--listen-only",
+      "--seconds",
+      "120",
+      "--stop-file",
+      stopFile,
+    ])
+    const plugin = await loadPlugin()
+    try {
+      let line: string | undefined
+      for (let attempt = 0; attempt < 600 && !line; attempt += 1) {
+        line = run
+          .output()
+          .split("\n")
+          .find((entry) => entry.startsWith("ENDPOINT "))
+        if (!line) await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      assert.ok(line, run.output().slice(-2000))
+      const { port, token, script_handle } = JSON.parse(line.slice("ENDPOINT ".length))
+      await plugin.rpc("advertise", announcement({ port, token }, script_handle))
+      assert.equal(typeof JSON.parse(String((await plugin.tool("blender_context")).content)).revision, "number")
+      writeFileSync(stopFile, "")
+      await run.exited
+      await assert.rejects(plugin.tool("blender_context"), /Blender closed.*has ended, with no crash report in /)
+      // Where Blender writes its own report when it crashes (an unsaved file: blender.crash.txt).
+      const report = join(iso.root, "tmp", "blender.crash.txt")
+      writeFileSync(report, "# Blender 5.3.0\n")
+      await assert.rejects(plugin.tool("blender_context"), /Blender closed.*Crash report: .*blender\.crash\.txt/)
+    } finally {
+      writeFileSync(stopFile, "")
+      await run.exited
+      await plugin.cleanup()
+      iso.cleanup()
+    }
   })
 
   it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
