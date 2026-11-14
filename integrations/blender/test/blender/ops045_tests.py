@@ -125,6 +125,51 @@ def u_a_file_opened_by_code_is_as_saved_and_gets_no_step():
     check("Crate" in bpy.data.objects and "Other" not in bpy.data.objects, "the saved content")
 
 
+# -- the 0.4.5 trial (ex06 #16, ex09 #9-#16): saves inside a code run, failed runs, a reopened bake -----------------
+@test
+def t_a_failed_run_restored_is_not_a_step_of_the_file():
+    empty()
+    run_code("import bpy\nbpy.ops.wm.save_as_mainfile(filepath=%r)" % os.path.join(SCRATCH, "failed.blend"))
+    out = run_code("import bpy\nbpy.data.objects.new('Stray', None)\nraise RuntimeError('like the trial')")
+    check(out["status"] == "failed" and out.get("restored") is True, "failed and restored: %s" % out)
+    steps = (out.get("unsaved") or {}).get("opencode_steps", [])
+    check(not any("failed" in s for s in steps), "the restoration is no step of the file: %s" % steps)
+
+
+@test
+def t06_a_run_that_changes_then_saves_leaves_nothing_unsaved():
+    empty()
+    run_code("import bpy\nbpy.ops.wm.save_as_mainfile(filepath=%r)" % os.path.join(SCRATCH, "ex06.blend"))
+    run_code("import bpy\nbpy.context.scene.collection.objects.link(bpy.data.objects.new('Ground', None))")
+    out = run_code("import bpy\ns = bpy.context.scene\ns.collection.objects.link(bpy.data.objects.new('Brick', None))\n"
+                   "s.frame_end = 120\ns.frame_set(120)\nbpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath)")
+    check(out["status"] == "executed" and out.get("saved") is True, "saved: %s" % out)
+    check("unsaved" not in out, "nothing unsaved right after the save: %s" % out.get("unsaved"))
+    check(out.get("saved_steps") == ["OpenCode: code", "OpenCode: code (this run)"], "what it wrote: %s" % out.get("saved_steps"))
+    again = run_code("import bpy\nbpy.ops.wm.save_mainfile()")
+    check(again.get("saved_steps") == [], "a save with nothing pending says so: %s" % again.get("saved_steps"))
+    later = run_code("import bpy\nbpy.ops.wm.save_mainfile()\nbpy.data.objects['Brick'].location.x = 3")
+    check(later.get("unsaved", {}).get("file") == "ex06.blend", "a change after the save stays unsaved: %s" % later.get("unsaved"))
+
+
+@test
+def t06_a_reopened_rigid_body_bake_is_explained():
+    empty()
+    path = os.path.join(SCRATCH, "baked.blend")
+    built = run_code(
+        "import bpy\nbpy.ops.mesh.primitive_cube_add(location=(0, 0, 2))\nbpy.ops.rigidbody.object_add()\n"
+        "s = bpy.context.scene\npc = s.rigidbody_world.point_cache\npc.frame_end = 30\n"
+        "with bpy.context.temp_override(scene=s, point_cache=pc):\n    bpy.ops.ptcache.bake(bake=True)\n"
+        "bpy.ops.wm.save_as_mainfile(filepath=%r)\nbpy.ops.wm.open_mainfile(filepath=%r)" % (path, path))
+    check(built["status"] == "executed", "built, baked, saved, reopened: %s" % built.get("message"))
+    program = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "programs", "verify.py")
+    code = "import json\nPARAMS = json.loads(%r)\n" % json.dumps({"criteria": [{"expr": "frame", "op": "==", "value": 20}], "frame": 20})
+    out = run_code(code + open(program, encoding="utf-8").read(), read_only=True)
+    caches = out["result"].get("caches") or []
+    check(caches and caches[0]["cache"] == "rigid body world" and caches[0].get("outdated") is True, "flagged: %s" % caches)
+    check("when its file is opened" in caches[0].get("note", ""), "and explained: %s" % caches[0])
+
+
 @test
 def u_an_apply_result_says_it_too():
     empty()

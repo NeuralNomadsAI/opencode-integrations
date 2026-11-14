@@ -897,6 +897,8 @@ class HostCore(object):
                     self._quarantine("failed %s: %s" % (label, error))
             if changed and not replaced:
                 self.app.bump_revision()  # a load already moved the revision
+            if saved and hasattr(self.app, "settle_save"):
+                self.app.settle_save()  # nothing changed after the save: the document is as saved
         return _Run(value=value, error=error, trace=trace, changed=changed, restored=restored, undo_step=step,
                     stdout=out.getvalue(), stderr=err.getvalue(), revision_before=revision, saved=saved)
 
@@ -959,8 +961,9 @@ class HostCore(object):
                 output["undo_step"] = done.undo_step
             if done.saved:
                 output["saved"] = True
-                if unsaved_before and unsaved_before.get("opencode_steps"):
-                    output["saved_steps"] = unsaved_before["opencode_steps"]  # what that save wrote of OpenCode's
+                # What that save wrote of OpenCode's: the steps the file lacked before the run (none: an empty list).
+                output["saved_steps"] = (unsaved_before or {}).get("opencode_steps", []) + (
+                    ["OpenCode: code (this run)"] if done.changed else [])
             if warnings:
                 output["warnings"] = warnings
             if done.error:

@@ -172,7 +172,7 @@ export function createRegistry(marker: IntegrationMarker, options: BlenderOption
 // label: the attached offer's label when the ticket was taken (a permission prompt shows it).
 type Ticket = { authority: BindingAuthority; bound: HostBinding; label?: string }
 // A fixed program's run: its result, with what the open document's file lacks and what a save wrote.
-type ProgramRun = { result?: unknown; unsaved?: unknown; saved_steps?: string[] }
+type ProgramRun = { result?: unknown; unsaved?: unknown; saved?: boolean; saved_steps?: string[] }
 type Hello = { script_handle: string; revision: number; host_version?: string; document?: unknown }
 
 export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) {
@@ -430,7 +430,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     const out = await programRun(context, "save", args)
     return {
       ...(out.result as Record<string, unknown>),
-      ...(out.saved_steps ? { wrote_steps: out.saved_steps } : {}),
+      // A save of the open file always says what it wrote of OpenCode's (none: an empty list).
+      ...(out.saved ? { wrote_steps: out.saved_steps ?? [] } : {}),
       ...(out.unsaved ? { unsaved: out.unsaved } : {}),
     }
   }

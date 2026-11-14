@@ -19,7 +19,7 @@ const OPS043_TESTS = 3
 // The tests of ops044_tests.py: the 0.4.3 exercises' findings (QA journal, Luna section).
 const OPS044_TESTS = 12
 // The tests of ops045_tests.py: the 0.4.4 exercises' findings (QA journal, Luna section).
-const OPS045_TESTS = 5
+const OPS045_TESTS = 8
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -340,6 +340,9 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       const copy = json(await plugin.tool("blender_save", { path: join(iso.root, "copy.blend"), copy: true }))
       assert.equal(copy.unsaved.file, "ex06.blend", JSON.stringify(copy))
       assert.equal(copy.wrote_steps, undefined)
+      // A save with nothing pending from OpenCode says so (the trial's second save of the library).
+      assert.deepEqual(json(await plugin.tool("blender_save", {})).wrote_steps, ["OpenCode: code"])
+      assert.deepEqual(json(await plugin.tool("blender_save", {})).wrote_steps, [])
     } finally {
       await stop()
     }

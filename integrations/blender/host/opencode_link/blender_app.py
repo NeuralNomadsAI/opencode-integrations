@@ -168,6 +168,7 @@ class BlenderApp(object):
         self._loads = 0
         self._saved_revision = None  # the revision at the last save or load of a file
         self._steps_since_save = []  # the OpenCode undo steps pushed since then
+        self._saved_content = None
         self._handle = new_script_handle()
         self._main = threading.main_thread()
         self.background = bool(bpy.app.background)
@@ -244,7 +245,17 @@ class BlenderApp(object):
         self._saves += 1
         self._saved_revision = self._revision
         self._steps_since_save = []
+        # Saved by an OpenCode run (a code run calling save_mainfile): what the file holds, to tell at the run's
+        # end whether the run changed anything after saving (settle_save).
+        self._saved_content = self.content_digest() if self._quiet else None
         self.refresh_document()
+
+    def settle_save(self):
+        """After a run that saved the open file and moved the revision: the document is as saved when its content
+        is the one saved. Blender's is_dirty says so only at the next event loop in an interface Blender."""
+        saved, self._saved_content = self._saved_content, None
+        if saved is not None and self.content_digest() == saved:
+            self._saved_revision = self._revision
 
     def unsaved(self):
         """What the file lacks, when the document differs from it: the file's name (None: never saved) and the
@@ -354,14 +365,15 @@ class BlenderApp(object):
         return self._loads
 
     def unsaved_changes(self):
-        """Whether the document differs from its file. Blender's is_dirty, except in background mode, where it
-        stays set after any undo step even across a save and a reload: there, a document unchanged since its
-        last save or load counts as saved."""
+        """Whether the document differs from its file. A document unchanged since its last save or load counts as
+        saved: Blender's is_dirty lags there (an interface Blender clears it only at its next event loop, after the
+        code run that saved; a background one keeps it after any undo step, even across a save and a reload).
+        Otherwise Blender's is_dirty."""
         if not bpy.data.filepath:
             return True
-        if not bpy.data.is_dirty:
+        if self._saved_revision == self._revision:
             return False
-        return not (bpy.app.background and self._saved_revision == self._revision)
+        return bool(bpy.data.is_dirty)
 
     @contextlib.contextmanager
     def quiet(self):
@@ -444,7 +456,8 @@ class BlenderApp(object):
     def undo_push(self, message):
         self._with_window(lambda: bpy.ops.ed.undo_push(message=message[:63]))
         op_watch.undo_stack_made()
-        if not message.startswith("OpenCode: before "):  # a barrier marks a start, not a change
+        # A barrier marks a start; a failure step is undone at once by the restoration: neither is a change.
+        if not message.startswith(("OpenCode: before ", "OpenCode: failed ")):
             self._steps_since_save = (self._steps_since_save + [message[:63]])[-50:]
 
     def undo(self):

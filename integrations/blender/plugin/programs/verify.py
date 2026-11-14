@@ -631,6 +631,9 @@ def simulation_caches(checked):
     world = scene.rigidbody_world
     if world is not None and world.enabled:
         point_cache("rigid body world", world.point_cache)
+        if out and out[-1]["cache"] == "rigid body world" and out[-1].get("outdated"):
+            # Blender 5.3 flags every rigid body bake outdated when its file is opened; its frames still play.
+            out[-1]["note"] = "Blender also marks a rigid body bake outdated when its file is opened; its baked frames still play"
     for obj in scene.objects:
         for m in obj.modifiers:
             if not m.show_render and not m.show_viewport:
