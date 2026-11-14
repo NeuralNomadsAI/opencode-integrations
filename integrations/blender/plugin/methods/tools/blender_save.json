@@ -1,7 +1,7 @@
 {
   "name": "blender_save",
   "domain": "tools",
-  "description": "Save the open file; with path, save it under that .blend (as the open file, or a copy with copy true). Relative paths are next to the current file; an existing other file needs overwrite. Says what it wrote (bytes, wrote_steps: the OpenCode steps now in the file) and, after a copy, what the open file still lacks (unsaved).",
+  "description": "Save the open file; with path, save it under that .blend (as the open file, or a copy with copy true). Relative paths are next to the current file; an existing other file needs overwrite. Says what it wrote (bytes, wrote_steps: the OpenCode steps now in the file) and, after a copy, what the open file still lacks (unsaved). blender_verify with saved reads the file back.",
   "kind": "host-backed",
   "risk": "write",
   "args": {

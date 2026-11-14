@@ -183,6 +183,10 @@ describe("a Blender that closed", () => {
 describe("the working method", () => {
   it("is short, joins a conversation once, and never fails a Blender call", async () => {
     assert.ok(METHOD_TEXT.split("\n").length <= 10 && METHOD_TEXT.length < 1_000)
+    // 0.4.7: each requirement checked on the saved file before reporting, and what is not proven said.
+    assert.match(METHOD_TEXT, /each requirement of your task into a check/)
+    assert.match(METHOD_TEXT, /blender_verify saved: true/)
+    assert.match(METHOD_TEXT, /unchecked one is not done: say so/)
     resetMethodForTests()
     let calls = 0
     const failing = methodAttacher(async () => {

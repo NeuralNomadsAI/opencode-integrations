@@ -18,7 +18,7 @@
     },
     "saved": {
       "type": "any",
-      "description": "true: read the open file as saved on disk (a background Blender opens it; same criteria, visible and render), or a .blend path. Compare it with the open document."
+      "description": "true: read the open file as saved on disk (a background Blender opens it; same criteria, visible and render), or a .blend path. The file is what is delivered: check its requirements here before reporting."
     },
     "render": {
       "type": "boolean",

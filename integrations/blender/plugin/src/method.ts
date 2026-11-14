@@ -5,10 +5,11 @@ export const METHOD_KEY = "blender.method"
 export const METHOD_TEXT = [
   "Working on the open Blender:",
   "- Your knowledge of its Python API may be older than it: read its version (blender_hosts, blender_inspect).",
-  "- Inspect the exact element before coding it: blender_inspect search (words) finds where a setting lives; then its type, operator, node type in its tree or live data.",
-  "- After an error, read its hint (closest names, real signature, keys, sockets) and inspect again; never guess twice.",
-  "- An operator that needs a context gets it from bpy.context.temp_override(window, area, region, id, ...).",
-  "- Before finishing, turn your acceptance criteria into checks (value, comparison, frames): blender_verify criteria, and visible for what must be seen. Report measured values; a failed check is not done.",
+  "- Inspect the exact element before coding it (blender_inspect search, type, operator, node type in its tree, data).",
+  "- After an error, read its hint and inspect again; never guess twice. A refused operator's hint names the context that passes.",
+  "- Turn each requirement of your task into a check (value, comparison, frames; visible for what must be seen).",
+  "- The saved file is what you deliver: save, then run every check on it with blender_verify saved: true.",
+  "- Report each requirement with its measured value from the file. A failed or unchecked one is not done: say so.",
   "- Still unclear: the docs and Python API release notes of THIS version (links in blender_inspect).",
   "- Write down what you discover (a recent change, a silent failure) in your report, with the Blender version.",
 ].join("\n")
