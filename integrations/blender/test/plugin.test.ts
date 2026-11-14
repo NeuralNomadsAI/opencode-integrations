@@ -27,9 +27,9 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.0 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.3 host lists, on Blender 5.3.
 const CAPABILITIES = {
-  methods: ["hello", "scene", "apply", "execute_code", "lab_tool"],
+  methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
   undo: "grouped_best_effort" as const,
   background: false,
@@ -441,6 +441,94 @@ describe("tools", () => {
     )
   })
 
+  it("other conversations attaching other Blenders never make this one's ownership unverifiable (Luna 06)", async () => {
+    const { location } = { location: { directory: join(tmpdir(), "location") } }
+    const sessions = new Map(["ses_test", "ses_one", "ses_two"].map((id) => [id, { id, location: { ...location } }]))
+    let during: (() => void) | undefined
+    const loaded = await plugin({
+      location,
+      sessions,
+      // OpenCode's session lookup takes time; meanwhile another conversation changes the shared offers.
+      nativeGet: async ({ sessionID }) => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        const run = during
+        during = undefined
+        run?.()
+        return sessions.get(sessionID)
+      },
+      answer: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        loaded.registry.detach("ses_two")
+        loaded.registry.attach(offerOf("Blender: b.blend"), "ses_two")
+        return "allow" as const
+      },
+    })
+    const methods = {
+      scene: () => ({ revision: 0, objects: [] }),
+      execute_code: () => ({ status: "executed", result: {} }),
+    }
+    const blenders = await Promise.all(
+      ["a", "b", "c"].map((name) => fakeHost({ scriptHandle: `blend-${name}`, methods })),
+    )
+    for (const [index, host] of blenders.entries())
+      await loaded.rpc("advertise", {
+        ...announcement(host.endpoint, host.scriptHandle, `offer-${index}`),
+        label: `Blender: ${"abc"[index]}.blend`,
+      })
+    const offerOf = (label: string) =>
+      loaded.registry.hosts().offers.find((offer) => offer.label === label)?.offerID ?? ""
+    const listed = content(await loaded.tool("blender_hosts", { attach: offerOf("Blender: a.blend") }))
+    assert.equal(listed.attached, "attached")
+    assert.deepEqual(listed.attached_to, { offerID: offerOf("Blender: a.blend"), label: "Blender: a.blend" })
+    // Another conversation attaches c while this one's ownership is looked up.
+    during = () => loaded.registry.attach(offerOf("Blender: c.blend"), "ses_one")
+    const scene = content(await loaded.tool("blender_context"))
+    assert.deepEqual(scene.attached_to, { offerID: offerOf("Blender: a.blend"), label: "Blender: a.blend" })
+    // And another attaches b while this one's code run waits for its permission.
+    content(await loaded.tool("blender_execute_code", { code: "x = 1" }))
+    assert.ok(
+      blenders[0]?.requests.some((request) => request.method === "execute_code"),
+      "ran on a.blend",
+    )
+    assert.ok(!blenders[1]?.requests.some((request) => request.method === "execute_code"), "never on b.blend")
+  })
+
+  it("blender_context releases a quarantine with the revision of a read, then reads again", async () => {
+    const calls: Array<[string, Record<string, unknown>]> = []
+    let quarantined = true
+    const { loaded } = await attached({
+      release: (params) => {
+        calls.push(["release", params])
+        quarantined = false
+        return { released: true, revision: 8 }
+      },
+      scene: (params) => {
+        calls.push(["scene", params])
+        return quarantined
+          ? {
+              revision: 7,
+              quarantined: true,
+              quarantine: { cause: "failed code", may_have_changed: ["Object 'Stray' added"] },
+            }
+          : { revision: 8 }
+      },
+    })
+    const read = content(await loaded.tool("blender_context"))
+    assert.deepEqual(read.quarantine.may_have_changed, ["Object 'Stray' added"])
+    const released = content(await loaded.tool("blender_context", { release_quarantine: read.revision }))
+    assert.equal(released.released, true)
+    assert.equal(released.quarantined, undefined)
+    assert.deepEqual(
+      calls.map(([method, params]) => [method, params.revision]),
+      [
+        ["scene", undefined],
+        ["release", 7],
+        ["scene", undefined],
+      ],
+    )
+    assert.deepEqual(loaded.permissions, [], "a release asks nothing: the agent read the scene")
+  })
+
   it("blender_execute_code asks permission on every run; a denied run reaches nothing", async () => {
     let answer: "allow" | "deny" = "allow"
     const runs: Array<Record<string, unknown>> = []
@@ -731,7 +819,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.2/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.3/)
     assert.ok(loaded)
   })
 })

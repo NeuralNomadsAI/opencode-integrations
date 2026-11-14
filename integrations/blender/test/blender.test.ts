@@ -14,6 +14,8 @@ import { announcement, loadPlugin } from "./helpers/plugin.ts"
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 // The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
 const OPS042_TESTS = 10
+// The tests of ops043_tests.py: the blockers of the 0.4.2 exercises (QA journal, Luna section).
+const OPS043_TESTS = 3
 const folder = join(import.meta.dirname, "blender")
 
 type Result = { passed: string[]; failed: Array<{ name: string; error: string; trace: string }> }
@@ -37,6 +39,28 @@ async function hostScript<T extends Result>(script: string, args: (scratch: stri
   } finally {
     iso.cleanup()
   }
+}
+
+// One second of a 440 Hz tone, 16-bit mono WAV.
+function toneWav() {
+  const rate = 22_050
+  const samples = Buffer.alloc(rate * 2)
+  for (let i = 0; i < rate; i += 1)
+    samples.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000), i * 2)
+  const header = Buffer.alloc(44)
+  header.write("RIFF", 0)
+  header.writeUInt32LE(36 + samples.length, 4)
+  header.write("WAVEfmt ", 8)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(1, 22)
+  header.writeUInt32LE(rate, 24)
+  header.writeUInt32LE(rate * 2, 28)
+  header.writeUInt16LE(2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write("data", 36)
+  header.writeUInt32LE(samples.length, 40)
+  return Buffer.concat([header, samples])
 }
 
 // The add-on of these sources served by a private background Blender, and a plugin attached to it.
@@ -107,6 +131,10 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     const ops = join(import.meta.dirname, "..", "host", "ops.json")
     assert.equal((await hostScript("ops040_tests.py", (scratch) => [scratch, ops])).passed.length, 9)
     assert.equal((await hostScript("defects_tests.py", (scratch) => [scratch])).passed.length, 6)
+  })
+
+  it("passes the tests of the 0.4.2 exercises' blockers (0.4.3)", async () => {
+    assert.equal((await hostScript("ops043_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS043_TESTS)
   })
 
   it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
@@ -250,6 +278,107 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
         plugin.permissions.map((request) => request.action),
         ["blender_execute_code", "blender_import"],
       )
+    } finally {
+      await stop()
+    }
+  })
+
+  it("blender_verify says which scene it read, and finds the shot's camera under a text and a sound (Luna 08)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      writeFileSync(join(iso.root, "tone.wav"), toneWav())
+      // The exercise's layout: the active scene is a shot; the montage is another scene's sequencer.
+      const built = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy",
+            "shot = bpy.context.scene",
+            "shot.render.engine = 'BLENDER_WORKBENCH'",
+            "cam = bpy.data.objects.new('Shot Camera', bpy.data.cameras.new('Shot Camera'))",
+            "shot.collection.objects.link(cam)",
+            "shot.camera = cam",
+            "edit = bpy.data.scenes.new('Edit')",
+            "edit.render.engine = 'BLENDER_WORKBENCH'",
+            "ed = edit.sequence_editor_create()",
+            "ed.strips.new_scene(name='Shot', scene=shot, channel=1, frame_start=1)",
+            "title = ed.strips.new_effect(name='TITLE', type='TEXT', channel=2, frame_start=1, length=24)",
+            "title.text = 'TITLE'",
+            `ed.strips.new_sound(name='Tone', filepath=${JSON.stringify(join(iso.root, "tone.wav"))}, channel=3, frame_start=1)`,
+          ].join("\n"),
+        }),
+      )
+      assert.equal(built.status, "executed", JSON.stringify(built).slice(0, 1500))
+      const facts = async (args: Record<string, unknown>) =>
+        JSON.parse(
+          String(
+            (
+              (await plugin.tool("blender_verify", { frame: 5, size: 96, ...args })).content as ReadonlyArray<{
+                text?: string
+              }>
+            )[0]?.text,
+          ),
+        ).facts
+      const active = await facts({})
+      assert.equal(active.scene, "Scene")
+      assert.match(active.scene_read, /active scene/)
+      assert.deepEqual(active.scenes, ["Edit", "Scene"])
+      assert.ok(
+        active.warnings?.some((warning: string) => /shown by the montage of 'Edit'/.test(warning)),
+        JSON.stringify(active.warnings),
+      )
+      const montage = await facts({ scene: "Edit" })
+      assert.equal(montage.scene, "Edit")
+      assert.match(montage.scene_read, /given/)
+      assert.deepEqual(montage.camera_used, {
+        camera: "Shot Camera",
+        via: "strip 'Shot' (scene 'Scene') under text 'TITLE'",
+      })
+      assert.equal(montage.sequencer.used, true)
+    } finally {
+      await stop()
+    }
+  })
+
+  it("blender_render encodes a montage's sound and reports the streams it wrote (Luna 08)", async () => {
+    const { iso, plugin, stop, json } = await served()
+    try {
+      writeFileSync(join(iso.root, "tone.wav"), toneWav())
+      const montage = join(iso.root, "montage.blend")
+      const built = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy",
+            "sc = bpy.context.scene",
+            "sc.render.engine = 'BLENDER_WORKBENCH'",
+            "sc.render.resolution_x, sc.render.resolution_y, sc.render.fps = 160, 90, 24",
+            "sc.frame_start, sc.frame_end = 1, 24",
+            "ed = sc.sequence_editor_create()",
+            "ed.strips.new_effect(name='Card', type='COLOR', channel=1, frame_start=1, length=24)",
+            `ed.strips.new_sound(name='Tone', filepath=${JSON.stringify(join(iso.root, "tone.wav"))}, channel=2, frame_start=1)`,
+            `bpy.ops.wm.save_as_mainfile(filepath=${JSON.stringify(montage)})`,
+          ].join("\n"),
+        }),
+      )
+      assert.equal(built.status, "executed", JSON.stringify(built).slice(0, 1500))
+      const render = async (output: string) => {
+        const started = json(await plugin.tool("blender_render", { output, unsaved: "save" }))
+        return json(await plugin.tool("blender_render", { task: started.task, wait_s: 240 }))
+      }
+      const withSound = await render(join(iso.root, "montage.mp4"))
+      assert.equal(withSound.state, "done", JSON.stringify(withSound).slice(0, 2000))
+      assert.deepEqual(withSound.result.audio.sources, ["strip 'Tone'"])
+      assert.equal(withSound.result.streams.video.frames, 24)
+      assert.ok(withSound.result.streams.audio?.channels >= 1, JSON.stringify(withSound.result.streams))
+      // Muted, nothing is audible: no audio stream, and it is said.
+      json(
+        await plugin.tool("blender_execute_code", {
+          code: "import bpy\nbpy.context.scene.sequence_editor.strips['Tone'].mute = True",
+        }),
+      )
+      const silent = await render(join(iso.root, "silent.mp4"))
+      assert.equal(silent.state, "done", JSON.stringify(silent).slice(0, 2000))
+      assert.equal(silent.result.streams.audio, null)
+      assert.match(silent.result.audio.none, /nothing audible/)
     } finally {
       await stop()
     }

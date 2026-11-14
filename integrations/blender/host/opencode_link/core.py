@@ -53,6 +53,10 @@ APP_METHOD = "app"
 # The compact context of the thin layer (its edit batches go through apply).
 SCENE_METHOD = "scene"
 RELAUNCH_METHOD = "relaunch"
+# Lifts a quarantine once the scene was read again (the revision of that read).
+RELEASE_METHOD = "release"
+QUARANTINED = ("OpenCode Link is quarantined: a failed change could not be proven undone. Read the scene "
+               "(blender_context shows what may have changed), then release it with that read's revision.")
 # Methods whose results carry the errors and warnings Blender reported during the call.
 REPORTING = ("context", "describe", "apply", CODE_METHOD, LAB_METHOD, SCENE_METHOD)
 REPORT_LEVELS = ("error", "warning", "info", "output")
@@ -195,6 +199,10 @@ class HostCore(object):
         self._commands = collections.OrderedDict()
         self._commands_handle = None
         self.quarantined = False
+        # Why, and what the failed restoration may have left changed (shown while quarantined).
+        self.quarantine = None
+        # The last restoration's residue: may_have_changed, kept_linked.
+        self.residue = None
         self._applying = 0
         self._applying_lock = threading.Lock()
 
@@ -221,6 +229,7 @@ class HostCore(object):
             methods.append(RELAUNCH_METHOD)
         if hasattr(self.app, "thin_context"):
             methods.append(SCENE_METHOD)  # after the earlier methods: their order stays as it was
+        methods.append(RELEASE_METHOD)
         operations = []
         listed = dict(self.operations, **(self.native_operations if self._native() else {}))
         for name in sorted(listed):
@@ -289,6 +298,8 @@ class HostCore(object):
             return self.app.on_main(self.app.app_info)
         if method == RELAUNCH_METHOD and getattr(self.app, "relaunch_request", None) is not None:
             return self.app.on_main(lambda: self._relaunch(params))
+        if method == RELEASE_METHOD:
+            return self.app.on_main(lambda: self._release(params))
         raise HostFailure("method_not_found", "Unknown host method.")
 
     def _reports(self, params):
@@ -357,6 +368,8 @@ class HostCore(object):
             state["document"] = document
         if self.quarantined:
             state["quarantined"] = True
+            if self.quarantine:
+                state["quarantine"] = self.quarantine
         return state
 
     def _context(self, params):
@@ -475,7 +488,7 @@ class HostCore(object):
 
     def _apply(self, params, defer_worker=False):
         if self.quarantined:
-            raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
+            raise HostFailure("quarantined", QUARANTINED)
         self._check_handle(params)
         if thin_plan.names_edit_op(params.get("operations")):
             if not thin_plan.is_edit_batch(params.get("operations")) or not hasattr(self.app, "thin_run"):
@@ -529,14 +542,45 @@ class HostCore(object):
         return self.app.on_main(lambda: self._finish_worker(deferred, item))
 
     def _restore(self, before, summary):
-        """Model B: push a failure step, then undo once, which returns to the barrier."""
+        """Model B: push a failure step, then undo once, which returns to the barrier. Proven when the document's
+        own data is back; linked data Blender keeps outside its undo (unused, never saved) is named, not counted
+        (native_plans.restoration_residue). self.residue says what may have changed, and what was kept."""
+        self.residue = None
         try:
             self.app.undo_push("OpenCode: failed %s" % summary)
             self.app.undo()
             after = self.app.capture_after_undo(before) if hasattr(self.app, "capture_after_undo") else self.app.fingerprint()
-            return after == before
-        except Exception:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
+            self.residue = {"may_have_changed": ["the undo failed: %s" % bounded_message(error)]}
             return False
+        if not (hasattr(before, "state") and hasattr(after, "state")):
+            return after == before
+        proven, changes, kept = native_plans.restoration_residue(before, after)
+        cap = limits.value("change_entries")
+        self.residue = {key: value[:cap] for key, value in (("may_have_changed", changes), ("kept_linked", kept)) if value}
+        return proven
+
+    def _quarantine(self, cause):
+        """A failed change whose restoration is unproven: changes wait until the scene is read and the quarantine
+        released (release, or Reset in Blender's panel); reads, verify and read_only code still run."""
+        self.quarantined = True
+        self.quarantine = dict({"cause": bounded_message(cause)[:200],
+                                "release": "read the scene (blender_context), check what may have changed, then "
+                                           "release the quarantine with that read's revision"},
+                               **{key: value for key, value in (self.residue or {}).items()})
+
+    def _release(self, params):
+        self._check_handle(params)
+        if not self.quarantined:
+            return dict(self._state(), released=False)
+        revision = params.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision != self.app.revision():
+            raise HostFailure("stale_revision", "Read the scene again (blender_context) and release with its revision.")
+        self.quarantined = False
+        self.quarantine = None
+        self.app.reset_native() if hasattr(self.app, "reset_native") else None
+        self.app.bump_revision()
+        return dict(self._state(), released=True)
 
     def _run(self, checked, summary):
         """Rollback model B: barrier step, mutations, one named step; any failure after the barrier is rolled back."""
@@ -556,7 +600,7 @@ class HostCore(object):
         except Exception as error:  # noqa: BLE001 - every failure after the barrier is rolled back
             restored = self._restore(before, summary)
             if not restored:
-                self.quarantined = True
+                self._quarantine("failed %s: %s" % (summary, bounded_message(error)))
             self.app.bump_revision()
             output = self._state()
             output.update(
@@ -633,7 +677,8 @@ class HostCore(object):
         if failure is not None:
             restored, proofs = self.app.thin_rollback(batch)
             if not restored:
-                self.quarantined = True
+                self.residue = {"may_have_changed": list(proofs.get("unproved", [])) + list(proofs.get("errors", []))}
+                self._quarantine("failed %s: %s" % (summary, bounded_message(failure[0])))
             self.app.bump_revision()
             output = self._state()
             output.update(status="failed", failed_operation=failure[1], op=checked[failure[1]][0],
@@ -687,7 +732,7 @@ class HostCore(object):
 
     def _native_failure(self, before, stage, index, op, error, restored):
         if not restored:
-            self.quarantined = True
+            self._quarantine("failed %s at %s: %s" % (op or "plan", stage, bounded_message(error)))
         self.app.bump_revision()
         output = self._state()
         output.update(status="failed", stage=stage, failed_operation=index, op=op, message=bounded_message(error),
@@ -790,6 +835,7 @@ class HostCore(object):
         the run, then one named step when the document changed; a failure after a change is undone to the
         barrier and checked against the structural capture (quarantine when that cannot be proven)."""
         out, err = io.StringIO(), io.StringIO()
+        self.residue = None
         revision = self.app.revision()
         before = None
         if barrier:
@@ -830,9 +876,12 @@ class HostCore(object):
             elif changed and barrier and error is None:
                 pass  # the run saved the file: a step now would mark the saved file as modified again
             elif changed and barrier:
+                if before is None:
+                    self.residue = {"may_have_changed": ["no capture before the run: the document is above the "
+                                                         "structural budget"]}
                 restored = before is not None and self._restore(before, label)
                 if not restored:
-                    self.quarantined = True
+                    self._quarantine("failed %s: %s" % (label, error))
             if changed:
                 self.app.bump_revision()
         return _Run(value=value, error=error, trace=trace, changed=changed, restored=restored, undo_step=step,
@@ -843,8 +892,9 @@ class HostCore(object):
         code = params.get("code")
         if not isinstance(code, str) or not code.strip():
             raise HostFailure("invalid_args", "code is required")
-        if self.quarantined:
-            raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
+        # Quarantined, a read_only run still inspects (verify and inspect are read_only runs): changes wait.
+        if self.quarantined and params.get("read_only") is not True:
+            raise HostFailure("quarantined", QUARANTINED)
         # A script run from a file (blender_execute_code path): its tracebacks name the file and show its lines.
         filename = params.get("filename")
         if filename is not None and (not isinstance(filename, str) or not 0 < len(filename) <= 1024
@@ -887,6 +937,8 @@ class HostCore(object):
                 output.update(message=done.error, traceback=done.trace)
                 if done.changed:
                     output["restored"] = done.restored
+                    if self.residue:
+                        output["restoration"] = self.residue
             elif deferred_error:
                 output.update(message=bounded_message(deferred_error), traceback=deferred_error[-TRACE_MAX:])
             return output
@@ -905,7 +957,7 @@ class HostCore(object):
             # A screenshot shows what the interface last drew: draw the current document first.
             self.app.refresh_display()
         if self.quarantined and not read_only:
-            raise HostFailure("quarantined", "OpenCode Link is quarantined after a failed restoration: reset it.")
+            raise HostFailure("quarantined", QUARANTINED)
         done = self._guarded(self.lab.runner(tool, args), (tool.get("title") or tool["name"])[:48], barrier=not read_only)
 
         def finish(deferred=None, deferred_error=None):

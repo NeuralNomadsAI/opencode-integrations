@@ -94,19 +94,27 @@ def output_facts(f):
             [round(x, 3) for x in eye], [round(x, 3) for x in look], lens)}
         return facts
     active = strips_at(scene, f)
-    uses_sequencer = bool(r.use_sequencer and active)
+    # Sound strips are heard, not seen: the image comes from the others.
+    visible = [s for s in active if s.type != "SOUND"]
+    uses_sequencer = bool(r.use_sequencer and visible)
     facts["sequencer"] = {"used": uses_sequencer, "strips_at_frame": [
         {"name": s.name, "type": s.type, "channel": s.channel, "blend": getattr(s, "blend_type", None),
          **({"scene": s.scene.name if s.scene else None, "scene_camera": s.scene_camera.name if s.scene_camera else None}
             if s.type == "SCENE" else {})}
         for s in sorted(active, key=lambda s: -s.channel)]}
     if uses_sequencer:
-        top = max(active, key=lambda s: s.channel)
-        if top.type == "SCENE" and top.scene is not None:
-            cam = top.scene_camera.name if top.scene_camera else camera_at(top.scene, f - top.frame_start + top.scene.frame_start)[0]
-            facts["camera_used"] = {"camera": cam, "via": "top strip %r (scene %r)" % (top.name, top.scene.name)}
-            if top.scene == scene:
-                facts.setdefault("warnings", []).append("the top strip shows its own scene")
+        ordered = sorted(visible, key=lambda s: -s.channel)
+        top = ordered[0]
+        # A text, a color card or an effect over the shots: the camera is that of the first scene strip under it.
+        shown = next((s for s in ordered if s.type == "SCENE" and s.scene is not None), None)
+        if shown is not None:
+            cam = shown.scene_camera.name if shown.scene_camera else camera_at(shown.scene, f - shown.frame_start + shown.scene.frame_start)[0]
+            via = "strip %r (scene %r)" % (shown.name, shown.scene.name)
+            if shown is not top:
+                via += " under %s" % ", ".join("%s %r" % (s.type.lower(), s.name) for s in ordered[:ordered.index(shown)])
+            facts["camera_used"] = {"camera": cam, "via": via}
+            if shown.scene == scene:
+                facts.setdefault("warnings", []).append("the strip %r shows its own scene" % shown.name)
         else:
             facts["camera_used"] = {"camera": None, "via": "top strip %r (%s)" % (top.name, top.type)}
     else:
@@ -120,9 +128,32 @@ def output_facts(f):
 
 
 group = getattr(scene, "compositing_node_group", None)
-summary = {"scene": scene.name, "engine": r.engine, "film_transparent": r.film_transparent,
+
+
+def shown_by(target):
+    """The montages (other scenes' sequencers) with a strip showing target."""
+    found = []
+    for other in bpy.data.scenes:
+        se = other.sequence_editor
+        if other == target or se is None:
+            continue
+        every = getattr(se, "strips_all", None) or getattr(se, "sequences_all", [])
+        if any(s.type == "SCENE" and s.scene == target for s in every):
+            found.append(other.name)
+    return found
+
+
+summary = {"scene": scene.name,
+           "scene_read": "given (scene)" if P.get("scene") else "the active scene (give scene to read another)", "engine": r.engine, "film_transparent": r.film_transparent,
            "world": scene.world.name if scene.world else None,
            "compositing": {"use_compositing": r.use_compositing, "node_group": group.name if group else None}}
+if len(bpy.data.scenes) > 1:
+    summary["scenes"] = [s.name for s in bpy.data.scenes][:20]
+    montages = [] if P.get("scene") else shown_by(scene)
+    if montages:
+        summary.setdefault("warnings", []).append(
+            "scene %r is a shot shown by the montage of %s: its final output is there (give scene %r to see it)" % (
+                scene.name, ", ".join(repr(m) for m in montages), montages[0]))
 per_frame = [output_facts(f) for f in frames]
 
 old_frame = scene.frame_current
@@ -243,5 +274,9 @@ finally:
 
 if len(per_frame) > 1:
     summary["frames"] = per_frame
-result = {"blender": bpy.app.version_string, "facts": dict(summary, **per_frame[0]) if len(per_frame) == 1 else summary,
+if len(per_frame) == 1:
+    merged = dict(summary, **per_frame[0])
+    if summary.get("warnings") or per_frame[0].get("warnings"):
+        merged["warnings"] = summary.get("warnings", []) + per_frame[0].get("warnings", [])
+result = {"blender": bpy.app.version_string, "facts": merged if len(per_frame) == 1 else summary,
           "image_base64": image_b64}

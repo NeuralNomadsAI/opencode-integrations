@@ -7,7 +7,7 @@
   "args": {
     "scene": {
       "type": "string",
-      "description": "Default: the active scene."
+      "description": "Default: the active scene. The facts say which scene was read (scene, scene_read) and warn when it is a shot shown by another scene's montage."
     },
     "frame": {
       "type": "integer",
