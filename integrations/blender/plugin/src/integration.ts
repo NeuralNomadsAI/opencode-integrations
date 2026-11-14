@@ -171,6 +171,8 @@ export function createRegistry(marker: IntegrationMarker, options: BlenderOption
 
 // label: the attached offer's label when the ticket was taken (a permission prompt shows it).
 type Ticket = { authority: BindingAuthority; bound: HostBinding; label?: string }
+// A fixed program's run: its result, with what the open document's file lacks and what a save wrote.
+type ProgramRun = { result?: unknown; unsaved?: unknown; saved?: boolean; saved_steps?: string[] }
 type Hello = { script_handle: string; revision: number; host_version?: string; document?: unknown }
 
 export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) {
@@ -408,21 +410,30 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   }
 
   // A fixed program through the host's code execution, read only (programs.ts).
-  const program = async (context: ToolContext, name: ProgramName, params: unknown, timeoutMs?: number) => {
+  const programRun = async (context: ToolContext, name: ProgramName, params: unknown, timeoutMs?: number) => {
     const out = (await callHost(
       context,
       "execute_code",
       { code: programCode(name, params), read_only: true },
       timeoutMs,
-    )) as {
-      status?: string
-      result?: unknown
-      message?: string
-      traceback?: string
-    }
+    )) as ProgramRun & { status?: string; message?: string; traceback?: string }
     if (out.status === "failed")
       throw new Error(`blender_${name}: ${String(out.message ?? "")}\n${String(out.traceback ?? "").slice(-1200)}`)
-    return out.result
+    return out
+  }
+  const program = async (context: ToolContext, name: ProgramName, params: unknown, timeoutMs?: number) =>
+    (await programRun(context, name, params, timeoutMs)).result
+
+  // A save, and what it wrote: the OpenCode steps now in the file, and what the open document still lacks
+  // (a copy leaves the open file as it was).
+  const save = async (context: ToolContext, args: Record<string, unknown>) => {
+    const out = await programRun(context, "save", args)
+    return {
+      ...(out.result as Record<string, unknown>),
+      // A save of the open file always says what it wrote of OpenCode's (none: an empty list).
+      ...(out.saved ? { wrote_steps: out.saved_steps ?? [] } : {}),
+      ...(out.unsaved ? { unsaved: out.unsaved } : {}),
+    }
   }
 
   // Replays of a command_id without its revision answer the first result (the host replays its own).
@@ -587,12 +598,11 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
 
     async blender_verify(args, context) {
-      const { image_base64, ...rest } = (await program(context, "verify", args, VERIFY_TIMEOUT_MS)) as {
-        image_base64?: string
-      } & Record<string, unknown>
-      // Criteria first: what passed and failed, measured, then the facts.
+      const run = await programRun(context, "verify", args, VERIFY_TIMEOUT_MS)
+      const { image_base64, ...rest } = run.result as { image_base64?: string } & Record<string, unknown>
+      // Criteria first: what passed and failed, measured, then what the saved file lacks, then the facts.
       const { blender, facts, ...checks } = rest
-      const text = json({ blender, ...checks, facts })
+      const text = json({ blender, ...checks, ...(run.unsaved ? { unsaved: run.unsaved } : {}), facts })
       if (!image_base64) return text
       return [
         { type: "text", text },
@@ -712,15 +722,14 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
 
     async blender_save(args, context) {
       try {
-        return json(await program(context, "save", args))
+        return json(await save(context, args))
       } catch (error) {
         // Blender renames the file aside while saving; another process holding it a moment (a background render
         // reading it) fails that rename, and the save changed nothing: once more, a second later, and said.
         const message = error instanceof Error ? error.message : String(error)
         if (!TRANSIENT_SAVE.test(message)) throw error
         await new Promise((done) => setTimeout(done, SAVE_RETRY_MS))
-        const saved = (await program(context, "save", args)) as Record<string, unknown>
-        return json({ ...saved, retried: message.split("\n")[0]?.slice(0, 300) })
+        return json({ ...(await save(context, args)), retried: message.split("\n")[0]?.slice(0, 300) })
       }
     },
   }

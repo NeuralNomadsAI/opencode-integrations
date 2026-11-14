@@ -252,9 +252,9 @@ def _on_change(*_args):
 
 
 @persistent
-def _on_save(*_args):
+def _on_save(*args):
     if _session is not None:
-        _session.app.saved()
+        _session.app.saved(args[0] if args and isinstance(args[0], str) else None)
 
 
 @persistent

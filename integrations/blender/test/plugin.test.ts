@@ -27,7 +27,7 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.4 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.5 host lists, on Blender 5.3.
 const CAPABILITIES = {
   methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
@@ -820,7 +820,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.4/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.5/)
     assert.ok(loaded)
   })
 })
