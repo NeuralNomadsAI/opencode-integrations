@@ -1,17 +1,42 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # blender_inspect (fixed program, read only): what THIS Blender really exposes for a type, an operator or
-# live data, with the official documentation and Python API release notes of this version.
-# PARAMS is prepended by the plugin: {"type"?, "operator"?, "data"?: {"collection", "name", "path"?}, "match"?, "limit"?}
+# live data, or where words appear in its API, with the official documentation and Python API release notes of
+# this version. Everything is read from the running Blender (RNA, bpy.ops, nodes made in a temporary tree).
+# PARAMS is prepended by the plugin: {"type"?, "operator"?, "data"?: {"collection", "name", "path"?}, "search"?,
+# "tree"?, "match"?, "limit"?}
+import difflib
 import fnmatch
 import math
+import re
 
 import bpy
 
 P = PARAMS  # noqa: F821
 VER = "%d.%d" % bpy.app.version[:2]
 API = "https://docs.blender.org/api/%s/" % VER
-LIMIT = int(P.get("limit") or 60)
+LIMIT = max(1, min(200, int(P.get("limit") or 60)))
 MATCH = P.get("match")
+NAMES_MAX = 400  # names listed beyond the detailed entries, so nothing is cut silently
+
+
+def matches(ident, name="", desc=""):
+    """match: a glob on the identifier when it has * ? or [, otherwise words all found in the identifier, name or
+    description (case-insensitive)."""
+    if not MATCH:
+        return True
+    if any(c in MATCH for c in "*?["):
+        return fnmatch.fnmatchcase(ident, MATCH)
+    hay = " ".join((ident, name or "", desc or "")).lower()
+    return all(w in hay for w in MATCH.lower().split())
+
+
+def detailed(items, info, key, d):
+    """The first LIMIT items in detail under key; the others by name, with how to see them."""
+    d[key] = [info(i) for i in items[:LIMIT]]
+    rest = [i.identifier for i in items[LIMIT:]]
+    if rest:
+        d[key + "_more"] = {"count": len(rest), "names": rest[:NAMES_MAX],
+                            "details": "pass match (a glob or words) or a larger limit"}
 out = {
     "blender": bpy.app.version_string,
     "links": {
@@ -99,17 +124,25 @@ def struct_info(rna, holder=None):
     d = {"type": rna.identifier, "base": rna.base.identifier if rna.base else None, "doc": "%sbpy.types.%s.html" % (API, rna.identifier)}
     if rna.description:
         d["desc"] = rna.description[:200]
-    props = [p for p in rna.properties if p.identifier != "rna_type" and (not MATCH or fnmatch.fnmatchcase(p.identifier, MATCH))]
-    d["properties"] = [prop_info(p, holder) for p in props[:LIMIT]]
-    if len(props) > LIMIT:
-        d["properties_truncated"] = len(props)
-    funcs = [f for f in rna.functions if not MATCH or fnmatch.fnmatchcase(f.identifier, MATCH)]
-    d["functions"] = [func_info(f) for f in funcs[:LIMIT]]
+    props = [p for p in rna.properties if p.identifier != "rna_type" and matches(p.identifier, p.name, p.description)]
+    detailed(props, lambda p: prop_info(p, holder), "properties", d)
+    funcs = [f for f in rna.functions if matches(f.identifier, "", f.description)]
+    detailed(funcs, func_info, "functions", d)
     subs = sorted({t.bl_rna.identifier for t in (getattr(bpy.types, n, None) for n in dir(bpy.types))
                    if hasattr(t, "bl_rna") and t.bl_rna.base is not None and t.bl_rna.base.identifier == rna.identifier})
     if subs:
-        d["subtypes"] = subs[:80]
+        d["subtypes"] = subs[:NAMES_MAX]
+    if MATCH and not props and not funcs:
+        d["match_found_nothing"] = {"match": MATCH, "properties": [p.identifier for p in rna.properties][:NAMES_MAX]}
     return d
+
+
+def element_info(p):
+    """The element type of an operator's collection (or pointer) property: what each item holds."""
+    rna = p.fixed_type
+    own = {e.identifier: e for e in rna.properties if e.identifier != "rna_type"}  # the struct's own one wins
+    return {"type": rna.identifier, "properties": [prop_info(e) for e in own.values()],
+            **({"note": "each element: a dict holding every one of these properties"} if p.type == "COLLECTION" else {})}
 
 
 def modifier_inputs(mod):
@@ -199,14 +232,61 @@ def socket_info(s, temporary, values=True):
     return d
 
 
-def node_info(rna, live=None):
+def tree_types():
+    """The node tree types of this Blender (NodeTree's subtypes)."""
+    return sorted(n for n in dir(bpy.types) if n != "NodeTree" and is_type_of(getattr(bpy.types, n, None), "NodeTree"))
+
+
+def is_type_of(cls, base):
+    rna = getattr(cls, "bl_rna", None)
+    while rna is not None:
+        if rna.identifier == base:
+            return True
+        rna = rna.base
+    return False
+
+
+def chosen_tree(value):
+    """tree: a NodeTree type, or a word its name starts with (shader, geometry, compositing, texture)."""
+    trees = tree_types()
+    if value in trees:
+        return value
+    found = [t for t in trees if t.lower().startswith(str(value).lower()[:6])]
+    if len(found) == 1:
+        return found[0]
+    raise ValueError("tree %r: one of %s" % (value, trees))
+
+
+def creatable(tree_type, wanted):
+    """Node types closest to `wanted` that this Blender creates in a tree of tree_type, with their sockets' names."""
+    names = [n for n in dir(bpy.types) if is_type_of(getattr(bpy.types, n, None), "Node")]
+    words = [w for w in re.split(r"(?<=[a-z])(?=[A-Z])", wanted) if len(w) > 2 and w not in ("Node", "Shader", "Geometry", "Compositor", "Function", "Texture")]
+    candidates = difflib.get_close_matches(wanted, names, n=8, cutoff=0.5)
+    candidates += [n for n in names if n not in candidates and any(w.lower() in n.lower() for w in words)]
+    out = []
+    with bpy.data.temp_data() as td:
+        tree = td.node_groups.new("inspect", tree_type)
+        for name in candidates:
+            try:
+                node = tree.nodes.new(name)
+            except Exception:  # noqa: BLE001
+                continue
+            out.append({"type": name, "label": node.name, "inputs": [s.name for s in node.inputs][:24],
+                        "outputs": [s.name for s in node.outputs][:24]})
+            tree.nodes.remove(node)
+            if len(out) >= 12:
+                break
+    return out
+
+
+def node_info(rna, live=None, tree_type=None):
     """Own properties (with values for a live node) and real sockets of a node type or a node."""
     d = {"type": rna.identifier, "base": rna.base.identifier if rna.base else None, "doc": "%sbpy.types.%s.html" % (API, rna.identifier)}
     if rna.description:
         d["desc"] = rna.description[:200]
-    own = [p for p in rna.properties if p.identifier not in NODE_PROPS and (not MATCH or fnmatch.fnmatchcase(p.identifier, MATCH))]
-    d["properties"] = [prop_info(p, live) for p in own[:LIMIT]]
-    tree_type = next((tree for prefix, tree in TREES if rna.identifier.startswith(prefix)), "GeometryNodeTree")
+    own = [p for p in rna.properties if p.identifier not in NODE_PROPS and matches(p.identifier, p.name, p.description)]
+    detailed(own, lambda p: prop_info(p, live), "properties", d)
+    tree_type = tree_type or next((tree for prefix, tree in TREES if rna.identifier.startswith(prefix)), "GeometryNodeTree")
     with bpy.data.temp_data() as td:
         tree = td.node_groups.new("inspect", live.id_data.bl_idname if live is not None else tree_type)
         try:
@@ -214,6 +294,7 @@ def node_info(rna, live=None):
         except Exception as ex:  # noqa: BLE001
             node = None
             d["sockets_error"] = "cannot create %s in a %s: %s" % (rna.identifier, tree.bl_idname, str(ex)[:160])
+            d["creatable_in_%s" % tree.bl_idname] = creatable(tree.bl_idname, rna.identifier)
         menus = {}
         if node is not None:
             if live is None:
@@ -230,13 +311,19 @@ def node_info(rna, live=None):
     return d
 
 
+TREE = chosen_tree(P["tree"]) if P.get("tree") else None
+
 if P.get("type"):
     t = getattr(bpy.types, P["type"], None)
     if t is None or not hasattr(t, "bl_rna"):
-        close = sorted(n for n in dir(bpy.types) if P["type"].lower() in n.lower())[:30]
-        out["type"] = {"error": "no type %r in this Blender" % P["type"], "similar": close}
+        names = dir(bpy.types)
+        close = difflib.get_close_matches(P["type"], names, n=10, cutoff=0.5)
+        close += sorted(n for n in names if P["type"].lower() in n.lower() and n not in close)
+        out["type"] = {"error": "no type %r in this Blender" % P["type"], "similar": close[:40]}
+        if TREE:
+            out["type"]["creatable_in_%s" % TREE] = creatable(TREE, P["type"])
     elif is_node_type(t.bl_rna) and t.bl_rna.identifier not in ("Node", "ShaderNode", "GeometryNode", "CompositorNode", "FunctionNode", "TextureNode", "NodeInternal"):
-        out["type"] = node_info(t.bl_rna)
+        out["type"] = node_info(t.bl_rna, tree_type=TREE)
     else:
         out["type"] = struct_info(t.bl_rna)
 
@@ -248,19 +335,41 @@ if P.get("operator"):
     except Exception:  # noqa: BLE001
         rna = None
     if rna is None:
-        mod_ops = getattr(bpy.ops, module, None)
-        out["operator"] = {"error": "no operator %r in this Blender" % P["operator"], "in_module": sorted(dir(mod_ops))[:80] if mod_ops else []}
+        modules = sorted(dir(bpy.ops))
+        mod_ops = getattr(bpy.ops, module, None) if module in modules else None
+        in_module = sorted(dir(mod_ops)) if mod_ops else []
+        out["operator"] = {"error": "no operator %r in this Blender" % P["operator"],
+                           "closest": ["%s.%s" % (module, n) for n in difflib.get_close_matches(name, in_module, n=8, cutoff=0.5)],
+                           "in_module": in_module[:NAMES_MAX]}
+        if mod_ops is None:
+            out["operator"]["closest_modules"] = difflib.get_close_matches(module, modules, n=6, cutoff=0.5)
     else:
         try:
             poll = op.poll()
         except Exception as ex:  # noqa: BLE001
             poll = "unknown: %s" % ex
-        out["operator"] = {
+        report = {"in_this_context": poll}
+        if poll is False:
+            # Blender checks poll before running: the call fails at once, with the reason it gives, if any.
+            try:
+                op()
+            except Exception as ex:  # noqa: BLE001
+                report["blender_says"] = str(ex)[:300]
+            ctx = bpy.context
+            report["context"] = {"window": ctx.window is not None, "area": ctx.area.type if ctx.area else None,
+                                 "region": ctx.region.type if ctx.region else None, "mode": ctx.mode,
+                                 "active_object": ctx.active_object.name if ctx.active_object else None,
+                                 "id": getattr(ctx, "id", None) is not None}
+            report["give_context"] = "bpy.context.temp_override(window=..., area=..., region=..., id=..., active_object=...)"
+        props = [p for p in rna.properties if p.identifier != "rna_type"]
+        info = {
             "id": P["operator"], "name": rna.name, "desc": (rna.description or "")[:300],
             "doc": "%sbpy.ops.%s.html#bpy.ops.%s.%s" % (API, module, module, name),
-            "poll_without_ui_context": poll,
-            "properties": [prop_info(p) for p in rna.properties if p.identifier != "rna_type"][:LIMIT],
+            "poll": report,
         }
+        detailed(props, lambda p: dict(prop_info(p), **({"element": element_info(p)} if p.type in ("COLLECTION", "POINTER") else {})),
+                 "properties", info)
+        out["operator"] = info
 
 if P.get("data"):
     spec = P["data"]
@@ -287,5 +396,73 @@ if P.get("data"):
                     if getattr(target, "type", None) == "NODES" and isinstance(target, bpy.types.Modifier):
                         info["geometry_nodes_inputs"] = modifier_inputs(target)
                     out["data"] = info
+
+def search(text):
+    """Where words appear in this Blender's API: types, their own properties and functions, operators. Every word
+    is found in the identifier, name or description; identifier matches rank first. A type lists the properties
+    that lead to it (reached_by)."""
+    words = [w.lower() for w in str(text).split() if w]
+    if not words:
+        raise ValueError("search: give one or more words")
+
+    def score(ident, name, desc):
+        ident, name = ident.lower(), (name or "").lower()
+        hay = " ".join((ident, name, (desc or "").lower()))
+        if not all(w in hay for w in words):
+            return 0
+        return sum(3 if w in ident else 2 if w in name else 1 for w in words)
+
+    hits, reached = [], {}
+    for type_name in dir(bpy.types):
+        rna = getattr(getattr(bpy.types, type_name, None), "bl_rna", None)
+        if rna is None or rna.identifier != type_name:
+            continue
+        inherited = {p.identifier for p in rna.base.properties} if rna.base else set()
+        inherited_f = {f.identifier for f in rna.base.functions} if rna.base else set()
+        s = score(type_name, rna.name, rna.description)
+        if s:
+            hits.append((s + 1, {"kind": "type", "path": type_name, "desc": (rna.description or "")[:120]}))
+        for p in rna.properties:
+            if p.identifier == "rna_type" or p.identifier in inherited:
+                continue
+            if p.type in ("POINTER", "COLLECTION"):
+                reached.setdefault(p.fixed_type.identifier, []).append("%s.%s" % (type_name, p.identifier))
+            s = score(p.identifier, p.name, p.description)
+            if s:
+                kind = p.type + (":" + p.fixed_type.identifier if p.type in ("POINTER", "COLLECTION") else "")
+                hits.append((s, {"kind": "property", "path": "%s.%s" % (type_name, p.identifier), "type": kind,
+                                 "desc": (p.description or "")[:120]}))
+        for f in rna.functions:
+            if f.identifier in inherited_f:
+                continue
+            s = score(f.identifier, "", f.description)
+            if s:
+                hits.append((s, {"kind": "function", "path": "%s.%s()" % (type_name, f.identifier),
+                                 "desc": (f.description or "")[:120]}))
+    for module in dir(bpy.ops):
+        for name in dir(getattr(bpy.ops, module)):
+            try:
+                rna = getattr(getattr(bpy.ops, module), name).get_rna_type()
+            except Exception:  # noqa: BLE001
+                continue
+            s = score("%s.%s" % (module, name), rna.name, rna.description)
+            if s:
+                hits.append((s, {"kind": "operator", "path": "bpy.ops.%s.%s" % (module, name),
+                                 "desc": (rna.description or "")[:120]}))
+    hits.sort(key=lambda h: (-h[0], len(h[1]["path"]), h[1]["path"]))
+    results = []
+    for _, hit in hits[:LIMIT]:
+        if hit["kind"] == "type" and reached.get(hit["path"]):
+            hit["reached_by"] = reached[hit["path"]][:8]
+        results.append(hit)
+    found = {"words": words, "found": len(hits), "results": results}
+    if len(hits) > LIMIT:
+        found["more"] = {"count": len(hits) - LIMIT, "paths": [h[1]["path"] for h in hits[LIMIT:LIMIT + NAMES_MAX]],
+                         "details": "add words, or inspect a path's type or operator"}
+    return found
+
+
+if P.get("search"):
+    out["search"] = search(P["search"])
 
 result = out

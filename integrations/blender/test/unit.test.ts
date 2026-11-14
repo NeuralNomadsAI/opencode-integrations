@@ -1,13 +1,15 @@
 // Units without a host: the plugin's validation of edit batches against the add-on's published operations
-// (host/ops.json), the fixed programs, render task verification and the working method.
+// (host/ops.json), the fixed programs, render task verification, the notice of a closed Blender and the working
+// method.
 
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
+import { closedMessage, readProcess } from "../plugin/src/closed.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { METHOD_TEXT, methodAttacher, resetMethodForTests } from "../plugin/src/method.ts"
 import { programCode } from "../plugin/src/programs.ts"
@@ -151,6 +153,30 @@ describe("fixed programs and render tasks", () => {
         .state,
       "done",
     )
+  })
+})
+
+describe("a Blender that closed", () => {
+  it("is said with its process and the crash report it wrote since it was reached, never while it lives", () => {
+    const dir = mkdtempSync(join(tmpdir(), "blender-closed-"))
+    assert.equal(readProcess({ process: { pid: -1, temp_dir: dir } }), null)
+    assert.equal(readProcess({ process: { pid: 12, temp_dir: "" } }), null)
+    assert.equal(readProcess({ revision: 1 }), null)
+    const host = readProcess({ process: { pid: 4242, temp_dir: dir } }, "Blender: shot.blend", Date.now())
+    assert.ok(host)
+    assert.equal(
+      closedMessage(host, () => true),
+      null,
+    )
+    const old = join(dir, "earlier.crash.txt")
+    writeFileSync(old, "")
+    utimesSync(old, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    assert.match(
+      String(closedMessage(host, () => false)),
+      /^Blender closed \(Blender: shot\.blend\): its process 4242 has ended, with no crash report in /,
+    )
+    writeFileSync(join(dir, "shot.crash.txt"), "# Blender 5.3.0\n")
+    assert.match(String(closedMessage(host, () => false)), /Crash report: .*shot\.crash\.txt\. Open Blender again/)
   })
 })
 

@@ -1,17 +1,25 @@
 {
   "name": "blender_inspect",
   "domain": "tools",
-  "description": "Ask THIS Blender what it really exposes, in one call: a type (properties with type, enum values, default, range; functions and parameters; subtypes; for a node type its real input and output sockets), an operator (parameters, poll) and/or live data (a bpy.data collection, a name and an optional RNA path, with current values; for a Geometry Nodes modifier, its inputs and which access to them works). Returns the Blender version and the links to the official API docs, manual and Python API release notes of this version. Read only.",
+  "description": "Ask THIS Blender what it really exposes, in one call: search (words found in its types, properties, functions and operators, with their paths and the properties that lead to a type), a type (properties with type, enum values, default, range; functions; subtypes; for a node type its real sockets, in the tree you name), an operator (parameters, the element type of its collections, poll in this context with Blender's reason) and/or live data (a bpy.data collection, a name and an optional RNA path, with current values; for a Geometry Nodes modifier, its inputs and which access works). Entries beyond limit are still named. Returns the version and the links to this version's API docs, manual and Python API release notes. Read only.",
   "kind": "host-backed",
   "risk": "read",
   "args": {
+    "search": {
+      "type": "string",
+      "description": "Words, e.g. \"light linking\", \"compositing node group\", \"cache baked\"."
+    },
     "type": {
       "type": "string",
-      "description": "bpy.types name, e.g. NodesModifier, Strip, GreasePencil, ActionChannelbag."
+      "description": "bpy.types name, e.g. NodesModifier, OperatorStrokeElement, GeometryNodeSimulationInput."
+    },
+    "tree": {
+      "type": "string",
+      "description": "For a node type: the tree to make it in (shader, geometry, compositing, texture, or a NodeTree type)."
     },
     "operator": {
       "type": "string",
-      "description": "e.g. sequencer.effect_strip_add."
+      "description": "e.g. sculpt.brush_stroke."
     },
     "data": {
       "type": "object",
@@ -19,11 +27,11 @@
     },
     "match": {
       "type": "string",
-      "description": "Glob on property and function names."
+      "description": "Keep the properties and functions matching: a glob on names (detail_*), or words found in name or description."
     },
     "limit": {
       "type": "integer",
-      "description": "At most this many entries (1 to 200).",
+      "description": "Entries in detail (1 to 200); the others are named.",
       "default": 60
     }
   },

@@ -19,6 +19,8 @@ The CI runs the add-on's tests, the plugin's tools and the conformance checks in
 | 6   | "Take a screenshot of the window" (`blender_lab`).                         | The image comes back as an attachment.                                                                                               |
 | 7   | "Run `print(1)` in Blender."                                               | `blender_execute_code` asks permission; a refusal runs nothing.                                                                      |
 | 8   | Disable OpenCode Link in the preferences.                                  | Within 15 s `blender_hosts` lists no Blender and the conversation is no longer attached.                                             |
+| 9   | "Add a Multires sphere and paint a mask stroke on it by script."           | The stroke runs, `warnings` says the mask layer was created first; leaving Sculpt mode keeps Blender open.                           |
+| 10  | "Mark the sphere as an asset and generate its preview by script."          | With `bpy.context.temp_override(id=...)` the preview is generated (`preview.image_size` 128 × 128, not empty).                       |
 
 ## Quarantine
 

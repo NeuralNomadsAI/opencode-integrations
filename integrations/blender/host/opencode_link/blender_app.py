@@ -8,11 +8,13 @@ import math
 import os
 import queue
 import secrets
+import tempfile
 import threading
 import time
 
 import bpy
 
+from . import hints, op_watch
 from .process import state as process_state
 from .wire import HostFailure
 from .native_refs import NativeRefs
@@ -413,6 +415,7 @@ class BlenderApp(object):
 
     def undo_push(self, message):
         self._with_window(lambda: bpy.ops.ed.undo_push(message=message[:63]))
+        op_watch.undo_stack_made()
 
     def undo(self):
         epoch = self.script_epoch()
@@ -543,6 +546,22 @@ class BlenderApp(object):
 
     def exec_namespace(self):
         return {"bpy": bpy, "__name__": "__opencode_execute__"}
+
+    @staticmethod
+    def watch_operators():
+        return op_watch.watching()
+
+    @staticmethod
+    def explain(error, code, filename):
+        return hints.explain(error, code, filename)
+
+    @staticmethod
+    def process():
+        """This Blender's process and the folder its crash report goes to (<file name>.crash.txt, or
+        blender.crash.txt for an unsaved file): the parent of its session temporary folder."""
+        session = bpy.app.tempdir
+        return {"pid": os.getpid(),
+                "temp_dir": os.path.dirname(os.path.normpath(session)) if session else tempfile.gettempdir()}
 
 
 # UI datablocks (windows, screens, workspaces) are not the document's content.

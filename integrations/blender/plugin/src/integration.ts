@@ -9,6 +9,7 @@ import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 
 import { type AttachmentStorage, createAttachments, trackAdvertise } from "./attachments.ts"
+import { closedMessage, type HostProcess, readProcess } from "./closed.ts"
 import { extensionsDir, inspectHost, installHost } from "./host-install.ts"
 import {
   type BindingAuthority,
@@ -19,6 +20,7 @@ import {
   HostError,
   type HostExpectation,
   type IntegrationMarker,
+  isWslDaemon,
   loadMethodRegistry,
   type OfferRegistry,
   registerPluginTools,
@@ -301,6 +303,30 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     return offer ? { offerID: offer.offerID, label: offer.label } : null
   }
 
+  // The process of the Blender each conversation last reached (its hello): a later call that cannot reach it says
+  // that Blender closed, and where its crash report is. Not from WSL, where Blender's process is on Windows.
+  const reached = new Map<string, HostProcess>()
+  const helloed = new Map<string, string>() // sessionID -> the offer whose hello was read
+  const wsl = deps.wsl ?? (() => isWslDaemon())
+  const closedFor = (sessionID: string) => {
+    const host = reached.get(sessionID)
+    return host && !wsl() ? closedMessage(host) : null
+  }
+  const remember = async (context: ToolContext, held: Ticket) => {
+    if (helloed.get(context.sessionID) === held.bound.offerID) return
+    helloed.set(context.sessionID, held.bound.offerID)
+    try {
+      const found = readProcess(await hello(held.bound, context.signal), held.label)
+      if (found) reached.set(context.sessionID, { ...found, offerID: held.bound.offerID })
+      else reached.delete(context.sessionID)
+    } catch {
+      // an add-on without process in its hello, or a failed hello: the call itself reports
+    }
+  }
+
+  const hello = async (bound: HostBinding, signal: AbortSignal) =>
+    (await requestHost(bound.endpoint, "hello", {}, { signal, timeoutMs: HELLO_TIMEOUT_MS })) as Hello
+
   // The conversation's attached Blender. Without one, the only offered Blender, compatible and attached to no
   // conversation, attaches itself (spec FAM-5): checked against the ownership snapshot with no wait in between.
   const ticket = async (context: ToolContext): Promise<Ticket> => {
@@ -329,6 +355,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         }
       }
       if (!bound) {
+        const closed = closedFor(context.sessionID)
+        if (closed) throw new Error(closed)
         if (!offers.length)
           throw new Error("No Blender is offered: open Blender 5.3 or later with the OpenCode Link add-on enabled.")
         const list = offers
@@ -365,6 +393,7 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         `The attached Blender's OpenCode Link has no ${method} method: install OpenCode Link ${pkg.version} (blender_install_host) and restart Blender.`,
       )
     }
+    await remember(context, held)
     try {
       return await requestHost(
         bound.endpoint,
@@ -373,12 +402,10 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         { signal: context.signal, timeoutMs },
       )
     } catch (error) {
-      throw hostError(error)
+      const closed = error instanceof HostError && error.code === "unreachable" ? closedFor(context.sessionID) : null
+      throw closed ? new Error(closed) : hostError(error)
     }
   }
-
-  const hello = async (bound: HostBinding, signal: AbortSignal) =>
-    (await requestHost(bound.endpoint, "hello", {}, { signal, timeoutMs: HELLO_TIMEOUT_MS })) as Hello
 
   // A fixed program through the host's code execution, read only (programs.ts).
   const program = async (context: ToolContext, name: ProgramName, params: unknown, timeoutMs?: number) => {
@@ -549,22 +576,27 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     },
 
     async blender_inspect(args, context) {
-      if (args.type === undefined && args.operator === undefined && args.data === undefined)
-        throw new Error("Give type, operator and/or data.")
+      if (
+        args.type === undefined &&
+        args.operator === undefined &&
+        args.data === undefined &&
+        args.search === undefined
+      )
+        throw new Error("Give type, operator, data and/or search.")
       return json(await program(context, "inspect", args))
     },
 
     async blender_verify(args, context) {
-      const result = (await program(context, "verify", args, VERIFY_TIMEOUT_MS)) as {
-        facts?: unknown
+      const { image_base64, ...rest } = (await program(context, "verify", args, VERIFY_TIMEOUT_MS)) as {
         image_base64?: string
-        blender?: string
-      }
-      const text = json({ blender: result.blender, facts: result.facts })
-      if (!result.image_base64) return text
+      } & Record<string, unknown>
+      // Criteria first: what passed and failed, measured, then the facts.
+      const { blender, facts, ...checks } = rest
+      const text = json({ blender, ...checks, facts })
+      if (!image_base64) return text
       return [
         { type: "text", text },
-        { type: "file", uri: `data:image/png;base64,${result.image_base64}`, mime: "image/png", name: "verify.png" },
+        { type: "file", uri: `data:image/png;base64,${image_base64}`, mime: "image/png", name: "verify.png" },
       ]
     },
 
