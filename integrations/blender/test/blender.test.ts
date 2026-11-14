@@ -393,6 +393,53 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
     }
   })
 
+  it("blender_verify states the geometry health of what is in view and the black areas of its render (0.4.6)", async () => {
+    const { plugin, stop, json } = await served()
+    try {
+      const built = json(
+        await plugin.tool("blender_execute_code", {
+          code: [
+            "import bpy, math",
+            "sc = bpy.context.scene",
+            "bpy.data.objects.remove(bpy.data.objects['Cube'])",
+            "sc.render.engine = 'BLENDER_WORKBENCH'",
+            "sc.display.shading.light = 'FLAT'",
+            "sc.display.shading.color_type = 'MATERIAL'",
+            "cam = bpy.data.objects['Camera']",
+            "cam.location, cam.rotation_euler = (0, -10, 1), (math.radians(90), 0, 0)",
+            "def box(name, loc, scale):",
+            "    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)",
+            "    o = bpy.context.object; o.name = name; o.scale = scale",
+            "    bpy.ops.object.transform_apply(scale=True)",
+            "    return o",
+            // the archviz case: two wall pieces overlapping, their room-side faces on one plane
+            "box('Wall A', (2, 2, 1), (2, 0.2, 1)); box('Wall B', (2.5, 2, 1), (2, 0.2, 1))",
+            "box('Inside out', (-2.5, 2, 1), (1, 1, 1)).data.flip_normals()",
+            "bpy.ops.mesh.primitive_uv_sphere_add(location=(-2.5, 2, 2.6), radius=0.5); s = bpy.context.object; s.name = 'Holed'",
+            "import bmesh; bm = bmesh.new(); bm.from_mesh(s.data); bm.faces.ensure_lookup_table(); bmesh.ops.delete(bm, geom=[bm.faces[0]], context='FACES_ONLY'); bm.to_mesh(s.data); bm.free()",
+            "me = bpy.data.meshes.new('Sliver'); me.from_pydata([(0, 2, 0), (0.5, 2, 0), (1, 2, 0)], [], [(0, 1, 2)])",
+            "sc.collection.objects.link(bpy.data.objects.new('Sliver', me))",
+            "bpy.ops.mesh.primitive_plane_add(size=2, location=(0, 1, 1), rotation=(math.radians(90), 0, 0)); b = bpy.context.object; b.name = 'Board'",
+            "m = bpy.data.materials.new('Black'); m.diffuse_color = (0, 0, 0, 1); b.data.materials.append(m)",
+          ].join("\n"),
+        }),
+      )
+      assert.equal(built.status, "executed", JSON.stringify(built).slice(0, 1500))
+      const out = await plugin.tool("blender_verify", { render: true, size: 320 })
+      const checked = JSON.parse(String((out.content as ReadonlyArray<{ text?: string }>)[0]?.text))
+      const geometry = checked.geometry
+      assert.deepEqual(geometry.coplanar_overlaps[0].objects, ["Wall A", "Wall B"], JSON.stringify(geometry))
+      assert.ok(geometry.coplanar_overlaps[0].area_m2 > 1.4)
+      assert.deepEqual(geometry.inward_normals, ["Inside out"])
+      assert.equal(geometry.open_edges.Holed > 0, true)
+      assert.equal(geometry.zero_area_faces.Sliver, 1)
+      const regions = checked.facts.image.black_regions
+      assert.equal(regions[0].object, "Board", JSON.stringify(regions))
+    } finally {
+      await stop()
+    }
+  })
+
   it("passes the tests of the western film's v7 frictions (0.4.2)", async () => {
     assert.equal((await hostScript("ops042_tests.py", (scratch) => [scratch], 400_000)).passed.length, OPS042_TESTS)
   })
