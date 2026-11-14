@@ -1,7 +1,7 @@
 {
   "name": "blender_render",
   "domain": "tools",
-  "description": "Render in a separate background Blender (the open one stays usable), to the EXACT output you name: an image (still.png), frames with a # run (shots/shot_####.png gives shot_0001.png...) or an H.264 video (final.mp4). The scene's final output (sequencer when used; source scene or sequencer forces it), with the file's settings unless overridden for this render only: resolution [w, h], samples, engine. It reads the file as saved; with unsaved changes give unsaved save or copy. Returns a task: call again with task (and wait_s) for progress, or cancel. Relative paths are next to the .blend.",
+  "description": "Render in a separate background Blender (the open one stays usable), to the EXACT output you name: an image (still.png), frames with a # run (shots/shot_####.png gives shot_0001.png...) or an H.264 video (final.mp4), with the montage's sound (AAC) when it has any; a finished video's result lists the streams read back from the file (video, audio) and the audio's sources. The scene's final output (sequencer when used; source scene or sequencer forces it), with the file's settings unless overridden for this render only: resolution [w, h], samples, engine. It reads the file as saved; with unsaved changes give unsaved save or copy. Returns a task: call again with task (and wait_s) for progress, or cancel. Relative paths are next to the .blend.",
   "kind": "host-backed",
   "risk": "write",
   "args": {

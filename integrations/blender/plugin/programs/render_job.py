@@ -18,6 +18,38 @@ def mark(key, value):
     print("OPENCODE_%%s %%s" %% (key, json.dumps(value)), flush=True)
 
 
+def sound_sources(scene, used, start, end):
+    """What makes the rendered output audible: unmuted sound strips of the sequencer it plays, in the frame range,
+    and speakers with a sound."""
+    found = []
+    se = scene.sequence_editor
+    if used["sequencer"] and se is not None:
+        every = getattr(se, "strips_all", None) or getattr(se, "sequences_all", [])
+        found += ["strip %%r" %% s.name for s in every if s.type == "SOUND" and not s.mute
+                  and s.frame_final_start <= end and s.frame_final_end > start]
+    found += ["speaker %%r" %% o.name for o in scene.objects if o.type == "SPEAKER" and o.data.sound is not None]
+    return found
+
+
+def streams(path):
+    """The streams the video file really holds, read back from it."""
+    import aud
+
+    out = {}
+    clip = bpy.data.movieclips.load(path)
+    try:
+        out["video"] = {"size": list(clip.size), "frames": clip.frame_duration}
+    finally:
+        bpy.data.movieclips.remove(clip)
+    try:
+        sound = aud.Sound(path)
+        rate, channels = sound.specs
+        out["audio"] = {"rate": int(rate), "channels": int(channels), "seconds": round(sound.length / rate, 3)}
+    except Exception:
+        out["audio"] = None
+    return out
+
+
 try:
     scene = bpy.data.scenes[o["scene"]]
     r = scene.render
@@ -85,13 +117,33 @@ try:
         image.file_format = "FFMPEG"
         er.ffmpeg.format, er.ffmpeg.codec, er.ffmpeg.constant_rate_factor = "MPEG4", "H264", o["quality"]
         er.ffmpeg.audio_codec = "NONE"
+        sources = sound_sources(scene, used, o["start"], o["end"])
+        audio = {"sources": sources[:10]} if sources else {"none": "nothing audible in the rendered output"}
+        if sources:
+            # The montage's sound, mixed down over the rendered range, under the frames (AAC, as Blender's own
+            # H.264 presets).
+            wav = os.path.join(os.path.dirname(o["frames"][0]), "audio.wav")
+            try:
+                with bpy.context.temp_override(scene=scene):
+                    bpy.ops.sound.mixdown(filepath=wav, check_existing=False, container="WAV", codec="PCM", format="S16")
+                estrips.new_sound("audio", wav, 2, 1)
+                er.ffmpeg.audio_codec, er.ffmpeg.audio_bitrate = "AAC", 192
+                er.ffmpeg.audio_channels = "STEREO"
+            except Exception as error:
+                audio["error"] = "the audio could not be mixed down: %%s" %% error
         er.filepath = o["output"]
         er.use_file_extension = False
         er.use_sequencer = True
         bpy.ops.render.render(animation=True, scene=enc.name)
         if not os.path.isfile(o["output"]):
             raise RuntimeError("the video was not written to %%s" %% o["output"])
-    mark("DONE", {"output": o["output"], "bytes": os.path.getsize(o["output"]) if o["kind"] != "frames" else sum(os.path.getsize(f) for f in o["frames"]), "used": used})
+        written = streams(o["output"])
+        if sources and written["audio"] is None:
+            audio.setdefault("error", "the montage is audible but the video holds no audio stream")
+    done = {"output": o["output"], "bytes": os.path.getsize(o["output"]) if o["kind"] != "frames" else sum(os.path.getsize(f) for f in o["frames"]), "used": used}
+    if o["kind"] == "video":
+        done.update(streams=written, audio=audio)
+    mark("DONE", done)
 except Exception:
     mark("FAILED", traceback.format_exc()[-2000:])
     sys.exit(1)

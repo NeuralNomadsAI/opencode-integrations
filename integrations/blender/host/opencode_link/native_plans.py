@@ -79,6 +79,46 @@ def same_state(a, b):
     return a == b
 
 
+def _label(state, key):
+    entry = state["ids"].get(key)
+    return "%s %r" % (entry[1], entry[0]) if entry else str(key)
+
+
+def restoration_residue(before, after):
+    """(proven, may_have_changed, kept_linked) for a capture before a change and the one after its undo.
+
+    Blender keeps linked data outside its undo: a run that linked a library (or entered a paint mode, which links
+    the Essentials brush) leaves its Library and linked IDs after the undo, used by nothing local and never
+    written on save. Those IDs, present after only, are kept_linked; any other difference (a local ID added,
+    removed or changed, a linked ID still used by local data) is may_have_changed and the restoration is unproven.
+    """
+    if not (before.complete and after.complete):
+        return False, ["the capture before the change was incomplete (%s)" % (before.reason or after.reason)], []
+    old, new = before.state, after.state
+    linked = {key for key in set(new["ids"]) - set(old["ids"])
+              if new["ids"][key][3] is not None or new["ids"][key][1] == "Library"}
+    trimmed = {section: {key: value for key, value in entries.items()
+                         if (key[0] if isinstance(key, tuple) else key) not in linked}
+               for section, entries in new.items()}
+    changes = []
+    for section in old:
+        for key in sorted(set(old[section]) | set(trimmed[section]), key=repr):
+            owner = key[0] if isinstance(key, tuple) else key
+            label = _label(old if owner in old["ids"] else new, owner)
+            if key not in trimmed[section]:
+                changes.append("%s removed" % label if section == "ids" else "%s: %s differs" % (label, section))
+            elif key not in old[section]:
+                changes.append("%s added" % label if section == "ids" else "%s: %s differs" % (label, section))
+            elif not same_state(old[section][key], trimmed[section][key]):
+                changes.append("%s: %s differ" % (label, {"ids": "name or library", "objects": "transform, parenting, "
+                               "modifiers, constraints or materials", "collections": "members", "scenes": "camera, "
+                               "frame or collection", "trees": "nodes or links", "poses": "pose or keys",
+                               "properties": "values"}[section]))
+    unique = list(dict.fromkeys(changes))
+    kept = sorted(_label(new, key) for key in linked)
+    return not unique, unique, kept
+
+
 def matrix_close(a, b):
     scale = max(1.0, *(abs(v) for row in (*a, *b) for v in row))
     return all(math.isfinite(x) and abs(x - y) <= MATRIX_TOLERANCE * scale

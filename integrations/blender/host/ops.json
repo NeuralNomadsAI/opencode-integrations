@@ -1,6 +1,6 @@
 {
   "addon": "opencode_link",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "protocol": 1,
   "method": "apply",
   "wire": "params.operations: [{op, args}] with every op below (an edit batch); unknown ops and fields are refused",
