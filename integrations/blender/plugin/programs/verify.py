@@ -474,6 +474,67 @@ def run_checks():
 checks = run_checks() if (CRITERIA or VISIBLE) else {}
 
 
+BLACK = 0.02  # luminance of a near-black pixel
+GRID = 32  # cells across the image
+
+
+def black_regions(w, h, lum, alpha, cam, dg):
+    """Near-black, opaque areas of a rendered image (cells mostly below BLACK, joined), largest first, each with its
+    box (0..1, from the top left) and the object a ray from the camera meets at its centre."""
+    side = max(1, w // GRID)
+    cols, rows = (w + side - 1) // side, (h + side - 1) // side
+    dark, total = [0] * (cols * rows), [0] * (cols * rows)
+    for i, value in enumerate(lum):
+        cell = ((i // w) // side) * cols + (i % w) // side
+        total[cell] += 1
+        if value < BLACK and alpha[i] > 0.5:
+            dark[cell] += 1
+    black = {c for c in range(cols * rows) if total[c] and dark[c] >= 0.9 * total[c]}
+    found, seen = [], set()
+    for start in black:
+        if start in seen:
+            continue
+        group, stack = [], [start]
+        seen.add(start)
+        while stack:
+            c = stack.pop()
+            group.append(c)
+            r, q = divmod(c, cols)
+            for nr, nq in ((r - 1, q), (r + 1, q), (r, q - 1), (r, q + 1)):
+                n = nr * cols + nq
+                if 0 <= nr < rows and 0 <= nq < cols and n in black and n not in seen:
+                    seen.add(n)
+                    stack.append(n)
+        share = sum(total[c] for c in group) / (w * h)
+        if share < 0.003:
+            continue
+        rs, qs = [c // cols for c in group], [c % cols for c in group]
+        # Pixel rows run bottom-up: the box is given from the top left, like the image as seen.
+        x0, x1 = min(qs) * side / w, min(w, (max(qs) + 1) * side) / w
+        y0, y1 = min(rs) * side / h, min(h, (max(rs) + 1) * side) / h
+        box = [round(x0, 3), round(1 - y1, 3), round(x1, 3), round(1 - y0, 3)]
+        found.append((share, {"box": box, "share": round(share, 4), "object": seen_at(cam, dg, (x0 + x1) / 2, (y0 + y1) / 2)}))
+    found.sort(key=lambda item: -item[0])
+    return [entry for _share, entry in found[:6]]
+
+
+def seen_at(cam, dg, u, v):
+    """The object a camera ray meets at (u, v) of the frame (0..1, from the bottom left), or the world."""
+    if cam is None:
+        return None
+    ev = cam.evaluated_get(dg)
+    corners = ev.data.view_frame(scene=scene)  # top right, bottom right, bottom left, top left
+    local = corners[2] + (corners[1] - corners[2]) * u + (corners[3] - corners[2]) * v
+    mw = ev.matrix_world
+    if ev.data.type == "ORTHO":
+        origin, direction = mw @ Vector((local.x, local.y, 0.0)), mw.to_3x3() @ Vector((0.0, 0.0, -1.0))
+    else:
+        origin = mw.translation.copy()
+        direction = (mw @ local) - origin
+    hit, _loc, _normal, _index, obj, _matrix = scene.ray_cast(dg, origin, direction.normalized())
+    return obj.original.name if hit and obj is not None else "the world (no object)"
+
+
 def render_frames():
     """The renders (unchanged since 0.4.2): settings, cameras and the current frame restored; the PNG or sheet."""
     old_frame = scene.frame_current
@@ -541,6 +602,10 @@ def render_frames():
             facts["image"]["black"] = max(lum) < 0.02
             facts["image"]["transparent"] = facts["image"]["mean_alpha"] < 0.01
             facts["image"]["uniform"] = std < 0.002
+            if not facts["image"]["black"]:
+                regions = black_regions(w, h, lum, alpha, scene.camera, dg)
+                if regions:
+                    facts["image"]["black_regions"] = regions
             if len(frames) == 1:
                 with open(path, "rb") as fh:
                     image_b64 = base64.b64encode(fh.read()).decode("ascii")
@@ -653,6 +718,117 @@ def simulation_caches(checked):
     return out[:20]
 
 
+GEOMETRY_FACES = 200_000  # faces read at most, all objects together
+OVERLAP_MIN = 0.01  # m2 of coplanar overlap worth saying
+
+
+def in_view(obj, dg, cam):
+    """Whether obj's evaluated bounds meet the camera's frame (every mesh when there is no camera)."""
+    if cam is None:
+        return True
+    from bpy_extras.object_utils import world_to_camera_view
+    ev = obj.evaluated_get(dg)
+    pts = [world_to_camera_view(scene, cam, ev.matrix_world @ Vector(c)) for c in ev.bound_box]
+    if max(p.z for p in pts) <= 0:
+        return False
+    return not (max(p.x for p in pts) < 0 or min(p.x for p in pts) > 1 or max(p.y for p in pts) < 0 or min(p.y for p in pts) > 1)
+
+
+def geometry_health(f):
+    """Facts about the evaluated meshes in view at frame f, read from their geometry; only what is found: closed
+    meshes whose normals point inward, open or non-manifold edges, zero-area faces, and faces of two objects on
+    the same plane, facing the same way toward the camera (z-fighting; a surface inside another closed mesh)."""
+    scene.frame_set(f)
+    dg = depsgraph_at()
+    cam_name, _via = camera_at(scene, f)
+    cam = bpy.data.objects.get(cam_name) if cam_name else None
+    eye = cam.evaluated_get(dg).matrix_world.translation if cam is not None else None
+    out = {"inward_normals": [], "open_edges": {}, "non_manifold_edges": {}, "zero_area_faces": {}}
+    planes, budget = {}, GEOMETRY_FACES
+    for obj in scene.objects:
+        if obj.type not in ("MESH", "CURVE", "SURFACE", "FONT", "META") or obj.hide_render or not obj.visible_get():
+            continue
+        if not in_view(obj, dg, cam):
+            continue
+        ev = obj.evaluated_get(dg)
+        mesh = ev.to_mesh()
+        try:
+            if len(mesh.polygons) > budget:
+                out.setdefault("skipped", []).append(obj.name)
+                continue
+            budget -= len(mesh.polygons)
+            mw = ev.matrix_world
+            co = [mw @ v.co for v in mesh.vertices]
+            users = {}
+            volume, zero = 0.0, 0
+            for poly in mesh.polygons:
+                idx = list(poly.vertices)
+                for key in poly.edge_keys:
+                    users[key] = users.get(key, 0) + 1
+                a = co[idx[0]]
+                normal, area = Vector(), 0.0
+                for i in range(1, len(idx) - 1):
+                    b, c = co[idx[i]], co[idx[i + 1]]
+                    cross = (b - a).cross(c - a)
+                    normal += cross
+                    area += cross.length / 2
+                    volume += a.dot(b.cross(c)) / 6
+                if area < 1e-10:
+                    zero += 1
+                    continue
+                normal.normalize()
+                if eye is not None and normal.dot(eye - a) <= 0:
+                    continue  # faces away from the camera
+                # The plane, its sign fixed so both orientations share a key; the face keeps its own orientation.
+                key_n = normal if (normal.x, normal.y, normal.z) > (0, 0, 0) else -normal
+                key = (round(key_n.x, 3), round(key_n.y, 3), round(key_n.z, 3), round(key_n.dot(a), 3))
+                axes = sorted(range(3), key=lambda k: abs(normal[k]))[:2]
+                pts = [co[i] for i in idx]
+                box = [min(p[axes[0]] for p in pts), min(p[axes[1]] for p in pts),
+                       max(p[axes[0]] for p in pts), max(p[axes[1]] for p in pts)]
+                planes.setdefault(key, []).append((obj.name, normal, box))
+            boundary = sum(1 for n in users.values() if n == 1)
+            many = sum(1 for n in users.values() if n > 2)
+            if many:
+                out["non_manifold_edges"][obj.name] = many
+            if boundary and boundary <= 0.2 * len(users):
+                out["open_edges"][obj.name] = boundary  # a mostly closed mesh with holes
+            if not boundary and not many and users and volume < -1e-9:
+                out["inward_normals"].append(obj.name)
+            if zero:
+                out["zero_area_faces"][obj.name] = zero
+        finally:
+            ev.to_mesh_clear()
+    pairs = {}
+    for faces in planes.values():
+        if len({name for name, _n, _b in faces}) < 2:
+            continue
+        for i, (name_a, n_a, a) in enumerate(faces):
+            for name_b, n_b, b in faces[i + 1:]:
+                if name_a == name_b or n_a.dot(n_b) < 0.999:
+                    continue
+                w, h = min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+                if w > 1e-6 and h > 1e-6:
+                    pair = tuple(sorted((name_a, name_b)))
+                    pairs[pair] = pairs.get(pair, 0.0) + w * h
+    found = {k: v for k, v in out.items() if v}
+    overlaps = sorted(((area, pair) for pair, area in pairs.items() if area >= OVERLAP_MIN), reverse=True)
+    if overlaps:
+        found["coplanar_overlaps"] = [{"objects": list(pair), "area_m2": round(area, 3)} for area, pair in overlaps[:8]]
+        found["coplanar_note"] = "faces of both objects on one plane toward the camera: they fight (z-fighting), and a surface inside another closed mesh renders dark"
+    if found:
+        found["frame"] = f
+    return found
+
+
+old_frame = scene.frame_current
+try:
+    checked = checked_frames() or frames
+    geometry = geometry_health(checked[0])
+finally:
+    scene.frame_set(old_frame)
+if geometry:
+    checks["geometry"] = geometry
 caches = simulation_caches(checked_frames())
 if caches:
     checks["caches"] = caches

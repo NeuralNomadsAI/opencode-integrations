@@ -360,7 +360,11 @@ if P.get("operator"):
                                  "region": ctx.region.type if ctx.region else None, "mode": ctx.mode,
                                  "active_object": ctx.active_object.name if ctx.active_object else None,
                                  "id": getattr(ctx, "id", None) is not None}
-            report["give_context"] = "bpy.context.temp_override(window=..., area=..., region=..., id=..., active_object=...)"
+            # What would let it run, found by the add-on trying poll() only (hints.context_help).
+            import sys
+            helper = next((m for k, m in list(sys.modules.items()) if k.endswith("opencode_link.hints")), None)
+            found = helper.context_help(module, name) if helper is not None and hasattr(helper, "context_help") else {}
+            report.update(found or {"give_context": "bpy.context.temp_override(window=..., area=..., region=..., id=..., active_object=...)"})
         props = [p for p in rna.properties if p.identifier != "rna_type"]
         info = {
             "id": P["operator"], "name": rna.name, "desc": (rna.description or "")[:300],

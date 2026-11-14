@@ -1,7 +1,7 @@
 {
   "name": "blender_verify",
   "domain": "tools",
-  "description": "Check a result by measurement. criteria: your own acceptance checks, each measured on the evaluated scene at its frames and passed or failed with the measured value. visible: whether an object shows in the render at a frame, otherwise every reason found (out of frame, hidden in render, collection excluded, view layer not rendered, holdout, transparent or zero-density material, no geometry, hidden behind another object). Render (the default without criteria or visible, or with render or view): low-resolution frames with facts (black or transparent, brightness, the camera used and why, sequencer, compositing, instances). caches: simulation caches the checked frames read without a current bake (not baked, outdated, frames outside); unsaved: the file lacks changes you checked here. Settings, cameras and the current frame are restored; the revision stays.",
+  "description": "Check a result by measurement. criteria: your own acceptance checks, each measured on the evaluated scene at its frames and passed or failed with the measured value. visible: whether an object shows in the render at a frame, otherwise every reason found (out of frame, hidden in render, collection excluded, view layer not rendered, holdout, transparent or zero-density material, no geometry, hidden behind another object). Render (the default without criteria or visible, or with render or view): low-resolution frames with facts (black or transparent, brightness, the camera used and why, sequencer, compositing, instances). geometry: what is wrong with the meshes in view (inward normals, open or non-manifold edges, zero-area faces, coplanar overlapping faces between objects); a render names its near-black areas and the object there. caches: simulation caches the checked frames read without a current bake (not baked, outdated, frames outside); unsaved: the file lacks changes you checked here. Settings, cameras and the current frame are restored; the revision stays.",
   "kind": "host-backed",
   "risk": "read",
   "args": {
@@ -15,6 +15,10 @@
     "visible": {
       "type": "object",
       "description": "{object, frame or frames}: does it show in the render, and why not."
+    },
+    "saved": {
+      "type": "any",
+      "description": "true: read the open file as saved on disk (a background Blender opens it; same criteria, visible and render), or a .blend path. Compare it with the open document."
     },
     "render": {
       "type": "boolean",
