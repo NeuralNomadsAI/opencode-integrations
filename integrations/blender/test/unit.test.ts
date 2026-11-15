@@ -9,7 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
-import { closedMessage, readProcess } from "../plugin/src/closed.ts"
+import { closedMessage, readProcess, silentMessage } from "../plugin/src/closed.ts"
 import { readPackage } from "../plugin/src/integration.ts"
 import { METHOD_TEXT, methodAttacher, resetMethodForTests } from "../plugin/src/method.ts"
 import { programCode } from "../plugin/src/programs.ts"
@@ -162,24 +162,44 @@ describe("a Blender that closed", () => {
     assert.equal(readProcess({ process: { pid: -1, temp_dir: dir } }), null)
     assert.equal(readProcess({ process: { pid: 12, temp_dir: "" } }), null)
     assert.equal(readProcess({ revision: 1 }), null)
-    const host = readProcess({ process: { pid: 4242, temp_dir: dir } }, "Blender: shot.blend", Date.now())
+    const hello = { process: { pid: 4242, temp_dir: dir }, document: "shot.blend" }
+    const host = readProcess(hello, "Blender: shot.blend", Date.now())
     assert.ok(host)
+    assert.equal(host.document, "shot.blend")
     assert.equal(
       closedMessage(host, () => true),
       null,
     )
-    const old = join(dir, "earlier.crash.txt")
+    const old = join(dir, "shot.crash.txt")
     writeFileSync(old, "")
     utimesSync(old, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    // 0.4.8: every Blender of a user writes its report in the same folder: another document's report is not this one's.
+    writeFileSync(join(dir, "ex05.crash.txt"), "# another Blender\n")
     assert.match(
       String(closedMessage(host, () => false)),
-      /^Blender closed \(Blender: shot\.blend\): its process 4242 has ended, with no crash report in /,
+      /^Blender closed \(Blender: shot\.blend\): its process 4242 has ended, with no crash report in .* \(closed, or ended by another program\)/,
     )
     writeFileSync(join(dir, "shot.crash.txt"), "# Blender 5.3.0\n")
-    assert.match(String(closedMessage(host, () => false)), /Crash report: .*shot\.crash\.txt\. Open Blender again/)
+    assert.match(
+      String(closedMessage(host, () => false)),
+      /^Blender crashed \(Blender: shot\.blend\): crash report .*shot\.crash\.txt\. Its process 4242 has ended\./,
+    )
+    // On Windows a crashed Blender stays open behind its crash window: the report says it all the same.
+    assert.match(
+      String(closedMessage(host, () => true)),
+      /crash report .*shot\.crash\.txt\. Its process 4242 is still open/,
+    )
+    // A crash before the call started is not this call's.
+    assert.equal(
+      closedMessage(host, () => true, Date.now() + 10_000),
+      null,
+    )
+    assert.match(silentMessage(host), /no longer offers itself: its process 4242 still runs but stopped renewing/)
+    const untitled = readProcess({ process: { pid: 7, temp_dir: dir } }, "Blender: Untitled", Date.now())
+    writeFileSync(join(dir, "blender.crash.txt"), "")
+    assert.match(String(closedMessage(untitled ?? host, () => true)), /blender\.crash\.txt/)
   })
 })
-
 describe("the working method", () => {
   it("is short, joins a conversation once, and never fails a Blender call", async () => {
     assert.ok(METHOD_TEXT.split("\n").length <= 10 && METHOD_TEXT.length < 1_000)

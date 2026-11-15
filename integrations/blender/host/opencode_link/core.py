@@ -55,6 +55,7 @@ SCENE_METHOD = "scene"
 RELAUNCH_METHOD = "relaunch"
 # Lifts a quarantine once the scene was read again (the revision of that read).
 RELEASE_METHOD = "release"
+STATUS_METHOD = "status"
 QUARANTINED = ("OpenCode Link is quarantined: a failed change could not be proven undone. Read the scene "
                "(blender_context shows what may have changed), then release it with that read's revision.")
 # Methods whose results carry the errors and warnings Blender reported during the call.
@@ -230,6 +231,8 @@ class HostCore(object):
         if hasattr(self.app, "thin_context"):
             methods.append(SCENE_METHOD)  # after the earlier methods: their order stays as it was
         methods.append(RELEASE_METHOD)
+        if hasattr(self.app, "running"):
+            methods.append(STATUS_METHOD)
         operations = []
         listed = dict(self.operations, **(self.native_operations if self._native() else {}))
         for name in sorted(listed):
@@ -247,6 +250,7 @@ class HostCore(object):
 
     # -- dispatch (called from the listener's request threads) --------------------------------
     def handle(self, method, params):
+        threading.current_thread().opencode_method = method  # names the main-thread job status reports
         if method not in REPORTING:
             return self._dispatch(method, params)
         mark = console.capture().cursor()
@@ -300,6 +304,10 @@ class HostCore(object):
             return self.app.on_main(lambda: self._relaunch(params))
         if method == RELEASE_METHOD:
             return self.app.on_main(lambda: self._release(params))
+        if method == STATUS_METHOD and hasattr(self.app, "running"):
+            # Answered on this request thread, never through the main thread: whether Blender's main thread is
+            # running a request, which one and for how long (a call that timed out is still running there).
+            return self.app.running()
         raise HostFailure("method_not_found", "Unknown host method.")
 
     def _reports(self, params):

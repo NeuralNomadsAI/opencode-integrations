@@ -56,10 +56,12 @@ def new_script_handle():
 
 
 class _Job(object):
-    __slots__ = ("fn", "lock", "started", "done", "result", "error", "cancelled")
+    __slots__ = ("fn", "lock", "started", "done", "result", "error", "cancelled", "label")
 
     def __init__(self, fn):
         self.fn = fn
+        # The host method whose request queued it (core.handle names its request thread).
+        self.label = getattr(threading.current_thread(), "opencode_method", None)
         self.lock = threading.Lock()
         self.started = threading.Event()
         self.done = threading.Event()
@@ -160,6 +162,7 @@ class BlenderApp(object):
         # Set by the add-on: schedules a hot reload from disk (the `reload` host method).
         self.reload_request = None
         self._jobs = queue.Queue()
+        self._running = None  # (host method, monotonic start) of the main-thread job running now
         self._quiet = 0
         # A hot reload carries the revision over: the document did not change.
         self._revision = process_state().__dict__.pop("revision", 0)
@@ -401,6 +404,14 @@ class BlenderApp(object):
             raise job.error
         return job.result
 
+    def running(self):
+        """Any thread: the request Blender's main thread is running now, and since how long (status method)."""
+        current = self._running
+        if current is None:
+            return {"busy": False, "queued": self._jobs.qsize()}
+        label, since = current
+        return {"busy": True, "running": label, "seconds": round(time.monotonic() - since, 1), "queued": self._jobs.qsize()}
+
     def drain(self, budget=0.05):
         """Runs queued requests on the main thread (timer in the interface, pump in background mode)."""
         self.refresh_document()
@@ -414,6 +425,7 @@ class BlenderApp(object):
                 if job.cancelled:
                     continue
                 job.started.set()
+            self._running = (job.label, time.monotonic())
             try:
                 with self.quiet():
                     job.result = job.fn()
@@ -422,6 +434,7 @@ class BlenderApp(object):
             except Exception as error:  # noqa: BLE001
                 job.error = HostFailure("internal", str(error))
             finally:
+                self._running = None
                 job.done.set()
             if time.monotonic() > deadline:
                 return
