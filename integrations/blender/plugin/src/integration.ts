@@ -144,6 +144,11 @@ function bounded(text: string) {
     : text
 }
 
+// After a save: what reads the file back, as written on disk (the open document can differ from it).
+export function verifySavedHint(saved: true | string) {
+  return `blender_verify with saved: ${saved === true ? "true" : JSON.stringify(saved)} reads what this file holds.`
+}
+
 function json(value: unknown) {
   return bounded(JSON.stringify(value))
 }
@@ -428,11 +433,13 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   // (a copy leaves the open file as it was).
   const save = async (context: ToolContext, args: Record<string, unknown>) => {
     const out = await programRun(context, "save", args)
+    const result = out.result as Record<string, unknown>
     return {
-      ...(out.result as Record<string, unknown>),
+      ...result,
       // A save of the open file always says what it wrote of OpenCode's (none: an empty list).
       ...(out.saved ? { wrote_steps: out.saved_steps ?? [] } : {}),
       ...(out.unsaved ? { unsaved: out.unsaved } : {}),
+      check: verifySavedHint(result.copy === true ? String(result.saved) : true),
     }
   }
 
@@ -554,19 +561,19 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         code: code.length > 4_000 ? `${code.slice(0, 4_000)}\n…` : code,
       })
       const seconds = typeof args.timeout_s === "number" ? Math.min(Math.max(args.timeout_s, 1), 3_600) : undefined
-      return json(
-        await callHost(
-          context,
-          "execute_code",
-          {
-            code,
-            ...(script ? { filename: script.path } : {}),
-            ...(args.read_only === true ? { read_only: true } : {}),
-          },
-          seconds ? seconds * 1_000 : undefined,
-          held,
-        ),
-      )
+      const out = (await callHost(
+        context,
+        "execute_code",
+        {
+          code,
+          ...(script ? { filename: script.path } : {}),
+          ...(args.read_only === true ? { read_only: true } : {}),
+        },
+        seconds ? seconds * 1_000 : undefined,
+        held,
+      )) as Record<string, unknown>
+      // A run that saved the open file: how to read back what the file now holds (a fact, not a step to take).
+      return json(out.saved === true ? { ...out, check: verifySavedHint(true) } : out)
     },
 
     async blender_lab(args, context) {

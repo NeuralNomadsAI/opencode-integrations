@@ -27,7 +27,7 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.6 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.7 host lists, on Blender 5.3.
 const CAPABILITIES = {
   methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
@@ -667,6 +667,31 @@ describe("tools", () => {
     assert.equal(calls, 5, "not retried")
   })
 
+  it("a save says how to read the file back: blender_save, a copy, and a code run that saved (0.4.7)", async () => {
+    const answers = [
+      {
+        status: "executed",
+        saved: true,
+        saved_steps: ["OpenCode: code"],
+        result: { saved: "D:/shots/ex06.blend", bytes: 9 },
+      },
+      { status: "executed", result: { saved: "D:/shots/copy.blend", bytes: 9, copy: true } },
+      { status: "executed", saved: true, result: {} },
+      { status: "executed", result: { z: 1 } },
+    ]
+    let calls = 0
+    const { loaded } = await attached({ execute_code: () => answers[calls++] })
+    const saved = content(await loaded.tool("blender_save", {}))
+    assert.deepEqual(saved.wrote_steps, ["OpenCode: code"])
+    assert.equal(saved.check, "blender_verify with saved: true reads what this file holds.")
+    const copy = content(await loaded.tool("blender_save", { path: "copy.blend", copy: true }))
+    assert.equal(copy.check, 'blender_verify with saved: "D:/shots/copy.blend" reads what this file holds.')
+    const code = content(await loaded.tool("blender_execute_code", { code: "import bpy\nbpy.ops.wm.save_mainfile()" }))
+    assert.equal(code.check, "blender_verify with saved: true reads what this file holds.")
+    const plain = content(await loaded.tool("blender_execute_code", { code: "result = {'z': 1}" }))
+    assert.equal(plain.check, undefined, "only after a save")
+  })
+
   it("inspect, verify and save run their fixed programs read only, asking nothing", async () => {
     const sent: Array<Record<string, unknown>> = []
     const results = [
@@ -820,7 +845,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.6/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.7/)
     assert.ok(loaded)
   })
 })
