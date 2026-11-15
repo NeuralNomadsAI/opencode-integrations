@@ -6,8 +6,8 @@ import assert from "node:assert/strict"
 import { after, it } from "node:test"
 
 import { startFakeHost } from "../../../packages/testing/src/index.ts"
-import { createRegistry, readPackage, registryName } from "../plugin/src/integration.ts"
-import { offerRegistryKey, sharedOfferRegistry } from "../plugin/src/kit.ts"
+import { APP, createRegistry, readPackage, registryName } from "../plugin/src/integration.ts"
+import { createOfferRegistry, offerRegistryKey, sharedOfferRegistry } from "../plugin/src/kit.ts"
 import { readOptions } from "../plugin/src/options.ts"
 import { announcement } from "./helpers/plugin.ts"
 
@@ -24,7 +24,8 @@ it("a plugin loaded after an older version in the same process judges its own ad
   const fake = await startFakeHost({ hostVersion: readPackage().version, appVersion: "5.3.0" })
   try {
     // What 0.2.0 created when it loaded: the kit's shared list under "blender", with its own expectation.
-    const older = sharedOfferRegistry("blender", { expected: { protocol: 1, range: "^0.2.0", appVersions: ">=5.2" } })
+    const older = createOfferRegistry({ expected: { protocol: 1, range: "^0.2.0", appVersions: ">=5.2" } })
+    store[offerRegistryKey("blender")] = { generation: 2, registry: older }
     const registry = createRegistry(marker, readOptions(undefined, {}))
     assert.notEqual(registry, older, "this version keeps its own list")
     assert.deepEqual(await registry.advertise(announcement(fake.endpoint, fake.scriptHandle)), { outcome: "accepted" })
@@ -37,6 +38,9 @@ it("a plugin loaded after an older version in the same process judges its own ad
     await older.advertise(announcement(fake.endpoint, fake.scriptHandle))
     assert.equal(older.hosts().offers[0]?.protocol, "incompatible")
     assert.equal(createRegistry(marker, readOptions(undefined, {})), registry, "one list per contract and process")
+    // The kit names the list as 0.4.8 did: the published Blender versions find theirs.
+    assert.equal(registryName(expected), `blender.protocol-1.part-${host.range}.app-${host.appVersions}`)
+    assert.ok(store[offerRegistryKey(registryName(expected))])
   } finally {
     await fake.close()
   }
@@ -48,7 +52,7 @@ it("an upgrade from 0.4.1 without restarting OpenCode keeps this version's add-o
   const published = { protocol: 1, range: "^0.4.1", appVersions: ">=5.3" }
   keys.push(offerRegistryKey(registryName(published)))
   try {
-    const older = sharedOfferRegistry(registryName(published), { expected: published })
+    const older = sharedOfferRegistry(APP, { expected: published })
     const registry = createRegistry(marker, readOptions(undefined, {}))
     assert.notEqual(registry, older)
     await registry.advertise(announcement(fake.endpoint, fake.scriptHandle, "after-upgrade"))

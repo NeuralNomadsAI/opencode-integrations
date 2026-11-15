@@ -19,6 +19,16 @@ export function readPackage() {
   }
 }
 
+// The offer list shared by the daemon's Locations, named after this version's host contract (the kit's
+// sharedOfferRegistry): after an upgrade without restarting OpenCode, the new host is judged by this range.
+export function createRegistry(marker: IntegrationMarker): OfferRegistry {
+  const host = marker.host as NonNullable<IntegrationMarker["host"]>
+  return sharedOfferRegistry("houdini", {
+    expected: { protocol: host.protocol, range: host.range, appVersions: host.appVersions },
+    hello: (endpoint) => requestHost(endpoint, "hello", {}, { timeoutMs: 2000 }),
+  })
+}
+
 const contextSchema = {
   type: "object",
   properties: {
@@ -60,13 +70,7 @@ export async function setupHoudini(
 ) {
   const pkg = readPackage()
   const marker = pkg.opencodeIntegration
-  const host = marker.host as NonNullable<IntegrationMarker["host"]>
-  const registry =
-    deps.registry ??
-    sharedOfferRegistry("houdini", {
-      expected: { protocol: host.protocol, range: host.range, appVersions: host.appVersions },
-      hello: (endpoint) => requestHost(endpoint, "hello", {}, { timeoutMs: 2000 }),
-    })
+  const registry = deps.registry ?? createRegistry(marker)
   const raw = ctx.options as { hostInspectionDir?: unknown } | undefined
   const preferences =
     typeof raw?.hostInspectionDir === "string"

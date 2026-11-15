@@ -12,6 +12,8 @@ export async function loadPlugin(
     options?: object
     state?: string
     wsl?: () => boolean
+    // The daemon's shared offer list, as the plugin creates it, instead of a private one.
+    shared?: boolean
   } = {},
 ) {
   const marker = readPackage().opencodeIntegration
@@ -69,10 +71,14 @@ export async function loadPlugin(
       },
     },
   } as unknown as Plugin.Context
-  const cleanup = await setupHoudini(ctx, { registry, wsl: input.wsl ?? (() => false), state: input.state })
+  const cleanup = await setupHoudini(ctx, {
+    registry: input.shared ? undefined : registry,
+    wsl: input.wsl ?? (() => false),
+    state: input.state,
+  })
   const signal = new AbortController().signal
   return {
-    registry,
+    registry: cleanup.internals.registry,
     cleanup,
     events,
     permissions,

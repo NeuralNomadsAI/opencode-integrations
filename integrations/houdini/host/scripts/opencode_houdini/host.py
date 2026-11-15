@@ -106,6 +106,39 @@ class HostError(RuntimeError):
         self.data = data or {}
 
 
+# The error codes of the wire protocol (spec/README.md); a host code outside them travels as data["reason"].
+WIRE_CODES = (
+    "unauthorized", "invalid_request", "method_not_found", "method_disabled", "invalid_args", "stale_handle",
+    "stale_revision", "expectation_failed", "mode_conflict", "busy", "quarantined", "permission_denied", "internal",
+)
+WIRE_ALIASES = {
+    "unknown_script": "stale_handle", "revision_conflict": "stale_revision", "script_quarantined": "quarantined",
+    "unknown_method": "method_not_found", "ui_timeout": "busy",
+}
+WIRE_MESSAGE_MAX = 2000
+WIRE_DATA_MAX = 64 * 1024
+
+
+def _wire_message(text: Any) -> str:
+    return str(text)[:WIRE_MESSAGE_MAX]
+
+
+def wire_error(error: HostError) -> dict[str, Any]:
+    """The refusal sent to the plugin: its wire code, the host's own message and data, and the host's code."""
+    code = WIRE_ALIASES.get(error.code, error.code)
+    if code not in WIRE_CODES:
+        code = "invalid_args"
+    data = _json_value(dict(error.data or {}))
+    if code != error.code:
+        data["reason"] = error.code
+    if len(json.dumps(data, allow_nan=False)) > WIRE_DATA_MAX:
+        data = {"reason": error.code, "truncated": True}
+    refusal: dict[str, Any] = {"code": code, "message": _wire_message(error)}
+    if data:
+        refusal["data"] = data
+    return refusal
+
+
 def _json_value(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
@@ -1277,16 +1310,12 @@ class HostServer:
             if len(json.dumps(response).encode("utf-8")) > 8 * 1024 * 1024:
                 raise HostError("invalid_request", "Narrow the requested working set")
         except HostError as error:
-            response = {
-                "id": request_id,
-                "ok": False,
-                "error": {"code": {"unknown_script": "stale_handle", "revision_conflict": "stale_revision", "script_quarantined": "quarantined", "unknown_method": "method_not_found", "ui_timeout": "busy"}.get(error.code, error.code if error.code in ("unauthorized", "invalid_request", "expectation_failed", "mode_conflict", "permission_denied") else "invalid_args"), "message": "Houdini refused the request"},
-            }
+            response = {"id": request_id, "ok": False, "error": wire_error(error)}
         except Exception as error:
             response = {
                 "id": request_id,
                 "ok": False,
-                "error": {"code": "internal", "message": "Houdini host request failed"},
+                "error": {"code": "internal", "message": _wire_message("%s: %s" % (type(error).__name__, error))},
             }
         try:
             client.sendall((json.dumps(response, allow_nan=False) + "\n").encode("utf-8"))

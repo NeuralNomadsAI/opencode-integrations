@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
 import { it } from "node:test"
-import { requestHost } from "../../../packages/integration-kit/src/index.ts"
+import { type HostError, requestHost } from "../../../packages/integration-kit/src/index.ts"
 import { checkCodeExecutionGate, checkHostListener, runSentinelScenario } from "../../../packages/testing/src/index.ts"
 import { loadPlugin } from "./helpers.ts"
 
@@ -46,6 +46,21 @@ it("the actual Houdini host transport is authenticated, loopback-only and has no
     )
     await assert.rejects(
       requestHost(endpoint, "execute_code", { script_handle: "hip:test-document", code: "raise Exception()" }),
+    )
+    // A refusal keeps the host's message, its data and its own code (data.reason).
+    await assert.rejects(
+      requestHost(endpoint, "apply", {
+        script_handle: "hip:test-document",
+        session_id: "ses_test",
+        if_revision: 0,
+        command_id: "stale",
+      }),
+      (error: HostError) => {
+        assert.equal(error.code, "stale_revision")
+        assert.match(error.message, /\(stale_revision\): The Houdini graph changed after the intent was prepared /)
+        assert.deepEqual(error.data, { expected_revision: 0, current_revision: 1, reason: "revision_conflict" })
+        return true
+      },
     )
   } finally {
     await plugin.cleanup()

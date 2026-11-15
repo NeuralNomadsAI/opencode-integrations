@@ -6,6 +6,7 @@ import {
   advanceBindingAuthority,
   createOfferRegistry,
   offerRegistryKey,
+  offerRegistryName,
   sharedOfferRegistry,
 } from "../src/offer-registry.ts"
 import { createSessionBindings } from "../src/session-bindings.ts"
@@ -123,7 +124,7 @@ describe("binding authority", () => {
       symbol,
       { generation: number; registry: ReturnType<typeof createOfferRegistry> } | undefined
     >
-    const key = offerRegistryKey(app)
+    const key = offerRegistryKey(offerRegistryName(app, expected))
     try {
       const old = sharedOfferRegistry(app, { expected, hello: async () => hello })
       await old.advertise(offer)

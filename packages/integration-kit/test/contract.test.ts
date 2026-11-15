@@ -16,6 +16,7 @@ import {
   isWslDaemon,
   MAX_OFFERS,
   offerRegistryKey,
+  offerRegistryName,
   parseAdvertiseInput,
   parseHello,
   parseWithdrawInput,
@@ -515,13 +516,19 @@ describe("offer registry", () => {
     assert.deepEqual(strict.attach(offer?.offerID ?? "", "ses_1"), { outcome: "refused" })
   })
 
-  it("is shared by every module instance through Symbol.for", () => {
-    const key = offerRegistryKey("demo-shared")
-    assert.equal(key, Symbol.for("neuralnomads.demo-shared.offers"))
+  it("is shared by every module instance through Symbol.for, one list per host contract", () => {
+    const name = offerRegistryName("demo-shared", expected)
+    assert.equal(name, `demo-shared.protocol-${expected.protocol}.part-${expected.range}.app-${expected.appVersions}`)
+    const key = offerRegistryKey(name)
+    assert.equal(key, Symbol.for(`neuralnomads.${name}.offers`))
     const one = sharedOfferRegistry("demo-shared", { expected })
     const two = sharedOfferRegistry("demo-shared", { expected })
     assert.equal(one, two)
     assert.ok((globalThis as unknown as Record<symbol, unknown>)[key])
+    // A plugin version expecting another host range, loaded in the same process, gets its own list.
+    const other = sharedOfferRegistry("demo-shared", { expected: { ...expected, range: "^9.0.0" } })
+    assert.notEqual(other, one)
+    assert.equal(sharedOfferRegistry("demo-shared", { expected }), one)
   })
 })
 
@@ -535,6 +542,16 @@ describe("host client and versions", () => {
         busy: () => {
           throw Object.assign(new Error("x"), { code: "busy" })
         },
+        refuse: () => {
+          throw {
+            code: "stale_revision",
+            message: "Node /obj/geo1\nchanged",
+            data: { current_revision: 4, reason: "revision_conflict" },
+          }
+        },
+        long: () => {
+          throw { code: "internal", message: "x".repeat(5_000), data: { blob: "y".repeat(10_000) } }
+        },
       },
     })
     await assert.rejects(requestHost(host.endpoint, "leak"), (error: HostError) => {
@@ -543,6 +560,22 @@ describe("host client and versions", () => {
       return true
     })
     await assert.rejects(requestHost(host.endpoint, "busy"), (error: HostError) => error.code === "busy")
+    // The host's own message and data reach the error's message, which a tool's caller reads.
+    await assert.rejects(requestHost(host.endpoint, "refuse"), (error: HostError) => {
+      assert.equal(error.code, "stale_revision")
+      assert.equal(
+        error.message,
+        'Host refused the request (stale_revision): Node /obj/geo1 changed {"current_revision":4,"reason":"revision_conflict"}',
+      )
+      assert.equal(error.detail, "Node obj geo1 changed")
+      assert.deepEqual(error.data, { current_revision: 4, reason: "revision_conflict" })
+      return true
+    })
+    await assert.rejects(requestHost(host.endpoint, "long"), (error: HostError) => {
+      assert.ok(error.message.length < 2_400, String(error.message.length))
+      assert.match(error.message, /^Host refused the request \(internal\): x{300} \{"blob":"y+…$/)
+      return true
+    })
     await assert.rejects(requestHost({ ...host.endpoint, host: "localhost" }, "hello"), /127.0.0.1 only/)
     const wrongID = net.createServer((socket) => {
       socket.resume()

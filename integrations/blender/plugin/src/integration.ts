@@ -23,6 +23,7 @@ import {
   isWslDaemon,
   loadMethodRegistry,
   type OfferRegistry,
+  offerRegistryName,
   registerPluginTools,
   requestHost,
   type SessionBindings,
@@ -166,13 +167,13 @@ export function helloParams(_options: BlenderOptions) {
 // hellos by: after an upgrade without restarting OpenCode, an older plugin version stays loaded in the same
 // process, and a list keyed by the application alone would judge this version's add-on by the older range.
 export function registryName(expected: HostExpectation) {
-  return `${APP}.protocol-${expected.protocol}.part-${expected.range}.app-${expected.appVersions}`
+  return offerRegistryName(APP, expected)
 }
 
 export function createRegistry(marker: IntegrationMarker, options: BlenderOptions): OfferRegistry {
   const host = marker.host as NonNullable<IntegrationMarker["host"]>
   const expected = { protocol: host.protocol, range: host.range, appVersions: host.appVersions }
-  return sharedOfferRegistry(registryName(expected), {
+  return sharedOfferRegistry(APP, {
     expected,
     hello: (endpoint) => requestHost(endpoint, "hello", helloParams(options), { timeoutMs: HELLO_TIMEOUT_MS }),
   })

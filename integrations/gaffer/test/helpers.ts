@@ -6,7 +6,13 @@ import { readPackage, setupGaffer } from "../plugin/src/integration.ts"
 import { createOfferRegistry } from "../plugin/src/kit.ts"
 
 export async function loadPlugin(
-  input: { now?: () => number; wsl?: () => boolean; answer?: (action: string) => Promise<void> } = {},
+  input: {
+    now?: () => number
+    wsl?: () => boolean
+    answer?: (action: string) => Promise<void>
+    // The daemon's shared offer list, as the plugin creates it, instead of a private one.
+    shared?: boolean
+  } = {},
 ) {
   const host = readPackage().opencodeIntegration.host!
   const registry = createOfferRegistry({
@@ -58,11 +64,14 @@ export async function loadPlugin(
       },
     },
   } as unknown as Plugin.Context
-  const cleanup = await setupGaffer(ctx, { registry, wsl: input.wsl ?? (() => false) })
+  const cleanup = await setupGaffer(ctx, {
+    registry: input.shared ? undefined : registry,
+    wsl: input.wsl ?? (() => false),
+  })
   const signal = new AbortController().signal
   return {
     cleanup,
-    registry,
+    registry: cleanup.internals.registry,
     events,
     permissions,
     sessions,

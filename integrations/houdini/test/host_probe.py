@@ -82,6 +82,19 @@ class HostTests(unittest.TestCase):
             value.apply({"session_id": "ses_test", "command_id": "new"})
         self.assertEqual(caught.exception.code, "busy")
 
+    def test_refusals_keep_message_data_and_code(self):
+        refusal = module.wire_error(module.HostError("busy", "Too many commands", {"limit": 256}))
+        self.assertEqual(refusal, {"code": "busy", "message": "Too many commands", "data": {"limit": 256}})
+        refusal = module.wire_error(module.HostError("unknown_ref", "Unknown ref: /obj/geo1", {"ref": object()}))
+        self.assertEqual(refusal["code"], "invalid_args")
+        self.assertEqual(refusal["message"], "Unknown ref: /obj/geo1")
+        self.assertEqual(refusal["data"]["reason"], "unknown_ref")
+        self.assertIsInstance(refusal["data"]["ref"], str)
+        json.dumps(refusal, allow_nan=False)
+        refusal = module.wire_error(module.HostError("expectation_failed", "x" * 5000, {"observed": "y" * 100000}))
+        self.assertEqual(len(refusal["message"]), module.WIRE_MESSAGE_MAX)
+        self.assertEqual(refusal["data"], {"reason": "expectation_failed", "truncated": True})
+
     def test_unknown_method_and_stale_handle(self):
         host = module.Host.__new__(module.Host)
         host.state = state()

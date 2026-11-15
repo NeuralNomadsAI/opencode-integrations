@@ -91,10 +91,10 @@ withdraw({ offer_key, token }) => { outcome: "withdrawn" | "none" }
 
 ```
 { "id", "token", "method", "params" }                       // at most 1 MiB
-{ "id", "ok": true, "result" } | { "id", "ok": false, "error": { "code", "message"? } }   // at most 8 MiB
+{ "id", "ok": true, "result" } | { "id", "ok": false, "error": { "code", "message"?, "data"? } }   // at most 8 MiB
 ```
 
-A request without the exact token gets `unauthorized`. The other error codes are `invalid_request`, `method_not_found`, `method_disabled`, `invalid_args`, `stale_handle`, `stale_revision`, `expectation_failed`, `mode_conflict`, `busy`, `quarantined`, `permission_denied` and `internal`; the plugin reads an unknown code as `internal`. `hello` answers:
+A request without the exact token gets `unauthorized`. The other error codes are `invalid_request`, `method_not_found`, `method_disabled`, `invalid_args`, `stale_handle`, `stale_revision`, `expectation_failed`, `mode_conflict`, `busy`, `quarantined`, `permission_denied` and `internal`; the plugin reads an unknown code as `internal`. `message` is the application's explanation and `data` an object of details (such as the current revision, or the application's own code as `reason`); the plugin passes both on in the tool's error. `hello` answers:
 
 ```ts
 { protocol, host_version, app_version, capabilities: { methods, operations, undo, background },

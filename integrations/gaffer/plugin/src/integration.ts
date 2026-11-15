@@ -19,6 +19,17 @@ export function readPackage(): { version: string; opencodeIntegration: Integrati
   return JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"))
 }
 
+// The offer list shared by the daemon's Locations, named after this version's host contract (the kit's
+// sharedOfferRegistry): after an upgrade without restarting OpenCode, the new host is judged by this range.
+export function createRegistry(marker: IntegrationMarker): OfferRegistry {
+  const host = marker.host as NonNullable<IntegrationMarker["host"]>
+  return sharedOfferRegistry("gaffer", {
+    expected: { protocol: host.protocol, range: host.range, appVersions: host.appVersions },
+    hello: (endpoint, scriptHandle) =>
+      requestHost(endpoint, "hello", { script_handle: scriptHandle }, { timeoutMs: HELLO_TIMEOUT_MS }),
+  })
+}
+
 export function resultContent(result: Record<string, unknown>) {
   const clean = JSON.parse(JSON.stringify(result))
   const jobs = [clean.job, ...(clean.jobs ?? [])].filter(Boolean) as Array<{
@@ -47,15 +58,8 @@ export function resultContent(result: Record<string, unknown>) {
 export async function setupGaffer(ctx: Plugin.Context, deps: { registry?: OfferRegistry; wsl?: () => boolean } = {}) {
   const pkg = readPackage()
   const marker = pkg.opencodeIntegration
-  const host = marker.host
-  if (!host) throw new Error("Gaffer requires a native host marker.")
-  const registry =
-    deps.registry ??
-    sharedOfferRegistry("gaffer", {
-      expected: { protocol: host.protocol, range: host.range, appVersions: host.appVersions },
-      hello: (endpoint, scriptHandle) =>
-        requestHost(endpoint, "hello", { script_handle: scriptHandle }, { timeoutMs: HELLO_TIMEOUT_MS }),
-    })
+  if (!marker.host) throw new Error("Gaffer requires a native host marker.")
+  const registry = deps.registry ?? createRegistry(marker)
   const rpc = createIntegrationRpc({
     marker,
     version: pkg.version,
