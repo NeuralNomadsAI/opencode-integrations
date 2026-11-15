@@ -9,7 +9,7 @@ import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 
 import { type AttachmentStorage, createAttachments, trackAdvertise } from "./attachments.ts"
-import { closedMessage, type HostProcess, readProcess } from "./closed.ts"
+import { closedMessage, crashReport, type HostProcess, readProcess, silentMessage } from "./closed.ts"
 import { extensionsDir, inspectHost, installHost } from "./host-install.ts"
 import {
   type BindingAuthority,
@@ -34,7 +34,7 @@ import { type EntryPut, methodAttacher } from "./method.ts"
 import { type BlenderOptions, readOptions } from "./options.ts"
 import { defaultPathEnv, methodsDir, type PathEnv, packageRoot } from "./paths.ts"
 import { type ProgramName, programCode } from "./programs.ts"
-import { addTask, cancelTask, getTask, type RenderStart, taskStatus } from "./tasks.ts"
+import { addTask, cancelTask, getTask, isAlive, type RenderStart, taskStatus } from "./tasks.ts"
 import { validatePlan } from "./validate.ts"
 
 export const APP = "blender"
@@ -69,6 +69,10 @@ export const LAB_TOOLS = [
 
 const MAX_TEXT = 100_000
 const VERIFY_TIMEOUT_MS = 600_000
+// The status method answers off Blender's main thread: no answer within this long means the add-on is frozen.
+const STATUS_TIMEOUT_MS = 3_000
+// How often a running call looks for its Blender's crash report.
+const CRASH_POLL_MS = 2_000
 // A save that failed while the .blend was briefly held by another process, retried once after SAVE_RETRY_MS.
 export const TRANSIENT_SAVE = /unable to make version backup|file saved with @/i
 export const SAVE_RETRY_MS = 1_000
@@ -315,9 +319,31 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   const reached = new Map<string, HostProcess>()
   const helloed = new Map<string, string>() // sessionID -> the offer whose hello was read
   const wsl = deps.wsl ?? (() => isWslDaemon())
-  const closedFor = (sessionID: string) => {
+  // Its offer gone: crashed, closed, or alive without renewing its offer. Never another Blender in its place.
+  const goneFor = (sessionID: string) => {
     const host = reached.get(sessionID)
-    return host && !wsl() ? closedMessage(host) : null
+    if (!host || wsl() || registry.hosts().offers.some((offer) => offer.offerID === host.offerID)) return null
+    return closedMessage(host) ?? silentMessage(host)
+  }
+  // A call that failed, timed out or was refused as busy: what Blender is doing. Its crash report (written since
+  // this conversation reached that process), the process gone, or the request its main thread runs now (the status
+  // method answers off the main thread).
+  const diagnose = async (sessionID: string, bound: HostBinding, code: string) => {
+    const host = reached.get(sessionID)
+    if (!host || wsl()) return null
+    const closed = closedMessage(host, isAlive)
+    if (closed || code === "unreachable" || !bound.methods.includes("status")) return closed
+    try {
+      const status = (await requestHost(bound.endpoint, "status", {}, { timeoutMs: STATUS_TIMEOUT_MS })) as {
+        busy?: boolean
+        running?: string
+        seconds?: number
+      }
+      if (!status.busy) return null
+      return `Blender is still running ${status.running ?? "a request"} (${status.seconds ?? "?"} s so far): it goes on in Blender, nothing is lost. blender_context answers once it has finished; read it before acting again.`
+    } catch {
+      return `Blender does not answer: its process ${host.pid} runs, but OpenCode Link answered nothing within ${STATUS_TIMEOUT_MS / 1_000} s (frozen?).`
+    }
   }
   const remember = async (context: ToolContext, held: Ticket) => {
     if (helloed.get(context.sessionID) === held.bound.offerID) return
@@ -348,6 +374,9 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       bound = registry.binding(context.sessionID)
     }
     if (!bound) {
+      // Its Blender crashed or closed: said, and no other Blender attaches itself in its place.
+      const gone = goneFor(context.sessionID)
+      if (gone) throw new Error(gone)
       const offers = registry.hosts().offers
       const only = offers.length === 1 ? offers[0] : undefined
       if (
@@ -362,8 +391,6 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         }
       }
       if (!bound) {
-        const closed = closedFor(context.sessionID)
-        if (closed) throw new Error(closed)
         if (!offers.length)
           throw new Error("No Blender is offered: open Blender 5.3 or later with the OpenCode Link add-on enabled.")
         const list = offers
@@ -401,16 +428,36 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
       )
     }
     await remember(context, held)
+    // A crash ends the wait at once: on Windows a crashed Blender stays open behind its crash window and its
+    // connection with it, so the call would wait its whole timeout. Its crash report is watched meanwhile.
+    const host = wsl() ? undefined : reached.get(context.sessionID)
+    const stop = new AbortController()
+    const abort = () => stop.abort()
+    context.signal.addEventListener("abort", abort)
+    let crashed: string | null = null
+    const watch = host
+      ? setInterval(() => {
+          crashed = crashReport(host) ? closedMessage(host, isAlive) : null
+          if (crashed) stop.abort()
+        }, CRASH_POLL_MS)
+      : undefined
     try {
       return await requestHost(
         bound.endpoint,
         method,
         { script_handle: bound.scriptHandle, ...params },
-        { signal: context.signal, timeoutMs },
+        { signal: stop.signal, timeoutMs },
       )
     } catch (error) {
-      const closed = error instanceof HostError && error.code === "unreachable" ? closedFor(context.sessionID) : null
-      throw closed ? new Error(closed) : hostError(error)
+      if (crashed) throw new Error(crashed)
+      const said =
+        error instanceof HostError && ["unreachable", "timeout", "busy"].includes(error.code)
+          ? await diagnose(context.sessionID, bound, error.code)
+          : null
+      throw said ? new Error(said) : hostError(error)
+    } finally {
+      clearInterval(watch)
+      context.signal.removeEventListener("abort", abort)
     }
   }
 
@@ -461,6 +508,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         if (!authority || !registry.current(authority))
           throw new Error("This conversation's ownership is unverifiable: try again.")
         out.detached = registry.detach(context.sessionID).outcome
+        reached.delete(context.sessionID) // detached on purpose: its Blender closing later is no news here
+        helloed.delete(context.sessionID)
       }
       if (typeof args.attach === "string") {
         const offer = registry.hosts().offers.find((candidate) => candidate.offerID === args.attach)
@@ -475,6 +524,9 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
         if (out.attached === "attached") {
           await attachments.remember(context.sessionID)
           await attachMethod(context.sessionID)
+          if (heldElsewhere(offer.offerID, context.sessionID))
+            out.shared =
+              "Another conversation is attached to this Blender too: both change the same document, and each call is checked against its revision."
         }
       }
       void legacy.refresh()

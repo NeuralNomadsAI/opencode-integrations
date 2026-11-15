@@ -27,7 +27,7 @@ async function plugin(input: Parameters<typeof loadPlugin>[0] = {}): Promise<Loa
   return loaded
 }
 
-// The methods an OpenCode Link 0.4.7 host lists, on Blender 5.3.
+// The methods an OpenCode Link 0.4.8 host lists, on Blender 5.3.
 const CAPABILITIES = {
   methods: ["hello", "scene", "apply", "execute_code", "lab_tool", "release"],
   operations: [],
@@ -283,6 +283,16 @@ describe("attachment", () => {
       "another conversation",
     )
     assert.equal(loaded.registry.binding("ses_one"), null)
+  })
+
+  it("an explicit attach to a Blender another conversation uses says they share one document (0.4.8)", async () => {
+    const { loaded, offerIDs } = await offered()
+    const first = content(await loaded.tool("blender_hosts", { attach: offerIDs[0] }))
+    assert.equal(first.attached, "attached")
+    assert.equal(first.shared, undefined)
+    const second = content(await loaded.tool("blender_hosts", { attach: offerIDs[0] }, "ses_one"))
+    assert.equal(second.attached, "attached")
+    assert.match(second.shared, /Another conversation is attached to this Blender too: both change the same document/)
   })
 
   it("never attaches by itself with two offered Blenders or an incompatible one", async () => {
@@ -845,7 +855,7 @@ describe("tools", () => {
     const other = await plugin()
     await other.rpc("advertise", announcement(old.endpoint, old.scriptHandle))
     other.registry.attach(other.registry.hosts().offers[0]?.offerID as string, "ses_test")
-    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.7/)
+    await assert.rejects(other.tool("blender_context"), /no scene method: install OpenCode Link 0\.4\.8/)
     assert.ok(loaded)
   })
 })

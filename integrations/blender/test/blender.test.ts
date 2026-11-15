@@ -3,13 +3,13 @@
 // document. Skipped unless BLENDER_TEST_BIN names Blender.
 
 import assert from "node:assert/strict"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 
 import { requestHost } from "../plugin/src/kit.ts"
 import { blenderBin, installAddon, installTestAddon, isolatedRoot, runBlender } from "./helpers/blender.ts"
-import { announcement, loadPlugin } from "./helpers/plugin.ts"
+import { announcement, clock, loadPlugin } from "./helpers/plugin.ts"
 
 const skip = blenderBin ? false : "BLENDER_TEST_BIN is not set"
 // The tests of ops042_tests.py: one or more per friction of the journal's entries 47 to 62.
@@ -285,7 +285,66 @@ describe("OpenCode Link in Blender (background)", { skip }, () => {
       // Where Blender writes its own report when it crashes (an unsaved file: blender.crash.txt).
       const report = join(iso.root, "tmp", "blender.crash.txt")
       writeFileSync(report, "# Blender 5.3.0\n")
-      await assert.rejects(plugin.tool("blender_context"), /Blender closed.*Crash report: .*blender\.crash\.txt/)
+      await assert.rejects(
+        plugin.tool("blender_context"),
+        /Blender crashed.*crash report .*blender\.crash\.txt\. Its process \d+ has ended/,
+      )
+    } finally {
+      writeFileSync(stopFile, "")
+      await run.exited
+      await plugin.cleanup()
+      iso.cleanup()
+    }
+  })
+
+  it("a call that outlasts its wait says what Blender does: still running, crashed, or gone silent (0.4.8)", async () => {
+    const iso = isolatedRoot("blender-busy-")
+    const stopFile = join(iso.root, "stop")
+    installTestAddon(iso)
+    const run = runBlender(iso, join(folder, "serve.py"), [
+      "--listen-only",
+      "--seconds",
+      "120",
+      "--stop-file",
+      stopFile,
+    ])
+    const time = clock(Date.now())
+    const plugin = await loadPlugin({ now: time.now })
+    try {
+      let line: string | undefined
+      for (let attempt = 0; attempt < 600 && !line; attempt += 1) {
+        line = run
+          .output()
+          .split("\n")
+          .find((entry) => entry.startsWith("ENDPOINT "))
+        if (!line) await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      assert.ok(line, run.output().slice(-2000))
+      const { port, token, script_handle } = JSON.parse(line.slice("ENDPOINT ".length))
+      await plugin.rpc("advertise", announcement({ port, token }, script_handle))
+      assert.equal(typeof JSON.parse(String((await plugin.tool("blender_context")).content)).revision, "number")
+      const sleep = (s: number) => `import time\ntime.sleep(${s})\nresult = {'slept': ${s}}`
+      // A long call: its wait ends, Blender's main thread is still running it (status answers off that thread).
+      await assert.rejects(
+        plugin.tool("blender_execute_code", { code: sleep(6), timeout_s: 2 }),
+        /Blender is still running execute_code \([\d.]+ s so far\): it goes on in Blender, nothing is lost/,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 5_000))
+      assert.equal(typeof JSON.parse(String((await plugin.tool("blender_context")).content)).revision, "number")
+      // Sol ex06: Blender crashes during the call; on Windows its process stays open behind its crash window.
+      const report = join(iso.root, "tmp", "blender.crash.txt")
+      setTimeout(() => writeFileSync(report, "# Blender 5.3.0\n"), 500)
+      const started = Date.now()
+      await assert.rejects(
+        plugin.tool("blender_execute_code", { code: sleep(6), timeout_s: 30 }),
+        /Blender crashed.*crash report .*blender\.crash\.txt\. Its process \d+ is still open/,
+      )
+      assert.ok(Date.now() - started < 5_000, "said at once, not after the call's whole wait")
+      await new Promise((resolve) => setTimeout(resolve, 5_000))
+      rmSync(report)
+      // Its offer no longer renewed while the process lives: said, and no other Blender takes its place.
+      time.advance(16_000)
+      await assert.rejects(plugin.tool("blender_context"), /no longer offers itself: its process \d+ still runs/)
     } finally {
       writeFileSync(stopFile, "")
       await run.exited
