@@ -40,17 +40,17 @@
     {
       "id": "gaffer",
       "package": "@neuralnomads/opencode-gaffer",
-      "range": "^0.2",
+      "range": "^0.3",
       "displayName": "OpenCode for Gaffer",
       "family": "native",
       "plugin": "neuralnomads.gaffer",
       "rpc": "neuralnomads.gaffer",
       "summary": {
-        "en": "Inspect and edit the open Gaffer graph through an authenticated host, from any OpenCode client or the in-app panel.",
-        "fr": "Inspecter et modifier le graphe Gaffer ouvert via un hôte authentifié, depuis tout client OpenCode ou le panneau intégré."
+        "en": "Read, change and check the scripts open in Gaffer from any OpenCode conversation, with an optional panel inside Gaffer.",
+        "fr": "Lire, modifier et vérifier les scripts ouverts dans Gaffer depuis toute conversation OpenCode, avec un panneau facultatif dans Gaffer."
       },
       "app": { "name": "Gaffer", "versions": ">=1.6" },
-      "host": { "protocol": 1, "range": "^0.2.0" },
+      "host": { "protocol": 1, "range": "^0.3.0" },
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/gaffer/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/gaffer/plugin"] }

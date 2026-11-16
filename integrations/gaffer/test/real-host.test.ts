@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { it } from "node:test"
 import { promisify } from "node:util"
 
-it("real Gaffer: hello, bounded graph read, atomic edit, idempotency, stale revision and undo", {
+it("real Gaffer: typed apply, offers per script, hello and status off the main thread, execute_code with rollback, hints and quarantine, busy within 10 s", {
   skip: !process.env.GAFFER_TEST_BIN,
 }, async () => {
   const scratch = mkdtempSync(join(tmpdir(), "gaffer-real-"))
@@ -36,9 +36,8 @@ it("real Gaffer: hello, bounded graph read, atomic edit, idempotency, stale revi
       timeout: 90_000,
       maxBuffer: 4 * 1024 * 1024,
     })
-    assert.match(stdout, /GAFFER_REAL_OK/)
-    assert.match(stdout, /GAFFER_PANEL_OK/)
-    assert.match(stdout, /GAFFER_WIRE_OK/)
+    for (const marker of ["REAL", "PANEL", "OFFERS", "WIRE", "CODE", "GATE"])
+      assert.match(stdout, new RegExp(`GAFFER_${marker}_OK`), stdout.slice(-4000))
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }

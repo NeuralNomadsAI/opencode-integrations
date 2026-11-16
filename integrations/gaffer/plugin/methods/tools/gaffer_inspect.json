@@ -1,0 +1,41 @@
+{
+  "name": "gaffer_inspect",
+  "domain": "tools",
+  "description": "Ask THIS Gaffer what it really exposes, in one call: search (words found in node class names and descriptions, plug names and descriptions of every node class of the loaded modules, and Gaffer, GafferScene, GafferImage and GafferDispatch classes, functions and methods with their signature line; ranked), a node class (description, base classes, every plug with its type, default, range, presets and description, its documentation page), a live node (type, changed plugs with values and input connections, outputs and where they go, compute errors, children; a scene output's bound, sets, globals and locations with object type and attributes; an image output's format, data window, channels and metadata) and/or a Python symbol (its docstring signature). Entries beyond limit are still named. Always says the Gaffer version and the local documentation. Read only.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "search": {
+      "type": "string",
+      "description": "Words, e.g. \"sphere\", \"resolution\", \"set name\"."
+    },
+    "type": {
+      "type": "string",
+      "description": "A node class: Module.Class (GafferScene.Sphere, GafferImage.ImageWriter) or a class name."
+    },
+    "node": {
+      "type": "string",
+      "description": "A live node path in the script, e.g. Group or Box.sphere."
+    },
+    "gaffer": {
+      "type": "string",
+      "description": "A Python path, e.g. Gaffer.GraphComponent.setName, GafferScene.ScenePlug, IECore.CompoundData."
+    },
+    "match": {
+      "type": "string",
+      "description": "Keep the plugs (and scene locations) matching: a glob on names (transform.*), or words found in name or description."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Entries in detail (1 to 200); the others are named.",
+      "default": 40
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/inspect.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

@@ -22,8 +22,6 @@ export function serviceFetch(baseUrl: string): typeof globalThis.fetch {
     if (serviceURL(message.url).origin !== origin) throw new Error("OpenCode service origin changed")
     const body = message.body ? Buffer.from(await message.arrayBuffer()) : undefined
     message.signal.throwIfAborted()
-    // The private Bun sidecar's HTTP adapter ignores proxyEnv; force direct connections there too.
-    if (process.versions.bun) process.env.no_proxy = process.env.NO_PROXY = "*"
     return new Promise((resolve, reject) => {
       const req = request(
         message.url,

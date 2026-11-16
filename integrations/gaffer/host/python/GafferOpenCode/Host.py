@@ -22,7 +22,11 @@ import GafferImage
 import GafferScene
 import GafferUI
 
+from . import Advertiser
+from . import Gate
+from . import Hints
 from . import Recipes
+from . import Runner
 
 
 PROTOCOL_VERSION = 1
@@ -43,7 +47,7 @@ OPERATIONS = (
 	"render.cancel",
 	"ui.view",
 )
-METHODS = ( "hello", "context", "sync", "apply", "cancel", "resume" )
+METHODS = ( "hello", "status", "context", "sync", "apply", "execute_code", "release", "cancel", "resume" )
 
 
 class HostError( RuntimeError ) :
@@ -82,7 +86,7 @@ WIRE_ALIASES = {
 	"unknown_script" : "stale_handle", "revision_conflict" : "stale_revision",
 	"unknown_method" : "method_not_found", "script_quarantined" : "quarantined",
 	"rollback_failed" : "quarantined", "request_too_large" : "invalid_request",
-	"read_only" : "permission_denied",
+	"read_only" : "permission_denied", "ui_timeout" : "busy",
 }
 WIRE_MESSAGE_MAX = 2000
 WIRE_DATA_MAX = 64 * 1024
@@ -337,6 +341,7 @@ class ScriptState :
 		self.epoch = str( uuid.uuid4() )
 		self.revision = 1
 		self.quarantined = False
+		self.quarantine = None
 		self.__cancellation = {}
 		self.__trackingSuppressed = False
 		self.__refsByObject = {}
@@ -566,7 +571,7 @@ class ScriptState :
 		if requestWasCancelled or self.__cancellationState( sessionID )[1] or cancellationGeneration != self.__cancellationState( sessionID )[0] :
 			raise HostError( "cancelled", "The current OpenCode turn was interrupted" )
 		if self.quarantined :
-			raise HostError( "script_quarantined", "Remote writes are disabled until the script is reattached" )
+			raise HostError( "script_quarantined", Runner.QUARANTINED, { "quarantine" : self.quarantine or {} } )
 
 		commandID = str( request.get( "command_id", "" ) )
 		if not commandID :
@@ -673,7 +678,13 @@ class ScriptState :
 					self.flush( cause = "rollback", commandID = commandID )
 				except Exception as rollbackError :
 					self.quarantined = True
-					raise HostError( "rollback_failed", str( rollbackError ) )
+					self.quarantine = {
+						"cause" : ( "failed apply: " + str( failure ) )[:200],
+						"release" : "read the script (gaffer_context), check what may have changed, then release the "
+						"quarantine with that read's revision",
+						"undo_error" : str( rollbackError )[:300],
+					}
+					raise HostError( "rollback_failed", str( rollbackError ), { "quarantine" : self.quarantine } )
 			self.__trackingSuppressed = False
 			raise HostError(
 				"execution_failed_rolled_back" if actionCount[0] else "execution_failed",
@@ -741,6 +752,19 @@ class ScriptState :
 	def cancellationState( self, sessionID ) :
 
 		return self.__cancellationState( sessionID )
+
+	# For execute_code (Runner.py): changes seen since the last flush, the redo of an undone run, a new summary.
+	def hasPendingChanges( self ) :
+
+		return bool( self.__dirtyNodes or self.__removedRefs )
+
+	def discardRedo( self ) :
+
+		self.__discardRedo()
+
+	def markSummary( self ) :
+
+		self.__summaryDirty = True
 
 	def __discardRedo( self ) :
 
@@ -1648,27 +1672,126 @@ class ScriptState :
 			self.__recent.append( self.__ref( node ) )
 
 
+def _tempDir() :
+
+	return tempfile.gettempdir()
+
+
+def documentName( script ) :
+
+	try :
+		name = pathlib.Path( script["fileName"].getValue() ).name
+	except Exception :
+		name = ""
+	return ( name or script.getName() or "Untitled" )[:120]
+
+
+def offerLabel( script ) :
+
+	name = "".join( c for c in documentName( script ) if ord( c ) >= 32 and c != "\x7f" ).strip() or "Untitled"
+	return "Gaffer: " + name
+
+
 class Host :
 
-	def __init__( self, application ) :
+	"""The installed part: the scripts of one Gaffer process (application root), each with its handle and offer.
+
+	`ui`: requests run through Gaffer's event loop (the interface); otherwise through pump() (`gaffer python`)."""
+
+	def __init__( self, application = None, root = None, ui = True ) :
 
 		self.application = application
-		self.recipes = Recipes.Registry( application.root() )
+		root = root if root is not None else application.root()
+		self.root = root
+		self.recipes = Recipes.Registry( root )
+		self.ui = Gate.UIThreadGate( ( lambda job : GafferUI.EventLoop.executeOnUIThread( job ) ) if ui else None )
 		self.__statesByHandle = {}
 		self.__handlesByScript = {}
+		self.__offers = {}  # script handle: ( label, offer key )
+		self.__offerCount = 0
 		self.__connections = []
-		scripts = application.root()["scripts"]
+		capabilities = {
+			"methods" : list( METHODS ),
+			"operations" : [ { "name" : name, "undoable" : name not in ( "render.start", "render.cancel", "ui.view" ) } for name in OPERATIONS ],
+			"undo" : "transactional",
+			"background" : False,
+		}
+		# What hello says that does not change while Gaffer runs, read once here on the main thread.
+		self.__hello = {
+			"protocol" : PROTOCOL_VERSION,
+			"host_version" : HOST_VERSION,
+			"app_version" : Gaffer.About.versionString(),
+			"process" : { "pid" : os.getpid(), "temp_dir" : _tempDir() },
+			"capabilities" : capabilities,
+			"capability_hash" : hashlib.sha256( json.dumps( capabilities, sort_keys = True, separators = ( ",", ":" ) ).encode( "utf-8" ) ).hexdigest(),
+			"operations" : list( OPERATIONS ),
+			"node_types" : list( self.recipes.nodeTypes() ),
+			"node_recipes" : self.recipes.catalogue(),
+		}
+		scripts = root["scripts"]
 		for script in scripts.children( Gaffer.ScriptNode ) :
 			self.__addScript( scripts, script )
 		self.__connections.append( scripts.childAddedSignal().connect( self.__addScript, scoped = True ) )
 		self.__connections.append( scripts.childRemovedSignal().connect( self.__removeScript, scoped = True ) )
 
+	def close( self ) :
+
+		self.__connections = []
+		for state in list( self.__statesByHandle.values() ) :
+			state.close()
+		self.__statesByHandle = {}
+		self.__handlesByScript = {}
+		self.__offers = {}
+
 	def scriptHandle( self, script ) :
 
 		return self.__handlesByScript.get( script )
 
+	def offers( self ) :
+
+		"""( script_handle, label, offer_key ) of each open script, for the advertiser (any thread)."""
+
+		return [ ( handle, label, key ) for handle, ( label, key ) in list( self.__offers.items() ) ]
+
+	def offerOf( self, script ) :
+
+		handle = self.__handlesByScript.get( script )
+		return self.__offers.get( handle ) if handle is not None else None
+
+	def stateOf( self, script ) :
+
+		handle = self.__handlesByScript.get( script )
+		return self.__statesByHandle.get( handle ) if handle is not None else None
+
+	def quickHello( self, handle = None ) :
+
+		"""hello without Gaffer's main thread: OpenCode checks each new offer with it, one offer at a time, and a
+		hello waiting behind a long computation would hold every offer of the computer back. Without a
+		script_handle: this process and its first script."""
+
+		if handle :
+			state = self.__statesByHandle.get( str( handle ) )
+			if state is None :
+				raise HostError( "unknown_script", "Unknown or expired script_handle" )
+		else :
+			states = list( self.__statesByHandle.values() )
+			state = states[0] if states else None
+		hello = dict( self.__hello )
+		if state is not None :
+			label = self.__offers.get( state.handle, ( "", "" ) )[0]
+			hello.update(
+				script_handle = state.handle, script_epoch = state.epoch, revision = state.revision,
+				document = label[len( "Gaffer: " ):] if label.startswith( "Gaffer: " ) else label,
+			)
+		return hello
+
 	def dispatch( self, method, params ) :
 
+		if method == "status" :
+			# Answered on the request's own thread, never through the main thread: what it runs now.
+			return self.ui.running()
+		if method == "hello" :
+			return self.quickHello( params.get( "script_handle" ) )
 		if method in ( "cancel", "resume" ) :
 			handle = str( params.get( "script_handle", "" ) )
 			state = self.__statesByHandle.get( handle )
@@ -1695,26 +1818,26 @@ class Host :
 			state = self.__statesByHandle.get( handle )
 			if state is None :
 				raise HostError( "unknown_script", "Unknown or expired script_handle" )
-			if method == "hello" :
-				return state.hello()
 			if method == "context" :
 				return state.context( params )
 			if method == "sync" :
 				return state.sync( params.get( "after_revision", 0 ) )
 			if method == "apply" :
 				return state.apply( params, requestCancellation[0], requestCancellation[1] )
+			if method == "execute_code" :
+				return Runner.executeCode( state, params, self.root, Hints.explain )
+			if method == "release" :
+				return Runner.release( state, params )
 			raise HostError( "unknown_method", "Unknown Gaffer host method: " + method )
 
-		def executeSafely() :
-			try :
-				return True, execute()
-			except Exception as error :
-				return False, error
-
-		succeeded, result = GafferUI.EventLoop.executeOnUIThread( executeSafely, waitForResult = True )
-		if not succeeded :
-			raise result
-		return result
+		if method not in METHODS :
+			raise HostError( "unknown_method", "Unknown Gaffer host method: " + method )
+		if str( params.get( "script_handle", "" ) ) not in self.__statesByHandle :
+			raise HostError( "unknown_script", "Unknown or expired script_handle" )
+		try :
+			return self.ui.run( execute, method )
+		except Gate.GateError as error :
+			raise HostError( error.code, str( error ), error.data )
 
 	def __addScript( self, unusedParent, script ) :
 
@@ -1723,11 +1846,35 @@ class Host :
 		state = ScriptState( script, self.recipes )
 		self.__handlesByScript[script] = state.handle
 		self.__statesByHandle[state.handle] = state
+		self.__offers[state.handle] = ( self.__uniqueLabel( script, state.handle ), Advertiser.offerKey( self.__offerCount ) )
+		self.__offerCount += 1
+
+		# The offer's label follows the script's file (a save as, a load), read here on the main thread.
+		def fileNameSet( plug ) :
+			if plug.isSame( script["fileName"] ) and state.handle in self.__offers :
+				self.__offers[state.handle] = ( self.__uniqueLabel( script, state.handle ), self.__offers[state.handle][1] )
+
+		self.__connections.append( script.plugSetSignal().connect( fileNameSet, scoped = True ) )
+
+	def __uniqueLabel( self, script, handle ) :
+
+		"""The script's label, numbered when another script of this Gaffer has it (two untitled scripts): a panel
+		finds its script's offer by label."""
+
+		label = offerLabel( script )
+		taken = { other for key, ( other, unusedKey ) in self.__offers.items() if key != handle }
+		number = 2
+		unique = label
+		while unique in taken :
+			unique = "{} ({})".format( label, number )
+			number += 1
+		return unique
 
 	def __removeScript( self, unusedParent, script ) :
 
 		handle = self.__handlesByScript.pop( script, None )
 		state = self.__statesByHandle.pop( handle, None ) if handle is not None else None
+		self.__offers.pop( handle, None )
 		if state is not None :
 			state.close()
 
@@ -1754,6 +1901,12 @@ class HostServer :
 	def close( self ) :
 
 		self.running = False
+		self.token = secrets.token_hex( 32 )
+		# Wake a blocking accept before closing the listener on every platform.
+		try :
+			self.socket.shutdown( socket.SHUT_RDWR )
+		except OSError :
+			pass
 		try :
 			self.socket.close()
 		except OSError :
@@ -1772,7 +1925,7 @@ class HostServer :
 
 		requestID = None
 		try :
-			client.settimeout( 2 )
+			client.settimeout( 130 )
 			buffer = b""
 			while b"\n" not in buffer :
 				chunk = client.recv( 65536 )

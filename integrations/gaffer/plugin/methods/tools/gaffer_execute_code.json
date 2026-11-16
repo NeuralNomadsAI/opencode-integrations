@@ -1,0 +1,19 @@
+{
+  "name": "gaffer_execute_code",
+  "domain": "tools",
+  "description": "DANGEROUS: run Python in the attached Gaffer on its script (script, Gaffer, GafferScene, GafferImage, GafferDispatch, IECore, imath), given as code or as a script file (path). Assign a JSON-able dict to `result`; print() output is returned. A run that changes the script is one undo step; a failing one is undone, and a failure says what Gaffer knows (closest plug or class names, the plug a computation failed on, the expected value type). Every run asks permission.",
+  "kind": "host-backed",
+  "risk": "destructive",
+  "dangerous": true,
+  "args": {
+    "code": { "type": "string", "description": "Python code (or path)." },
+    "path": {
+      "type": "string",
+      "description": "A .py file to run instead of code, read as is (absolute or relative to the project): long scripts, no escaping."
+    },
+    "read_only": { "type": "boolean", "description": "Inspection: no undo step." },
+    "timeout_s": { "type": "integer", "description": "Longest wait in seconds (1 to 3600).", "default": 120 }
+  },
+  "execution": { "strategy": "host_method", "method": "execute_code" },
+  "requires": { "hostMethods": ["execute_code"] }
+}
