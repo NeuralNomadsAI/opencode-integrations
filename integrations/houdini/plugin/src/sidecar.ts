@@ -6,6 +6,7 @@ import { OpenCode } from "@opencode/client"
 import { Service } from "@opencode/client/service"
 import { rpcDefinition } from "../../../../packages/integration-kit/src/contract.ts"
 import { requestHost } from "../../../../packages/integration-kit/src/host-client.ts"
+import { briefly, findOffer, PanelError, step } from "./sidecar-steps.ts"
 
 type Channel = {
   id: string
@@ -30,16 +31,10 @@ const options = (c: { directory: string }) => ({
   location: { directory: c.directory },
   signal: AbortSignal.timeout(3000),
 })
-// A message of this sidecar's own, safe to show in the panel (SDK and host errors never are).
-class PanelError extends Error {}
-
-// How long Connect waits for this Houdini's own offer (it offers itself every 5 s from its start).
-const OFFER_WAIT_MS = 8_000
-
 async function api() {
   if (client) return client
   const endpoint = await Service.discover()
-  if (!endpoint) throw new Error("Start OpenCode before connecting the panel.")
+  if (!endpoint) throw new PanelError("Start OpenCode before connecting the panel.")
   client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
   rpc = client.rpc(rpcDefinition("neuralnomads.houdini", "native") as never) as unknown as Rpc
   return client
@@ -66,25 +61,6 @@ function rememberSession(file: string, key: string, session: string, directory: 
     writeFileSync(file, `${JSON.stringify(sessions)}\n`)
   } catch {
     // a conversation that is not taken back next time
-  }
-}
-
-// This Houdini's offer: the one with its label among the offered hosts (Houdini offers itself; the panel never).
-async function findOffer(c: { directory: string; label: string }) {
-  const until = Date.now() + OFFER_WAIT_MS
-  for (;;) {
-    const result = await rpc.hosts?.({}, options(c))
-    const offers = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).filter(
-      (offer) => offer.label === c.label,
-    )
-    if (offers.length > 1)
-      throw new PanelError(`Several Houdinis offer ${c.label}: attach this conversation from OpenCode (houdini_hosts).`)
-    if (offers[0]) return offers[0]
-    if (Date.now() > until)
-      throw new PanelError(
-        "This Houdini does not offer itself to OpenCode (OPENCODE_HOUDINI_OFFER=0, or OpenCode Link not started).",
-      )
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
   }
 }
 
@@ -132,7 +108,7 @@ async function stream(c: Channel) {
 }
 
 async function connect(id: string, params: Record<string, unknown>, fresh: boolean) {
-  const service = await api()
+  const service = await step("reaching OpenCode", api)
   const previous = channels.get(id)
   if (previous) await close(previous)
   if (params.host !== "127.0.0.1" || !Number.isInteger(params.port) || !/^[0-9a-f]{64}$/.test(String(params.token)))
@@ -160,7 +136,11 @@ async function connect(id: string, params: Record<string, unknown>, fresh: boole
   }
   if (!sessionID) {
     const label = String(params.script_name || "Houdini")
-    sessionID = (await service.session.create({ title: `Houdini: ${label}`, location: { directory } })).id
+    sessionID = (
+      await step("creating this file's conversation", () =>
+        service.session.create({ title: `Houdini: ${label}`, location: { directory } }),
+      )
+    ).id
   }
   const c: Channel = {
     id,
@@ -173,8 +153,12 @@ async function connect(id: string, params: Record<string, unknown>, fresh: boole
     pending: false,
   }
   try {
-    const offer = await findOffer(c)
-    const result = await rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c))
+    const offer = await step("finding this Houdini's offer", () =>
+      findOffer(async () => rpc.hosts?.({}, options(c)), c.label),
+    )
+    const result = await step("attaching the conversation to this Houdini", async () =>
+      rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c)),
+    )
     if (result?.outcome !== "attached") throw new PanelError("Houdini attachment was refused.")
     rememberSession(store, key, c.sessionID, c.directory)
     channels.set(id, c)
@@ -241,7 +225,7 @@ async function dispatch(request: Request) {
     }
     send({ id: request.id, result: {} })
   } catch (error) {
-    // Never forward SDK/host errors: their details can include credentials or endpoints.
+    // SDK and host errors in one line, without credentials or endpoints (briefly).
     send({
       channel: request.channel,
       event: "error",
@@ -249,7 +233,7 @@ async function dispatch(request: Request) {
         message:
           error instanceof PanelError
             ? error.message
-            : "Connection or action failed. Check OpenCode and Houdini, then choose Connect.",
+            : `The panel action failed: ${briefly(error)} Check that OpenCode runs, then choose Connect.`,
       },
     })
     send({ id: request.id, error: { message: "Panel action failed." } })
