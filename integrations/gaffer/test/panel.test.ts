@@ -67,6 +67,8 @@ function fakeService() {
     { offerID: "offer_shot", label: "Gaffer: shot.gfr", protocol: "ok" },
   ]
   let created = 0
+  // The first calls of a Location OpenCode is still opening: the integration's RPC is not there yet.
+  let unavailable = 0
   const record =
     (name: string, result: (input: Input) => unknown = () => ({})) =>
     async (input: Input) => {
@@ -76,7 +78,13 @@ function fakeService() {
   const rpc = new Proxy({} as Record<string, unknown>, {
     get: (_target, name: string) => {
       const methods: Record<string, (input: Input) => unknown> = {
-        hosts: () => ({ offers }),
+        hosts: () => {
+          if (unavailable > 0) {
+            unavailable -= 1
+            throw new Error("RPC is unavailable: neuralnomads.gaffer")
+          }
+          return { offers }
+        },
         attachHost: ({ offerID, sessionID }) => {
           const bound = bindings.get(sessionID)
           if (bound && bound !== offerID) return { outcome: "busy" }
@@ -160,6 +168,9 @@ function fakeService() {
     setOffers: (next: typeof offers) => {
       offers = next
     },
+    setUnavailable: (calls: number) => {
+      unavailable = calls
+    },
     push: async (item: Item) => {
       for (const listener of listeners) listener(item)
       await new Promise((resolve) => setImmediate(resolve))
@@ -167,7 +178,7 @@ function fakeService() {
   }
 }
 
-function harness() {
+function harness(offerWaitMs = -1) {
   const service = fakeService()
   const out: Out[] = []
   const host: Array<[string, unknown]> = []
@@ -178,7 +189,7 @@ function harness() {
       host.push([method, params])
       return {}
     },
-    offerWaitMs: -1,
+    offerWaitMs,
     checkEveryMs: 60_000,
   })
   let id = 0
@@ -302,7 +313,10 @@ it("Connect refuses an ambiguous or absent offer, keeps a conversation attached 
 
     for (const bad of [{ token: "short" }, { host: "10.0.0.1" }, { offer_label: "" }]) {
       await call("connect", { ...CONNECT, ...bad })
-      assert.match(String(events("error").at(-1)?.message), /^Connection or action failed/)
+      assert.match(
+        String(events("error").at(-1)?.message),
+        /^The panel action failed: (Invalid host endpoint|Incomplete connect request)\. Check that OpenCode runs/,
+      )
     }
     service.bindings.clear()
     await call("connect", CONNECT)
@@ -312,6 +326,58 @@ it("Connect refuses an ambiguous or absent offer, keeps a conversation attached 
     await call("prompt", { text: "x" })
     const message = events("error").at(-1)?.message as string
     assert.ok(!message.includes(HOST.token) && !message.includes(String(HOST.port)), message)
+  } finally {
+    await panel.closeAll()
+  }
+})
+
+// Real trial: the first Connect failed while OpenCode opened the script's folder (its Location) and loaded its plugins
+// ("RPC is unavailable"); it was read as the CodeNomad conversation attached to the same script holding it.
+it("Connect waits for the Location OpenCode is still opening, next to a conversation attached to the same script", async () => {
+  const { service, panel, call, events } = harness(10_000)
+  try {
+    service.bindings.set("ses_codenomad", "offer_shot")
+    service.setUnavailable(2)
+    await call("connect", CONNECT)
+    assert.deepEqual(events("error"), [])
+    assert.equal(service.calls.filter(([name]) => name === "rpc.hosts").length, 3)
+    // Both conversations are attached to the script; closing the panel leaves the other one attached.
+    assert.deepEqual(
+      service.bindings,
+      new Map([
+        ["ses_codenomad", "offer_shot"],
+        ["ses_old", "offer_shot"],
+      ]),
+    )
+    await call("close")
+    assert.deepEqual(service.bindings, new Map([["ses_codenomad", "offer_shot"]]))
+  } finally {
+    await panel.closeAll()
+  }
+})
+
+it("a failed Connect says which step failed and why, without a credential", async () => {
+  const { service, panel, call, events } = harness(-1)
+  try {
+    service.setUnavailable(1)
+    await call("connect", CONNECT)
+    assert.equal(
+      events("error").at(-1)?.message,
+      "Connect failed while finding this script's offer: RPC is unavailable: neuralnomads.gaffer. Check that OpenCode runs, then choose Connect.",
+    )
+    ;(service.api.session as { list: unknown }).list = async () => {
+      throw new Error(`refused by 127.0.0.1:${HOST.port} with Basic secret ${HOST.token}\nstack`)
+    }
+    await call("connect", CONNECT)
+    const message = String(events("error").at(-1)?.message)
+    assert.match(
+      message,
+      /^Connect failed while finding this script's conversation: refused by 127\.0\.0\.1:… with Basic …/,
+    )
+    assert.ok(
+      !message.includes(HOST.token) && !message.includes(String(HOST.port)) && !message.includes("stack"),
+      message,
+    )
   } finally {
     await panel.closeAll()
   }

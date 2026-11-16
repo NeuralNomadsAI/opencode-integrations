@@ -35,6 +35,17 @@ export const SCRIPT_MARKER = "opencode_gaffer_script"
 // A message of this sidecar's own, safe to show in the panel.
 class PanelError extends Error {}
 
+// An error in one line for the panel: its first line, bounded, without a token, an authorization or a port.
+export function briefly(error: unknown) {
+  const text = String((error as { message?: unknown } | null)?.message ?? error ?? "unknown error")
+    .split(/\r?\n/)[0]
+    ?.replace(/\b[0-9a-f]{32,}\b/gi, "…")
+    .replace(/(basic|bearer)\s+\S+/gi, "$1 …")
+    .replace(/\b(port\s+|:)\d{2,5}\b/gi, "$1…")
+    .slice(0, 240)
+  return `${text || "unknown error"}${/[.!?]$/.test(text ?? "") ? "" : "."}`
+}
+
 const modelKey = (model: ModelRef | undefined) =>
   model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ""}` : ""
 
@@ -72,7 +83,8 @@ export function createPanel(deps: {
   checkEveryMs?: number
 }) {
   const requestHost = deps.requestHost ?? kitRequestHost
-  const offerWaitMs = deps.offerWaitMs ?? 8_000
+  // A Location opened for the panel loads its plugins first, which took tens of seconds in a trial.
+  const offerWaitMs = deps.offerWaitMs ?? 30_000
   const checkEveryMs = deps.checkEveryMs ?? 5_000
   const channels = new Map<string, Channel>()
   let client: Api | undefined
@@ -98,7 +110,20 @@ export function createPanel(deps: {
   async function findOffer(c: { directory: string; label: string }) {
     const until = Date.now() + offerWaitMs
     for (;;) {
-      const result = await rpc.hosts?.({}, options(c))
+      let result: { offers?: unknown } | undefined
+      try {
+        result = (await rpc.hosts?.({}, options(c))) as typeof result
+      } catch (error) {
+        // The first call in the script's folder: OpenCode opens that Location and loads its plugins meanwhile, and
+        // the integration's RPC is not there yet (a CodeNomad conversation's own Location is long loaded).
+        if (
+          !/RPC is unavailable/i.test(String((error as { message?: unknown })?.message ?? error)) ||
+          Date.now() > until
+        )
+          throw error
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        continue
+      }
       const offers = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).filter(
         (offer) => offer.label === c.label,
       )
@@ -205,6 +230,18 @@ export function createPanel(deps: {
     c.timer.unref?.()
   }
 
+  // A failed Connect says which step failed and why, in a line (never a credential): the user knows what to check.
+  const step = async <T>(doing: string, work: () => Promise<T>): Promise<T> => {
+    try {
+      return await work()
+    } catch (error) {
+      if (error instanceof PanelError) throw error
+      throw new PanelError(
+        `Connect failed while ${doing}: ${briefly(error)} Check that OpenCode runs, then choose Connect.`,
+      )
+    }
+  }
+
   async function connect(id: string, params: Record<string, unknown>, fresh: boolean) {
     const previous = channels.get(id)
     if (previous) await close(previous)
@@ -215,16 +252,20 @@ export function createPanel(deps: {
     const key = String(params.script_key ?? "")
     const handle = String(params.script_handle ?? "")
     if (!directory || !label || !key || !handle) throw new Error("Incomplete connect request.")
-    const service = await api()
+    const service = await step("reaching OpenCode", api)
     // The script's conversation, unless New asked for another one.
-    const known = fresh ? undefined : await markedSession(service, directory, key)
+    const known = fresh
+      ? undefined
+      : await step("finding this script's conversation", () => markedSession(service, directory, key))
     const session =
       known ??
-      (await service.session.create({
-        title: `Gaffer: ${String(params.script_name || "untitled")}`,
-        location: { directory },
-        metadata: { [SCRIPT_MARKER]: key },
-      }))
+      (await step("creating this script's conversation", () =>
+        service.session.create({
+          title: `Gaffer: ${String(params.script_name || "untitled")}`,
+          location: { directory },
+          metadata: { [SCRIPT_MARKER]: key },
+        }),
+      ))
     const c: Channel = {
       id,
       directory,
@@ -239,8 +280,10 @@ export function createPanel(deps: {
       model: (session as { model?: ModelRef }).model,
     }
     try {
-      const offer = await findOffer(c)
-      const result = await rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c))
+      const offer = await step("finding this script's offer", () => findOffer(c))
+      const result = await step("attaching the conversation to this script", async () =>
+        rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c)),
+      )
       if (result?.outcome === "busy")
         throw new PanelError("This conversation is attached to another application; detach it there first.")
       if (result?.outcome !== "attached") throw new PanelError("Gaffer attachment was refused.")
@@ -248,12 +291,14 @@ export function createPanel(deps: {
       channels.set(id, c)
       watch(c)
       void stream(c, service)
-      const [messages, models, configured, active] = await Promise.all([
-        service.message.list({ sessionID: c.sessionID, order: "desc", limit: 200 }),
-        service.model.list({ location: { directory } }),
-        service.model.default({ location: { directory } }),
-        service.session.active(),
-      ])
+      const [messages, models, configured, active] = await step("loading the conversation", () =>
+        Promise.all([
+          service.message.list({ sessionID: c.sessionID, order: "desc", limit: 200 }),
+          service.model.list({ location: { directory } }),
+          service.model.default({ location: { directory } }),
+          service.session.active(),
+        ]),
+      )
       if (!c.model && configured.data) c.model = configured.data as ModelRef
       event(c, "session", { id: c.sessionID, resumed: Boolean(known), model: modelKey(c.model), workspace: directory })
       event(c, "models", {
@@ -316,7 +361,7 @@ export function createPanel(deps: {
           message:
             error instanceof PanelError
               ? error.message
-              : "Connection or action failed. Check OpenCode and Gaffer, then choose Connect.",
+              : `The panel action failed: ${briefly(error)} Check that OpenCode runs, then choose Connect.`,
         },
       })
       deps.send({ id: request.id, error: { message: "Panel action failed." } })

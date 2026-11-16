@@ -90,6 +90,32 @@ describe("OpenCode for Gaffer 0.3.0", () => {
     }
   })
 
+  // The panel attaches its conversation through the attachHost RPC: next to a CodeNomad conversation attached to the
+  // same script (gaffer_hosts), both stay attached, and either one's detach leaves the other (no lock, as Houdini).
+  it("the panel's conversation and another one are attached to the same script together", async () => {
+    const plugin = await loadPlugin()
+    const host = await offered()
+    try {
+      await plugin.rpc("advertise", announcement(host.endpoint, host.scriptHandle))
+      const offerID = content(await plugin.tool("gaffer_hosts")).scripts[0].offerID
+      assert.equal(content(await plugin.tool("gaffer_hosts", { attach: offerID })).attached, "attached")
+      assert.deepEqual(await plugin.rpc("attachHost", { offerID, sessionID: "ses_other" }), { outcome: "attached" })
+      const listed = content(await plugin.tool("gaffer_hosts", {}, "ses_other"))
+      assert.equal(listed.attached_to.offerID, offerID)
+      assert.equal(content(await plugin.tool("gaffer_context")).revision, 3)
+      assert.equal(content(await plugin.tool("gaffer_context", {}, "ses_other")).revision, 3)
+      // The panel closes: the other conversation keeps the script; and the other way round.
+      assert.deepEqual(await plugin.rpc("detachHost", { sessionID: "ses_other" }), { outcome: "detached" })
+      assert.equal(content(await plugin.tool("gaffer_context")).attached_to.offerID, offerID)
+      assert.deepEqual(await plugin.rpc("attachHost", { offerID, sessionID: "ses_other" }), { outcome: "attached" })
+      assert.equal(content(await plugin.tool("gaffer_hosts", { detach: true })).detached, "detached")
+      assert.equal(content(await plugin.tool("gaffer_context", {}, "ses_other")).attached_to.offerID, offerID)
+    } finally {
+      await plugin.cleanup()
+      await host.close()
+    }
+  })
+
   it("attaching one of several scripts asks gaffer_attach; a refusal attaches nothing", async () => {
     let deny = true
     const plugin = await loadPlugin({

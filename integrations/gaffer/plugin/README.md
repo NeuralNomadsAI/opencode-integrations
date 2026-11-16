@@ -41,7 +41,7 @@ A call that outlasts its wait says whether Gaffer still runs it (OpenCode Link a
 
 ## The OpenCode for Gaffer panel
 
-The **OpenCode for Gaffer** editor is a conversation inside Gaffer. **Connect** attaches the panel's conversation to its script's own offer, resuming the conversation it had for this script; **New** starts another. Closing the panel releases its conversation only: the script stays offered and other conversations attached to it keep it. Both write to the same script, each change checked against its revision. Node.js is found on `PATH`; `NEURALNOMADS_GAFFER_NODE` names another one.
+The **OpenCode for Gaffer** editor is a conversation inside Gaffer. **Connect** attaches the panel's conversation to its script's own offer, resuming the conversation it had for this script; **New** starts another. Closing the panel releases its conversation only: the script stays offered and other conversations attached to it keep it. The panel and other conversations (CodeNomad's, for instance) can be attached to the same script together; both write to it, each change checked against its revision. The panel's conversation lives in the script's folder: the first Connect there waits while OpenCode opens that folder and loads its plugins. A failed Connect says which step failed and why. Node.js is found on `PATH`; `NEURALNOMADS_GAFFER_NODE` names another one.
 
 ## Limits
 
