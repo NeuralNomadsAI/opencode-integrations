@@ -1,43 +1,62 @@
 # OpenCode for Houdini (preview)
 
-Inspect and edit an open Houdini graph from any OpenCode V2 client, including the terminal, desktop and CodeNomad. The optional **OpenCode Link** Python panel keeps a conversation inside Houdini. Houdini 21+ with Python 3.11+ and PySide6, Node.js 22+ and OpenCode 2.2+ are required. This preview targets specification draft 0.2.
+Read, change and check the scene open in Houdini from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode Link** panel inside Houdini. Houdini 21 or later and OpenCode 2.2 or later are required; the panel also needs Node.js 22 or later.
 
-## Install in any OpenCode client
+## Install
 
-Add the integration to the **Global** OpenCode configuration only:
+Add the plugin to the **global** OpenCode configuration (in CodeNomad: from the reviewed catalogue, in Plugins):
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    {
-      "package": "@neuralnomads/opencode-houdini@^0.2",
-      "options": { "hostInspectionDir": "/your/Houdini/user/preferences" }
-    }
-  ]
+  "plugins": [{ "package": "@neuralnomads/opencode-houdini@^0.3" }]
 }
 ```
 
-Use the existing Houdini user preferences folder (`hou.getenv("HOUDINI_USER_PREF_DIR")`), for example `Documents/houdini21.0` on Windows, `~/houdini21.0` on Linux or `~/Library/Preferences/houdini/21.0` on macOS. Set `hostInspectionDir` explicitly; the integration never guesses a Houdini version or creates a preference directory. `NEURALNOMADS_HOUDINI_HOST_INSPECTION_DIR` is a fallback. Omit it to keep host state unknown until a live host advertises.
+Then install OpenCode Link, the part that runs inside Houdini: `houdini_install_host` (it asks permission), or CodeNomad's install action. It goes into the newest Houdini 21+ preferences folder found (`Documents/houdini22.0` on Windows, `~/houdini22.0` on Linux, `~/Library/Preferences/houdini/22.0` on macOS); `hostInspectionDir` in the plugin's options names another one. Houdini creates that folder at its first start: start Houdini once before installing. The installation writes `packages/neuralnomads_houdini.json`, which points at a checksummed copy of OpenCode Link under `%LOCALAPPDATA%/NeuralNomads/opencode-houdini/hosts/` (`$XDG_STATE_HOME/neuralnomads/opencode-houdini/hosts/` elsewhere); installing again is idempotent. WSL installation is refused.
 
-Call `houdini_install_host` and approve its named permission. A client can also invoke RPC `neuralnomads.houdini.installHost` after its explicit confirmation. Installation uses the embedded, checksummed archive offline: the stable, content-addressed payload goes under `%LOCALAPPDATA%/NeuralNomads/opencode-houdini/hosts/` on Windows, or `$XDG_STATE_HOME/neuralnomads/opencode-houdini/hosts/` (default `~/.local/state/…`) elsewhere. Houdini's `packages/neuralnomads_houdini.json` references this stable copy, never an npm cache path. Repeating installation is idempotent. WSL installation is refused.
+Restart Houdini: OpenCode Link starts with Houdini's interface and offers it to OpenCode every 5 seconds, labelled with the open file (`Houdini: shot.hipnc`). `OPENCODE_HOUDINI_OFFER=0` in Houdini's environment keeps it from offering itself. Background `hython` never offers itself.
 
-Open Houdini and choose the **OpenCode Link** Python panel. The host starts only when you choose **Connect** (or **New**), never at plugin load, Houdini startup or panel creation. Node.js is found on PATH, with `NEURALNOMADS_HOUDINI_NODE` as an override. Start OpenCode yourself first: the panel discovers the existing authenticated shared service without starting one. Connect opens a new conversation and offers the host for other clients. Disconnecting or closing a panel closes its conversation channel and withdraws its offer. Python Panel teardown (`onDestroyInterface`), widget close and destruction share idempotent cleanup. The shared host stays available while another consenting panel remains. Disconnecting or closing the last consenting panel immediately closes the listener and invalidates its token; offers and bindings expire within 15 seconds even if withdrawal fails. Opening or clearing a HIP disconnects the panel. After service failure or explicit detachment, choose Connect again; polling never recreates a binding.
+An earlier OpenCode installation (`packages/opencode_houdini.json` in a Houdini preferences folder) loads another panel and host next to OpenCode Link: `houdini_hosts` and CodeNomad's status say so. Remove that file, or set `"enable": false` in it, then restart Houdini.
 
-Outside the panel, use `houdini_hosts` then `houdini_attach` with permission. `houdini_context` can initially omit its handle to read the attached document's handle and revision. All mutations use `houdini_apply`, the exact revision, an idempotent command ID and 1–50 operations. Start with dry-run; changing the graph requires `dry_run: false`, `confirm: true` and `houdini_write` permission. `expect` contains preconditions checked before execution; operation results are verified afterwards. The `houdini-pipeline` reference skill is loaded by the plugin without replacing a user skill.
+## Use
 
-## In CodeNomad
+The first Houdini tool call of a conversation attaches the only Houdini offered when no other conversation uses it; otherwise `houdini_hosts` lists the Houdinis offered and `houdini_hosts attach` attaches one (permission `houdini_attach`). An attachment is kept across an OpenCode restart and when Houdini opens another file. A working method joins the conversation when it first uses a Houdini.
 
-Add the integration from the reviewed catalogue (preview), then use its Status section to install the application part, list user-offered hosts and attach the displayed conversation. The same status RPC contract supplies host versions, live offers and exact-session attachment authority. Installation runs on the OpenCode daemon's machine. Credentials, ports and document handles stay out of status outputs and events.
+| Tool                   |                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `houdini_hosts`        | The Houdinis offered, which conversation holds each; `attach`, `detach`.                                                                                                                               |
+| `houdini_context`      | A bounded read: revision, open file, selection, node cards; `release_quarantine` after a failed change.                                                                                                |
+| `houdini_execute_code` | Python in Houdini (`hou`), as code or a script file; permission `houdini_execute_code` on every run.                                                                                                   |
+| `houdini_inspect`      | Search node types, parms and `hou` symbols; a type with its parm templates and its SideFX documentation link; a live node (parms, errors, geometry, USD stage, work items).                            |
+| `houdini_verify`       | Measured criteria, node errors and warnings, an optional low-resolution render; `saved: true` reads the saved file in a background `hython`.                                                           |
+| `houdini_save`         | Save the open file, or a copy that leaves the open file's name.                                                                                                                                        |
+| `houdini_render`       | A ROP render or a PDG cook in a background `hython`, followed as a task (`task`, `wait_s`, `cancel`).                                                                                                  |
+| `houdini_apply`        | Typed graph edits (`node.create`, `node.rename`, `parm.set_value`, `graph.connect`, `graph.delete`); dry run by default, changes with `confirm` and permission `houdini_write`, in the interface only. |
+| `houdini_install_host` | Install or update OpenCode Link.                                                                                                                                                                       |
 
-## Scope, safety and qualification
+A code run that changes the scene is one undo group (`OpenCode: code`); when it fails, the group is undone and the node graph compared with what it was. When that cannot be proven, changes are refused (reads and checks still run) until the agent reads the scene and releases the quarantine with that read's revision. A failure says what Houdini knows: the closest node types in the parent's network, the real parm names when `parm()` returned `None`, the errors of the nodes that failed to cook, a function's signature, the closest attributes.
 
-- Supported operations: `node.create`, `node.rename`, `parm.set_value` (numeric/boolean), `graph.connect`, `graph.delete`. Node creation uses the host's bounded type registry. No arbitrary code tool, parameter expressions, string writes, renders, file saving or network import operations are exposed. Existing scenes, node assets and their callbacks remain trusted application content.
-- In UI mode, undo is `grouped_best_effort`: one undo group, operation verification, rollback attempt, quarantine on failed restoration. Headless mode declares `none` and refuses mutation. Actual HOM undo behaviour still needs licensed, interactive qualification.
-- Command replay results are retained for the HIP lifetime. After 256 successful commands the host refuses new commands until the HIP is reloaded, preserving idempotence without eviction. Reusing a command ID for a different request is refused.
-- The host binds only `127.0.0.1` on an ephemeral port, authenticates every request with a process-random 256-bit token and invalidates it on shutdown. Tokens exist only in memory and private pipes. The panel sidecar bundles its client dependencies inside the host archive; the plugin's compiled ESM keeps the OpenCode SDK external.
-- System-Python tests exercise the actual listener and protocol with a stub HOM boundary, plus RPC sentinel, ownership, expiry, installation and refusal cases. Python Panel callback tests cover two consenting panels through teardown to one and zero owners, repeated teardown and widget-close fallback. Real Houdini Apprentice 22.0.429 qualifies the same sequence with isolated preferences and a private OpenCode service: offers and exact-session bindings are withdrawn, the final listener refuses connections and its old token is rejected.
-- Scripted `hou.exit()` in Houdini 22.0.429 can segfault after closing Python panels. The same crash occurs with plain PySide6 label panels and the integration absent; the integration's listener and host threads are already stopped before exit.
-- **QO5 — CI licence decision:** maintainers must choose whether to provide an already licensed self-hosted Houdini runner. Recommendation: keep public CI licence-free and the integration preview until a maintainer performs licensed read-only/interactive validation; add an opt-in self-hosted job only when credentials, licence terms and runner isolation are approved. Public CI must never download Houdini or attempt licence activation.
+A call that outlasts its wait says whether Houdini still runs it (OpenCode Link answers `status` off Houdini's main thread). When Houdini crashes, the call running then stops within two seconds and says so, with the files Houdini wrote in `houdini_temp`: the scene as it was at the crash (`crash.<file>.<user>_<pid>.hipnc`), from which the changes can be recovered, or its crash log. A Houdini closed, or alive without renewing its offer, is said as such, and no other Houdini attaches itself in its place.
 
-Publication uses the repository's manually approved OIDC workflow and `houdini-v<version>` tags. Building or installing never publishes anything.
+## The OpenCode Link panel
+
+The **OpenCode Link** Python panel is a conversation inside Houdini. **Connect** attaches the panel's conversation to this Houdini's own offer, taking back the conversation it had for this file; **New** starts another. Closing the panel releases its conversation only: Houdini stays offered and other conversations attached to it keep it. Both write to the same scene, each change checked against its revision. Node.js is found on `PATH`; `NEURALNOMADS_HOUDINI_NODE` names another one.
+
+## Limits
+
+- Houdini Apprentice: files are non-commercial, renders are at most 1920×1080 and carry the Houdini logo; render results say so.
+- With Houdini 22.0.429, an OpenGL ROP with High Quality Lighting off (`hqlighting` 0) crashes in Houdini's Vulkan renderer, in `hython` as in the interface: `houdini_render` says so when it starts such a render and when its background `hython` crashed. Rendered with `houdini_render`, a crash never closes the open Houdini; `.render()` in `houdini_execute_code` runs in it.
+- `houdini_apply` refuses changes in `hython` (no interface); `houdini_execute_code` works in both. Houdini records undo only on its main thread: OpenCode Link runs every request there (in `hython`, a script serves them with `opencode_houdini.pump()`). A request the main thread has not taken within 10 s, because another one still runs there, is answered with what runs and since when; nothing is done for it.
+- `houdini_verify` with `saved` only starts its background `hython` from Houdini: the file is read while Houdini stays free, `timeout_s` bounds the read and a stopped read says what it was doing. Geometry read without its cache is recomputed: a simulation read at a late frame is simulated again from its start frame; `facts.read` says which geometry came from cache files.
+- `hou.hipFile.hasUnsavedChanges()` stays true after a save in `hython`: OpenCode Link judges a save by the file's date on disk.
+
+## Safety
+
+OpenCode Link listens on `127.0.0.1` only, on an ephemeral port, and authenticates every request with a process-random 256-bit token that lives in memory and private pipes only. Credentials, ports and document handles stay out of status outputs and events. Loading the plugin opens no socket and starts no process.
+
+## Tests
+
+System Python runs OpenCode Link's listener, code runs, undo, quarantine and `status` with a stub `hou`, and the hints against a stub. With `HOUDINI_TEST_BIN` naming `hython` (or Houdini's `bin` folder), `test/programs_hython.py` runs the programs, the hints and OpenCode Link itself in a real Houdini, with private preferences, packages and temp folders.
+
+Publication uses the repository's manually approved OIDC workflow and `houdini-v<version>` tags.

@@ -1,0 +1,27 @@
+{
+  "name": "houdini_context",
+  "domain": "tools",
+  "description": "Bounded read of the attached Houdini scene: script_handle, revision, the open file, selection, and node cards (path, type, flags, inputs; values with include values). refs, match (glob on name and type) and radius pick the nodes; without them, the selection or the top-level nodes. Call first; pass revision to houdini_apply. quarantined: changes wait until release_quarantine with this read's revision.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "refs": { "type": "array", "items": { "type": "string" }, "description": "Up to 50 node or parm refs or paths." },
+    "match": { "type": "object", "description": "{name, type}: glob patterns." },
+    "radius": { "type": "integer", "description": "Neighbours of the picked nodes, 0 to 2.", "default": 0 },
+    "include": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "values (parm values), affordances (the apply operations and node types)."
+    },
+    "limit": { "type": "integer", "description": "Nodes listed, 1 to 100.", "default": 20 },
+    "if_revision": {
+      "type": "integer",
+      "description": "The changes since that revision, when the journal still holds them."
+    },
+    "release_quarantine": {
+      "type": "integer",
+      "description": "After a failed change that could not be proven undone: the revision of the read that showed the scene, once you checked it; lifts the quarantine."
+    }
+  },
+  "execution": { "strategy": "host_method", "method": "context" }
+}

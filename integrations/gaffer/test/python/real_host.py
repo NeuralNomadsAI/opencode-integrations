@@ -96,6 +96,16 @@ def probe():
             client.sendall((json.dumps({"id": "bad-handle", "token": info["token"], "method": "hello", "params": {"script_handle": "gone"}}) + "\n").encode())
             response = json.loads(client.makefile("rb").readline())
             assert response["error"]["code"] == "stale_handle"
+        # A refusal keeps the host's message, its data and its own code (data.reason).
+        with socket.create_connection((info["host"], info["port"]), timeout=5) as client:
+            request = {"id": "newer", "token": info["token"], "method": "context",
+                       "params": {"script_handle": handle, "session_id": "private-smoke", "if_revision": 10 ** 6}}
+            client.sendall((json.dumps(request) + "\n").encode())
+            error = json.loads(client.makefile("rb").readline())["error"]
+            assert error["code"] == "stale_revision", error
+            assert error["message"] == "Requested revision is newer than the Gaffer graph", error
+            assert error["data"]["reason"] == "revision_conflict", error
+            assert isinstance(error["data"]["current_revision"], int), error
         wire.append("ok")
     except Exception as error:
         wire.append(type(error).__name__)

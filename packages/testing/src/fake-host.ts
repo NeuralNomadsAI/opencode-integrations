@@ -104,10 +104,26 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
           return reply({ id, ok: true, result: options.helloOverride?.(hello, endpoint) ?? hello })
         const handler = options.methods?.[method]
         if (!handler) return reply({ id, ok: false, error: { code: "method_not_found" } })
-        return reply({ id, ok: true, result: handler(params as Record<string, unknown>) })
+        const result = handler(params as Record<string, unknown>)
+        // An asynchronous method (a long call, a crash simulated during it) answers when it settles.
+        if (result instanceof Promise) {
+          result.then(
+            (value) => reply({ id, ok: true, result: value }),
+            (error) => reply({ id, ok: false, error: { code: (error as { code?: string }).code ?? "internal" } }),
+          )
+          return
+        }
+        return reply({ id, ok: true, result })
       } catch (error) {
-        const code = (error as { code?: string }).code ?? "internal"
-        return reply({ id, ok: false, error: { code } })
+        // A thrown Error answers its code alone; a thrown plain { code, message?, data? } is the host's refusal,
+        // answered as such.
+        const thrown = error as { code?: string; message?: unknown; data?: unknown }
+        const refusal: Record<string, unknown> = { code: thrown.code ?? "internal" }
+        if (!(error instanceof Error)) {
+          if (typeof thrown.message === "string" && thrown.message) refusal.message = thrown.message
+          if (thrown.data !== undefined) refusal.data = thrown.data
+        }
+        return reply({ id, ok: false, error: refusal })
       }
     })
     socket.on("error", () => {})

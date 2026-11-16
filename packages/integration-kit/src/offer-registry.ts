@@ -387,13 +387,20 @@ const REGISTRY_GENERATION = 2
 
 type RegistrySlot = { generation: number; registry: OfferRegistry }
 
-export function offerRegistryKey(app: string) {
-  return Symbol.for(`neuralnomads.${app}.offers`)
+export function offerRegistryKey(name: string) {
+  return Symbol.for(`neuralnomads.${name}.offers`)
 }
 
-// The registry shared by every Location of the daemon process.
+// The name of an application's shared offer list: it carries the contract the list judges hellos by. After an
+// upgrade without restarting OpenCode, the older plugin version stays loaded in the same process; a list named
+// after the application alone would judge the new version's application part by the older range.
+export function offerRegistryName(app: string, expected: HostExpectation) {
+  return `${app}.protocol-${expected.protocol}.part-${expected.range}.app-${expected.appVersions}`
+}
+
+// The registry shared by every Location of the daemon process that loaded this contract of `app`.
 export function sharedOfferRegistry(app: string, options: OfferRegistryOptions): OfferRegistry {
-  const key = offerRegistryKey(app)
+  const key = offerRegistryKey(offerRegistryName(app, options.expected))
   const store = globalThis as unknown as Record<symbol, RegistrySlot | undefined>
   const slot = store[key]
   if (slot?.generation === REGISTRY_GENERATION) return slot.registry

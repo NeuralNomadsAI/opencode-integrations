@@ -1,16 +1,12 @@
 import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-
-import type {
-  HostInspection,
-  InstallHostOutput,
-  IntegrationMarker,
-} from "../../../../packages/integration-kit/src/index.ts"
 import { readStoredZip } from "../../../../packages/integration-kit/src/zip.ts"
+import type { HostInspection, InstallHostOutput, IntegrationMarker } from "./kit.ts"
 import { packageRoot, stateDir } from "./paths.ts"
 
-// Houdini's preference folder is version-specific. The user selects it explicitly; never guess a version.
+// Houdini's preferences folder is version-specific: hostInspectionDir, or the newest existing one of Houdini 21 or
+// later (paths.ts). It is never created here: Houdini creates it when it first starts.
 export function inspectHost(preferences?: string): HostInspection {
   if (!preferences || !existsSync(preferences)) return { kind: "not-inspected" }
   try {
@@ -28,7 +24,8 @@ export function installHost(marker: IntegrationMarker, preferences?: string, sta
   if (!preferences || !existsSync(preferences))
     return {
       outcome: "refused",
-      detail: "Set hostInspectionDir to the existing Houdini user preferences folder, then retry.",
+      detail:
+        "No Houdini 21 or later preferences folder: start Houdini once, or set hostInspectionDir to its preferences folder.",
     }
   const host = marker.host
   if (!host) return { outcome: "refused" }
@@ -86,6 +83,6 @@ export function installHost(marker: IntegrationMarker, preferences?: string, sta
   }
   return {
     outcome: current.kind === "found" ? "updated" : "installed",
-    detail: "Open Houdini, then open the OpenCode Link panel and choose Connect.",
+    detail: "Restart Houdini: OpenCode Link offers it to OpenCode when it starts.",
   }
 }

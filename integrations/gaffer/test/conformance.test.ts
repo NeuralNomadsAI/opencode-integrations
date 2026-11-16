@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { createInterface } from "node:readline"
 import { it } from "node:test"
 import { checkCodeExecutionGate, checkHostListener, runSentinelScenario } from "../../../packages/testing/src/index.ts"
-import { requestHost } from "../plugin/src/kit.ts"
+import { type HostError, requestHost } from "../plugin/src/kit.ts"
 import { loadPlugin } from "./helpers.ts"
 
 it("real Gaffer HostServer: loopback-only, 256-bit token, constant-time authentication and valid hello", async () => {
@@ -50,6 +50,15 @@ it("real Gaffer HostServer: loopback-only, 256-bit token, constant-time authenti
         }),
       })
       assert.deepEqual(errors, [])
+      // A refusal keeps the host's message, its data (made JSON-safe) and its own code (data.reason).
+      await assert.rejects(requestHost(endpoint, "refuse", { script_handle: "test-script" }), (error: HostError) => {
+        assert.equal(error.code, "invalid_args")
+        assert.match(error.message, /\(invalid_args\): SceneView renderer is not registered: Arnold /)
+        assert.deepEqual(error.data?.registered_renderers, ["OpenGL"])
+        assert.equal(error.data?.reason, "unsupported_renderer")
+        assert.equal(typeof error.data?.plug, "string")
+        return true
+      })
     } finally {
       await plugin.cleanup()
     }

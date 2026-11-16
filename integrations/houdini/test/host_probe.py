@@ -1,7 +1,10 @@
 """The integration's own host transport under system Python; no Houdini or licence required."""
 import collections
-import importlib.util
+import contextlib
+import importlib
 import json
+import threading
+import time
 from pathlib import Path
 import sys
 import types
@@ -15,12 +18,80 @@ hou.isUIAvailable = lambda: False
 hou.applicationVersionString = lambda: "22.0.429"
 hou.hipFile = types.SimpleNamespace(basename=lambda: "test.hip")
 hou.parmData = types.SimpleNamespace(Int=1, Float=2, String=3)
+hou.ObjectWasDeleted = type("ObjectWasDeleted", (Exception,), {})
+hou.getenv = lambda name, default=None: default
+
+
+# A scene of nodes and Houdini's grouped undo, simulated: enough for execute_code's undo group, its rollback
+# and the structural check of a restoration.
+class _Node:
+    def __init__(self, name):
+        self._path = "/obj/" + name
+
+    def path(self):
+        return self._path
+
+    def type(self):
+        return types.SimpleNamespace(nameWithCategory=lambda: "Object/geo")
+
+    def inputs(self):
+        return []
+
+
+class _Undo:
+    def __init__(self):
+        self.labels, self.stack, self.open, self.broken = [], [], None, False
+
+    @contextlib.contextmanager
+    def group(self, label):
+        self.open = []
+        try:
+            yield
+        finally:
+            actions, self.open = self.open, None
+            if actions:
+                self.labels.append(label)
+                self.stack.append(actions)
+
+    def undoLabels(self):
+        return list(self.labels)
+
+    def performUndo(self):
+        if self.broken:
+            raise RuntimeError("undo failed")
+        self.labels.pop()
+        for action in reversed(self.stack.pop()):
+            action()
+
+
+SCENE = []
+
+
+def add_node(name):
+    node = _Node(name)
+    SCENE.append(node)
+    if hou.undos.open is not None:
+        hou.undos.open.append(lambda: SCENE.remove(node))
+    return node
+
+
+class _Root:
+    def allSubChildren(self, **kwargs):
+        return list(SCENE)
+
+    def setUserData(self, *args):
+        pass
+
+    def destroyUserData(self, *args):
+        pass
+
+
+hou.undos = _Undo()
+hou.add_node = add_node
 sys.modules["hou"] = hou
-file = Path(__file__).resolve().parents[1] / "host" / "scripts" / "opencode_houdini" / "host.py"
-spec = importlib.util.spec_from_file_location("houdini_host", file)
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "host" / "scripts"))
+module = importlib.import_module("opencode_houdini.host")
+runner = importlib.import_module("opencode_houdini.runner")
 
 
 def state():
@@ -31,6 +102,10 @@ def state():
     value.flush = lambda **kwargs: None
     value.summary = lambda: {}
     value.quarantined = False
+    value.quarantine = None
+    value.root = _Root()
+    value._summary_dirty = False
+    value._reconcile_after_rollback = lambda: None
     value._closed = False
     value._commands = collections.OrderedDict()
     value.cancellation_state = lambda session: (0, False)
@@ -82,14 +157,229 @@ class HostTests(unittest.TestCase):
             value.apply({"session_id": "ses_test", "command_id": "new"})
         self.assertEqual(caught.exception.code, "busy")
 
+    def test_refusals_keep_message_data_and_code(self):
+        refusal = module.wire_error(module.HostError("busy", "Too many commands", {"limit": 256}))
+        self.assertEqual(refusal, {"code": "busy", "message": "Too many commands", "data": {"limit": 256}})
+        refusal = module.wire_error(module.HostError("unknown_ref", "Unknown ref: /obj/geo1", {"ref": object()}))
+        self.assertEqual(refusal["code"], "invalid_args")
+        self.assertEqual(refusal["message"], "Unknown ref: /obj/geo1")
+        self.assertEqual(refusal["data"]["reason"], "unknown_ref")
+        self.assertIsInstance(refusal["data"]["ref"], str)
+        json.dumps(refusal, allow_nan=False)
+        refusal = module.wire_error(module.HostError("expectation_failed", "x" * 5000, {"observed": "y" * 100000}))
+        self.assertEqual(len(refusal["message"]), module.WIRE_MESSAGE_MAX)
+        self.assertEqual(refusal["data"], {"reason": "expectation_failed", "truncated": True})
+
+    def execute(self, value, code, **params):
+        host = types.SimpleNamespace(saves=0, loads=0, state=value)
+        return runner.execute_code(host, value, dict(params, code=code), lambda error, code, filename: "hint: " + str(error))
+
+    def setUp(self):
+        SCENE.clear()
+        hou.undos = _Undo()
+
+    def test_execute_code_groups_a_change_and_undoes_a_failure(self):
+        value = state()
+        out = self.execute(value, "hou.add_node('a')\nresult = {'nodes': 1}")
+        self.assertEqual((out["status"], out["result"], out["changed"], out["undo_step"]), ("executed", {"nodes": 1}, True, "OpenCode: code"))
+        self.assertEqual(hou.undos.labels, ["OpenCode: code"])
+        out = self.execute(value, "hou.add_node('b')\nhou.add_node('c')\nraise ValueError('nope')")
+        self.assertEqual((out["status"], out["restored"], out["hint"]), ("failed", True, "hint: nope"))
+        self.assertIn("ValueError: nope", out["message"])
+        self.assertEqual([node.path() for node in SCENE], ["/obj/a"])
+        self.assertFalse(value.quarantined)
+
+    def test_unproven_restoration_quarantines_until_released_with_the_read_revision(self):
+        value = state()
+        hou.undos.broken = True
+        out = self.execute(value, "hou.add_node('a')\nraise RuntimeError('boom')")
+        self.assertEqual((out["status"], out["restored"]), ("failed", False))
+        self.assertTrue(value.quarantined)
+        self.assertIn("failed code", out["quarantine"]["cause"])
+        with self.assertRaises(module.HostError) as caught:
+            self.execute(value, "hou.add_node('b')")
+        self.assertEqual(module.wire_error(caught.exception)["code"], "quarantined")
+        self.assertEqual(self.execute(value, "result = {'read': True}", read_only=True)["status"], "executed")
+        with self.assertRaises(module.HostError) as caught:
+            runner.release(value, {"revision": value.revision + 1})
+        self.assertEqual(module.wire_error(caught.exception)["code"], "stale_revision")
+        self.assertEqual(runner.release(value, {"revision": value.revision})["released"], True)
+        self.assertFalse(value.quarantined)
+
+    def test_read_only_runs_make_no_undo_group(self):
+        value = state()
+        out = self.execute(value, "print('hello')\nresult = {'x': 1}", read_only=True)
+        self.assertEqual((out["stdout"], out["changed"], hou.undos.labels), ("hello\n", False, []))
+
+    def test_status_answers_off_the_main_thread_during_a_long_call(self):
+        host = module.Host.__new__(module.Host)
+        host.state = state()
+        host.ui = module.UIThreadGate()
+        host.saves = host.loads = 0
+        # A request from a connection's thread runs on the main thread (here, pumped as hython does).
+        thread = threading.Thread(
+            target=host.dispatch,
+            args=("execute_code", {"script_handle": host.state.handle, "code": "import time\ntime.sleep(1.5)", "read_only": True}),
+        )
+        seen = []
+        asker = threading.Thread(target=lambda: (time.sleep(0.5), seen.append(host.dispatch("status", {}))))
+        thread.start()
+        asker.start()
+        host.ui.pump(3.0, stop=lambda: not thread.is_alive() and not asker.is_alive())
+        thread.join()
+        asker.join()
+        status = seen[0]
+        self.assertEqual((status["busy"], status["running"]), (True, "execute_code"))
+        self.assertEqual(host.dispatch("status", {})["busy"], False)
+
+    def test_interface_requests_behind_a_busy_main_thread_are_answered_busy_in_time(self):
+        # Sol ex03 retrial: in the interface, hou serialises calls across threads; a request's thread calling
+        # hou.ui.postEventCallback waited for the execute_code the main thread ran (2 and 10 minutes), and the
+        # QUEUE_WAIT_S answer never came. Here hou calls off the main thread wait for the main thread's request.
+        main = threading.get_ident()
+        hom = threading.Lock()
+        loop = []
+
+        def guarded(value):
+            def call(*args):
+                if threading.get_ident() != main:
+                    with hom:
+                        pass
+                return value(*args) if callable(value) else value
+            return call
+
+        ui = types.SimpleNamespace(
+            addEventLoopCallback=lambda callback: loop.append(callback),
+            removeEventLoopCallback=lambda callback: loop.remove(callback),
+            postEventCallback=guarded(lambda callback: loop.append(callback)),
+        )
+        saved = (hou.isUIAvailable, getattr(hou, "ui", None), module.QUEUE_WAIT_S)
+        hou.isUIAvailable, hou.ui, module.QUEUE_WAIT_S = guarded(True), ui, 0.5
+        try:
+            gate = module.UIThreadGate()
+            answers = []
+
+            def ask():
+                started = time.monotonic()
+                try:
+                    answers.append(gate.run(lambda: "ran", "context"))
+                except module.HostError as error:
+                    answers.append((error.code, str(error), round(time.monotonic() - started, 1)))
+
+            # The main thread runs a request (hou held) and lets no event loop turn for 3 s.
+            hom.acquire()
+            gate._running = ("execute_code", time.monotonic())
+            asker = threading.Thread(target=ask)
+            asker.start()
+            asker.join(2.5)
+            done_in_time = not asker.is_alive()
+            time.sleep(0.5)
+            gate._running = None
+            hom.release()
+            asker.join(5)
+            self.assertTrue(done_in_time, "the request waited for the main thread's request to end")
+            code, message, seconds = answers[0]
+            self.assertEqual(code, "ui_timeout")
+            self.assertLess(seconds, 1.5)
+            self.assertIn("still runs execute_code", message)
+            self.assertEqual(loop, [gate._drain])
+            # Idle again: a request waits in the queue until the event loop turns.
+            asker = threading.Thread(target=ask)
+            asker.start()
+            time.sleep(0.1)
+            for callback in list(loop):
+                callback()
+            asker.join(2)
+            self.assertEqual(answers[1], "ran")
+            # Never one request inside another: a loop turn during a request runs nothing.
+            gate._running = ("execute_code", time.monotonic())
+            ran = []
+            gate._jobs.put(lambda: ran.append(1))
+            gate._drain()
+            self.assertEqual(ran, [])
+            gate._running = None
+            gate._drain()
+            self.assertEqual(ran, [1])
+            gate.close()
+            self.assertEqual(loop, [])
+        finally:
+            hou.isUIAvailable, module.QUEUE_WAIT_S = saved[0], saved[2]
+            if saved[1] is None:
+                del hou.ui
+            else:
+                hou.ui = saved[1]
+
+    def test_hello_answers_while_the_main_thread_is_busy(self):
+        # OpenCode checks each new offer with hello, one offer at a time: a hello waiting behind a cook held every
+        # offer of the computer back in the Sol trial. It no longer goes through the main thread.
+        host = module.Host.__new__(module.Host)
+        host.state = state()
+        host.ui = module.UIThreadGate()
+        host.saves = host.loads = 0
+        host.document = "shot.hipnc"
+        host._hello = {"protocol": 1, "host_version": "0.3.0", "app_version": "22.0.429", "capability_hash": "x",
+                       "capabilities": {"methods": ["hello"]}, "process": {"pid": 1, "temp_dir": "t"}}
+        replies = []
+        asker = threading.Thread(target=lambda: replies.append(host.dispatch("hello", {})))
+        started = time.monotonic()
+        asker.start()
+        asker.join(2)  # nobody serves the main thread here
+        self.assertTrue(replies, "hello waited for the main thread")
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual((replies[0]["script_handle"], replies[0]["revision"], replies[0]["document"]),
+                         (host.state.handle, host.state.revision, "shot.hipnc"))
+
+    def test_renewals_go_straight_to_the_service_and_discover_again_after_a_failure(self):
+        advertiser = importlib.import_module("opencode_houdini.advertiser")
+        calls = []
+        service = types.SimpleNamespace(file="service.json")
+        outcomes = []
+        fake = types.ModuleType("opencode_service")
+        fake.TIMEOUT = 3.0
+        fake.discover = lambda env=None, timeout=3.0: calls.append("discover") or [service]
+        fake.location_candidates = lambda setting=None, env=None: ["global"]
+        fake._ready = lambda service, rpc, directory, deadline: (calls.append("status") or (200, {"output": {}}))
+        fake._unavailable = lambda status, body: False
+        fake._outcome = lambda method, status, body: body
+        fake.call = lambda service, rpc, method, payload, directory, timeout: (
+            calls.append("%s:%.0f" % (method, timeout)) or (200, outcomes.pop(0) if outcomes else "renewed"))
+        sys.modules["opencode_houdini.opencode_service"] = fake
+        import opencode_houdini
+        opencode_houdini.opencode_service = fake
+        try:
+            ad = advertiser.Advertiser(lambda: (1, "t" * 64, "hip:x", "Houdini: a.hipnc"))
+            outcomes[:] = ["accepted"]
+            ad.advertise_once()
+            self.assertEqual(calls, ["discover", "status", "advertise:8"])
+            calls.clear()
+            ad.advertise_once()
+            ad.advertise_once()
+            # Renewals: one request each, with time for a busy service.
+            self.assertEqual(calls, ["advertise:8", "advertise:8"])
+            calls.clear()
+            outcomes[:] = ["error", "accepted"]
+            results = ad.advertise_once()
+            self.assertEqual(calls, ["advertise:8", "discover", "status", "advertise:8"])
+            self.assertEqual(results, [{"service": "service.json", "outcome": "accepted"}])
+        finally:
+            sys.modules.pop("opencode_houdini.opencode_service", None)
+            del opencode_houdini.opencode_service
+
+    def test_hello_names_the_process_and_its_crash_folder(self):
+        self.assertTrue(module.temp_dir().endswith("houdini_temp"))
+        self.assertEqual(module.offer_label("shot/v2.hipnc"), "Houdini: shot v2.hipnc")
+        self.assertIn("status", module.METHODS)
+        self.assertIn("execute_code", module.METHODS)
+
     def test_unknown_method_and_stale_handle(self):
         host = module.Host.__new__(module.Host)
         host.state = state()
-        host.ui = types.SimpleNamespace(run=lambda callback: callback())
+        host.ui = module.UIThreadGate()
+        host.saves = host.loads = 0
         with self.assertRaises(module.HostError):
             host.dispatch("context", {"script_handle": "wrong"})
         with self.assertRaises(module.HostError):
-            host.dispatch("execute_code", {"script_handle": host.state.handle})
+            host.dispatch("no_such_method", {"script_handle": host.state.handle})
         host.state._closed = True
         with self.assertRaises(module.HostError):
             host.dispatch("hello", {})
@@ -98,11 +388,16 @@ class HostTests(unittest.TestCase):
 if "--serve" in sys.argv:
     host = module.Host.__new__(module.Host)
     host.state = state()
-    host.ui = types.SimpleNamespace(run=lambda callback: callback())
+    host.ui = module.UIThreadGate()
+    host.saves = host.loads = 0
     server = module.HostServer(host)
     # Private pipe to the test process, never logged by the integration.
     print(json.dumps(server.info()), flush=True)
-    sys.stdin.readline()
+    # The main thread serves the requests (as hython's main thread does) until the test says stop.
+    stopping = threading.Event()
+    threading.Thread(target=lambda: (sys.stdin.readline(), stopping.set()), daemon=True).start()
+    while not stopping.is_set():
+        host.ui.pump(0.2)
     server.close()
 else:
     unittest.main()

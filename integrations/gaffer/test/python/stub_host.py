@@ -29,6 +29,9 @@ class Host:
             if params.get("script_handle") != state.handle:
                 raise module.HostError("stale_handle", "Select the exact script")
             return state.hello()
+        if method == "refuse":
+            raise module.HostError("unsupported_renderer", "SceneView renderer is not registered: Arnold",
+                                   {"registered_renderers": ["OpenGL"], "plug": object()})
         raise module.HostError("method_not_found", "Unknown method")
 
 server = module.HostServer(Host())

@@ -34,12 +34,42 @@ export class HostError extends Error {
   readonly code: string
   // The host's own explanation of a refusal, as bounded display text; never the endpoint.
   readonly detail: string | undefined
-  constructor(code: string, message: string, detail?: string) {
+  // The details the host gave with its refusal (`error.data`, a JSON object), such as the current revision.
+  readonly data: Record<string, unknown> | undefined
+  constructor(code: string, message: string, detail?: string, data?: Record<string, unknown>) {
     super(message)
     this.name = "HostError"
     this.code = code
     this.detail = detail
+    this.data = data
   }
+}
+
+// What a refusal's message carries of the host's text and data, so that an agent reading the error reads them.
+const MESSAGE_TEXT_MAX = 300
+const MESSAGE_DATA_MAX = 2_000
+
+function refusalText(message: unknown) {
+  if (typeof message !== "string") return undefined
+  const clean = message
+    .replace(/\p{Cc}/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return clean ? [...clean].slice(0, MESSAGE_TEXT_MAX).join("") : undefined
+}
+
+function refusalData(data: unknown): Record<string, unknown> | undefined {
+  if (typeof data !== "object" || data === null || Array.isArray(data) || !Object.keys(data).length) return undefined
+  return data as Record<string, unknown>
+}
+
+function refusalMessage(code: string, text: string | undefined, data: Record<string, unknown> | undefined) {
+  let message = `Host refused the request (${code})${text ? `: ${text}` : "."}`
+  if (data) {
+    const json = JSON.stringify(data)
+    message += ` ${json.length > MESSAGE_DATA_MAX ? `${json.slice(0, MESSAGE_DATA_MAX)}…` : json}`
+  }
+  return message
 }
 
 // Messages never carry the endpoint: port and token stay out of errors and logs.
@@ -95,14 +125,16 @@ export async function requestHost(
         id?: unknown
         ok?: unknown
         result?: unknown
-        error?: { code?: unknown; message?: unknown }
+        error?: { code?: unknown; message?: unknown; data?: unknown }
       }
       if (response.id !== id) return finish(new HostError("invalid_response", "Host returned an invalid envelope."))
       if (response.ok === false) {
         const raw = response.error?.code
         const code = typeof raw === "string" && HOST_ERROR_CODES.includes(raw) ? raw : "internal"
         const detail = typeof response.error?.message === "string" ? boundedDetail(response.error.message) : undefined
-        return finish(new HostError(code, `Host refused the request (${code}).`, detail))
+        const data = refusalData(response.error?.data)
+        const message = refusalMessage(code, refusalText(response.error?.message), data)
+        return finish(new HostError(code, message, detail, data))
       }
       if (response.ok !== true || !("result" in response)) {
         return finish(new HostError("invalid_response", "Host returned an invalid envelope."))

@@ -1,0 +1,62 @@
+{
+  "name": "houdini_render",
+  "domain": "tools",
+  "description": "Render a ROP (Karma, OpenGL, USD Render, Mantra, a geometry or USD export...) or cook a TOP node or TOP network (PDG) in a separate background hython: the open Houdini stays usable and its file keeps its name. It reads a working copy of the open scene (default) or the file as saved. A ROP renders its frames to its own output, or to the EXACT output you name (shots/shot_####.png gives shot_0001.png...; $F4 also works), with size [w, h] for this render only. Returns a task: call again with task (and wait_s) for progress, or cancel. Relative paths are next to the .hip. An Apprentice license writes images of at most 1920x1080 with the Houdini logo; the result says the size written.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "rop": {
+      "type": "string",
+      "description": "A ROP node path, e.g. /out/karma1."
+    },
+    "top": {
+      "type": "string",
+      "description": "A TOP node path, or a TOP network (its display node is cooked)."
+    },
+    "output": {
+      "type": "string",
+      "description": "ROP only: the exact output path; several frames need a # run or $F4."
+    },
+    "frames": {
+      "type": "any",
+      "description": "ROP only: a frame, [start, end] or [start, end, step] (default: the ROP's own range)."
+    },
+    "size": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "ROP only: [width, height], 4 to 16384 (Karma, OpenGL, USD Render, Mantra)."
+    },
+    "source": {
+      "type": "string",
+      "description": "What is rendered.",
+      "enum": ["copy", "saved"],
+      "default": "copy"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    },
+    "task": {
+      "type": "string",
+      "description": "A task from an earlier call: its progress."
+    },
+    "wait_s": {
+      "type": "integer",
+      "description": "With task: wait up to this long for it to finish (0 to 3600).",
+      "default": 0
+    },
+    "cancel": {
+      "type": "boolean",
+      "description": "With task: stop it."
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/render.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

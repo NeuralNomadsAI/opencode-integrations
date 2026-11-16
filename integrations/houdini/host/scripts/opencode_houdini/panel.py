@@ -43,10 +43,9 @@ class JsonlClient(QtCore.QObject):
     def start(self) -> None:
         if self._process.state() != QtCore.QProcess.ProcessState.NotRunning:
             return
-        bun = os.environ.get("NEURALNOMADS_HOUDINI_NODE") or shutil.which("node")
+        node = os.environ.get("NEURALNOMADS_HOUDINI_NODE") or shutil.which("node")
         sidecar = str(Path(__file__).resolve().parents[2] / "sidecar.cjs")
-        if not bun:
-            _log("bun missing")
+        if not node:
             self.diagnostic.emit("Install Node.js 22 or set NEURALNOMADS_HOUDINI_NODE")
             return
         if not Path(sidecar).is_file():
@@ -55,8 +54,7 @@ class JsonlClient(QtCore.QObject):
                 "OpenCode Link sidecar is missing; reinstall the application part."
             )
             return
-        _log("starting sidecar bun=" + bun + " sidecar=" + sidecar + " cwd=" + str(Path(sidecar).resolve().parent.parent))
-        self._process.setProgram(bun)
+        self._process.setProgram(node)
         self._process.setArguments([sidecar])
         self._process.setWorkingDirectory(str(Path(sidecar).resolve().parent.parent))
         self._process.start()
@@ -229,8 +227,13 @@ class OpenCodePanel(QtWidgets.QWidget):
         file_name = hou.hipFile.path()
         is_untitled = bool(hou.hipFile.isNewFile()) or not file_name or Path(file_name).name == "untitled.hip"
         directory = os.getcwd() if is_untitled else str(Path(file_name).resolve().parent)
+        offer = opencode_houdini.offerInfo()
         return {
             **info,
+            # This Houdini offers itself (OpenCode Link starts with Houdini): the panel finds that offer by its
+            # label and attaches its own conversation to it, which it takes back per file next time.
+            "offer_label": offer["label"],
+            "sessions_file": str(Path(__file__).resolve().parents[3].parent / "panel-sessions.json"),
             "script_handle": opencode_houdini.scriptHandle(),
             "script_key": "untitled:" + opencode_houdini.scriptHandle() if is_untitled else str(Path(file_name).resolve()),
             "script_name": hou.hipFile.basename(),
@@ -255,6 +258,7 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._client.send(self._channel, "new_session", self._connect_params())
 
     def _disconnect(self) -> None:
+        # The host and its offer stay: other conversations attached to this Houdini keep it.
         opencode_houdini.releasePanel(self._channel)
         self._client.send(self._channel, "close", {})
         self._connected = False

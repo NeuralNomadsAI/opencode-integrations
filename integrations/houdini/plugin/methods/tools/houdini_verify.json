@@ -1,0 +1,51 @@
+{
+  "name": "houdini_verify",
+  "domain": "tools",
+  "description": "Check a result by measurement. criteria: your own acceptance checks, each measured on cooked geometry, USD stages or parameters (at a frame, without moving the playbar) and passed or failed with the measured value. errors (default on): every node with errors or warnings, after cooking the criteria's nodes and the display and render nodes of every geometry object and LOP network. render: a low-resolution image with facts read from its pixels (size, brightness, black, uniform, transparent), made by a separate background hython on a working copy, so a crash there never touches this Houdini. saved: the same checks on the file as written on disk, read by a background hython; check the delivered file before reporting. Nothing in the open scene changes.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "criteria": {
+      "type": "array",
+      "description": "Up to 50 checks: {expr: a read-only Python expression; op: < <= > >= == != approx between in contains; value; tol (approx, default 1e-4); frame (default: the call's); label}. In expr: node(path), geo(path) (cooked hou.Geometry of a SOP, or a geometry object's display SOP), npoints(path), nprims(path), bbox(path).min/.max/.size/.center, attrib_names(path, cls='point'), attrib_values(path, name, cls='point'), parm(path) (a parm or parm tuple, evaluated), stage(path) (a LOP's Usd.Stage), prim(path, prim_path), usd_attr(path, prim_path, name), usd_prims(path, type_name=None), errors(path), warnings(path), frame, hou, math. Sequences compare element by element.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "frame": {
+      "type": "number",
+      "description": "Default: the current frame."
+    },
+    "errors": {
+      "type": "boolean",
+      "description": "Report the nodes with errors or warnings.",
+      "default": true
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Networks the errors are read under (default: /)."
+    },
+    "render": {
+      "type": "any",
+      "description": "true, or {camera?, lop?, rop?, renderer?: karma (default) or opengl, size?: longest side 64 to 1024 (default 320), frame?}. Default source: the first camera in /obj, else the display LOP of /stage."
+    },
+    "saved": {
+      "type": "any",
+      "description": "true: read the open scene's file as saved on disk (same criteria, errors and render), or a .hip/.hipnc/.hiplc path. A background hython reads it while this Houdini stays free; facts.read says which geometry came from cache files and which was cooked (a simulation read without its cache is simulated again). Past timeout_s it is stopped and the answer says what it was doing."
+    },
+    "timeout_s": {
+      "type": "integer",
+      "description": "For render and saved: how long the background hython may take (default 300; 540 with saved)."
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/verify.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

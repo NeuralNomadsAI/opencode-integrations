@@ -73,6 +73,40 @@ def _jsonValue( value ) :
 		return repr( value )
 
 
+# The error codes of the wire protocol (spec/README.md); a host code outside them travels as data["reason"].
+WIRE_CODES = (
+	"unauthorized", "invalid_request", "method_not_found", "method_disabled", "invalid_args", "stale_handle",
+	"stale_revision", "expectation_failed", "mode_conflict", "busy", "quarantined", "permission_denied", "internal",
+)
+WIRE_ALIASES = {
+	"unknown_script" : "stale_handle", "revision_conflict" : "stale_revision",
+	"unknown_method" : "method_not_found", "script_quarantined" : "quarantined",
+	"rollback_failed" : "quarantined", "request_too_large" : "invalid_request",
+	"read_only" : "permission_denied",
+}
+WIRE_MESSAGE_MAX = 2000
+WIRE_DATA_MAX = 64 * 1024
+
+def wireError( error ) :
+
+	"""The refusal sent to the plugin: its wire code, the host's own message and data, and the host's code."""
+
+	code = WIRE_ALIASES.get( error.code, error.code )
+	if code.startswith( ( "invalid_", "unsupported_" ) ) and code != "invalid_request" :
+		code = "invalid_args"
+	if code not in WIRE_CODES :
+		code = "internal"
+	data = _jsonValue( dict( error.data or {} ) )
+	if code != error.code :
+		data["reason"] = error.code
+	if len( json.dumps( data, allow_nan = False ) ) > WIRE_DATA_MAX :
+		data = { "reason" : error.code, "truncated" : True }
+	refusal = { "code" : code, "message" : str( error )[:WIRE_MESSAGE_MAX] }
+	if data :
+		refusal["data"] = data
+	return refusal
+
+
 def _valuesEqual( observed, expected ) :
 
 	if isinstance( observed, ( int, float ) ) and not isinstance( observed, bool ) and isinstance( expected, ( int, float ) ) and not isinstance( expected, bool ) :
@@ -1754,19 +1788,10 @@ class HostServer :
 			result = self.host.dispatch( str( request.get( "method", "" ) ), request.get( "params" ) or {} )
 			response = { "id" : requestID, "ok" : True, "result" : result }
 		except HostError as error :
-			code = {
-				"unknown_script" : "stale_handle", "revision_conflict" : "stale_revision",
-				"unknown_method" : "method_not_found", "script_quarantined" : "quarantined",
-				"rollback_failed" : "quarantined", "request_too_large" : "invalid_request",
-				"read_only" : "permission_denied",
-			}.get( error.code, error.code )
-			if code.startswith( ( "invalid_", "unsupported_" ) ) and code != "invalid_request" :
-				code = "invalid_args"
-			if code not in ( "unauthorized", "invalid_request", "method_not_found", "method_disabled", "invalid_args", "stale_handle", "stale_revision", "expectation_failed", "mode_conflict", "busy", "quarantined", "permission_denied", "internal" ) :
-				code = "internal"
-			response = { "id" : requestID, "ok" : False, "error" : { "code" : code, "message" : str( error )[:300] } }
+			response = { "id" : requestID, "ok" : False, "error" : wireError( error ) }
 		except Exception as error :
-			response = { "id" : requestID, "ok" : False, "error" : { "code" : "internal", "message" : str( error )[:300] } }
+			message = "{}: {}".format( type( error ).__name__, error )[:WIRE_MESSAGE_MAX]
+			response = { "id" : requestID, "ok" : False, "error" : { "code" : "internal", "message" : message } }
 
 		try :
 			client.sendall( ( json.dumps( response, allow_nan = False ) + "\n" ).encode( "utf-8" ) )
