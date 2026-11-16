@@ -4,6 +4,8 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs"
 import { basename } from "node:path"
 
+import { isAlive } from "./kit.ts"
+
 export type RenderStart = {
   pid: number
   log: string
@@ -37,14 +39,7 @@ export function addTask(start: RenderStart): RenderTask {
 export const getTask = (id: string) => tasks.get(id)
 export const listTasks = () => [...tasks.values()]
 
-export function isAlive(pid: number) {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM"
-  }
-}
+export { isAlive }
 
 function readTail(path: string) {
   if (!existsSync(path)) return ""

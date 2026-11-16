@@ -1,0 +1,19 @@
+{
+  "name": "houdini_execute_code",
+  "domain": "tools",
+  "description": "DANGEROUS: run Python in the attached Houdini (hou), given as code or as a script file (path). Assign a JSON-able dict to `result`; print() output is returned. A run that changes the scene is one undo group; a failing one is undone, and a failure says what Houdini knows (closest node types or parm names, node errors, the function's signature). Every run asks permission.",
+  "kind": "host-backed",
+  "risk": "destructive",
+  "dangerous": true,
+  "args": {
+    "code": { "type": "string", "description": "Python code (or path)." },
+    "path": {
+      "type": "string",
+      "description": "A .py file to run instead of code, read as is (absolute or relative to the project): long scripts, no escaping."
+    },
+    "read_only": { "type": "boolean", "description": "Inspection: no undo group." },
+    "timeout_s": { "type": "integer", "description": "Longest wait in seconds (1 to 3600).", "default": 120 }
+  },
+  "execution": { "strategy": "host_method", "method": "execute_code" },
+  "requires": { "hostMethods": ["execute_code"] }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "houdini_inspect",
+  "domain": "tools",
+  "description": "Ask THIS Houdini what it really exposes, in one call: search (words found in node type names and descriptions, parameter names and labels of every node type, and hou classes, functions and methods with their signature line; ranked), a node type (description, inputs min/max, outputs, parameter templates with the real parameter names, defaults, ranges and menu items, its HDA library and version, the SideFX page of this version), a live node (type, flags, inputs and outputs, errors/warnings/messages, changed parameters with values and expressions, children; a SOP's or geometry object's cooked geometry: points, prims, vertices, bbox, attributes per class, groups; a LOP's USD stage: prims and types; a TOP's work items; a ROP's output and frame range) and/or a hou symbol (its docstring signature and page). Entries beyond limit are still named. Always says the Houdini version and license. Read only.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "search": {
+      "type": "string",
+      "description": "Words, e.g. \"scatter\", \"point count\", \"create node\"."
+    },
+    "type": {
+      "type": "string",
+      "description": "A node type: Category/name (Sop/box, Lop/sphere, Object/geo, Driver/karma, Top/wedge) or a name with category."
+    },
+    "category": {
+      "type": "string",
+      "description": "Node type category (Sop, Lop, Object, Driver, Top, Dop, Vop, Cop...): for type without one, or to keep search to it."
+    },
+    "node": {
+      "type": "string",
+      "description": "A live node path, e.g. /obj/geo1/scatter1 or /stage/sublayer1."
+    },
+    "hou": {
+      "type": "string",
+      "description": "A hou path, e.g. hou.OpNode.createNode, hou.Geometry, hou.node."
+    },
+    "match": {
+      "type": "string",
+      "description": "Keep the parameters (and stage prims) matching: a glob on names (size*), or words found in name or label."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Entries in detail (1 to 200); the others are named.",
+      "default": 40
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/inspect.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

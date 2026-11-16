@@ -1,15 +1,19 @@
 """Exercise the actual panel import and shared listener without Houdini or Qt."""
 import json
+import os
 from pathlib import Path
 import socket
 from string import Template
 import sys
+import threading
 import types
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
 
+# Never offer this test's host to the OpenCode services of the computer running it.
+os.environ["OPENCODE_HOUDINI_OFFER"] = "0"
 hou = types.ModuleType("hou")
 hou.nodeEventType = types.SimpleNamespace(**{name: name for name in (
     "BeingDeleted", "ChildCreated", "ChildDeleted", "ChildReordered", "FlagChanged", "InputRewired",
@@ -110,11 +114,21 @@ class PanelTests(unittest.TestCase):
                 self.assertIs(integration._host, host)
                 self.assertEqual(integration.hostInfo(), endpoint)
                 self.assertTrue(second._connected)
-                with socket.create_connection((endpoint["host"], endpoint["port"]), timeout=2) as connection:
-                    request = {"id": "probe", "token": endpoint["token"], "method": "hello", "params": {}}
-                    connection.sendall((json.dumps(request) + "\n").encode())
-                    with connection.makefile("rb") as response:
-                        result = json.loads(response.readline())
+                replies = []
+
+                def ask():
+                    with socket.create_connection((endpoint["host"], endpoint["port"]), timeout=5) as connection:
+                        request = {"id": "probe", "token": endpoint["token"], "method": "hello", "params": {}}
+                        connection.sendall((json.dumps(request) + "\n").encode())
+                        with connection.makefile("rb") as response:
+                            replies.append(json.loads(response.readline()))
+
+                # The request runs on this, the main thread, which serves it as hython's does.
+                asker = threading.Thread(target=ask)
+                asker.start()
+                integration.pump(5.0, stop=lambda: not asker.is_alive())
+                asker.join()
+                result = replies[0]
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["result"]["script_handle"], state.handle)
 
@@ -134,46 +148,36 @@ class PanelTests(unittest.TestCase):
                 first._connect()
                 self.assertEqual(client.send.call_count, sends)
                 assert_live()
-                state.close.assert_not_called()
-                # Close delivery is asynchronous (or can fail); host revocation is synchronous.
+                # The last panel closing leaves the host with Houdini: its offer serves the other conversations.
                 client.send.side_effect = RuntimeError("sidecar unavailable")
                 interfaces[1]["onDestroyInterface"]()
                 self.assertEqual(integration._panel_owners, set())
                 self.assertIsNone(interfaces[1]["panel"])
                 self.assertEqual(client.eventReceived.disconnect.call_count, 2)
                 self.assertEqual(client.diagnostic.disconnect.call_count, 2)
-                self.assertFalse(server.running)
-                self.assertNotEqual(server.token, endpoint["token"])
-                self.assertIsNone(integration._host)
-                with self.assertRaises(OSError):
-                    socket.create_connection((endpoint["host"], endpoint["port"]), timeout=2)
-                state.close.assert_called_once()
+                self.assertTrue(server.running)
+                self.assertEqual(integration.hostInfo(), endpoint)
+                state.close.assert_not_called()
                 client.send.side_effect = None
-                # Repeated release is harmless; fresh consent creates fresh authority.
-                second._destroyed()
+                # A new panel uses the same host, authority unchanged.
                 third = panel.OpenCodePanel.__new__(panel.OpenCodePanel)
                 third.__dict__.update(second.__dict__, _disposed=False, _channel="third")
                 third._connect()
-                replacement = integration._server
-                self.assertNotEqual(replacement.token, endpoint["token"])
-                first._destroyed()  # A disconnected panel cannot revoke the remaining owner.
-                self.assertTrue(replacement.running)
-                event = Mock()
-                third.closeEvent(event)
-                event.accept.assert_called_once()
+                self.assertIs(integration._server, server)
+                params = client.send.call_args.args[2]
+                self.assertEqual(params["offer_label"], "Houdini: untitled.hip")
+                self.assertTrue(params["sessions_file"].endswith("panel-sessions.json"))
                 third._destroyed()
-                client.send.assert_called_with(third._channel, "close", {})
-                self.assertFalse(replacement.running)
-                self.assertIsNone(integration._host)
-                with self.assertRaises(OSError):
-                    socket.create_connection(("127.0.0.1", replacement.port), timeout=2)
-                self.assertEqual(state.close.call_count, 2)
+                self.assertTrue(server.running)
             finally:
                 integration.shutdown()
+            # Houdini exiting (atexit) stops the host and invalidates its token.
             self.assertFalse(server.running)
             self.assertNotEqual(server.token, endpoint["token"])
             self.assertIsNone(integration._host)
-            self.assertEqual(state.close.call_count, 2)
+            with self.assertRaises(OSError):
+                socket.create_connection((endpoint["host"], endpoint["port"]), timeout=2)
+            state.close.assert_called_once()
             integration.shutdown()  # Explicit cleanup and process exit are idempotent.
 
 

@@ -1,0 +1,27 @@
+{
+  "name": "houdini_save",
+  "domain": "tools",
+  "description": "Save the open scene; with path, save it under that .hip/.hipnc/.hiplc (as the open file, or a copy with copy true: the open scene keeps its name). Relative paths are next to the current file; an existing other file needs overwrite. Says what was written, read from the disk (path, bytes, time), the open file afterwards and the license's file kind. houdini_verify with saved reads the file back.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "path": {
+      "type": "string"
+    },
+    "copy": {
+      "type": "boolean",
+      "default": false
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/save.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

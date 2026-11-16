@@ -1,17 +1,38 @@
 import assert from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
-import { it } from "node:test"
+import { after, it } from "node:test"
 import { type HostError, requestHost } from "../../../packages/integration-kit/src/index.ts"
-import { checkCodeExecutionGate, checkHostListener, runSentinelScenario } from "../../../packages/testing/src/index.ts"
-import { loadPlugin } from "./helpers.ts"
+import {
+  checkCodeExecutionGate,
+  checkHostListener,
+  type ManifestLike,
+  runSentinelScenario,
+} from "../../../packages/testing/src/index.ts"
+import { readPackage } from "../plugin/src/integration.ts"
+import { methodsDir } from "../plugin/src/paths.ts"
+import { announcement, loadPlugin } from "./helpers.ts"
 
 const python = process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3")
 const probe = join(import.meta.dirname, "host_probe.py")
+const scratch = mkdtempSync(join(tmpdir(), "houdini-conformance-"))
+after(() => rmSync(scratch, { recursive: true, force: true }))
 
-it("the actual Houdini host transport is authenticated, loopback-only and has no code execution", async () => {
-  const child = spawn(python, ["-I", probe, "--serve"], { stdio: ["pipe", "pipe", "inherit"], windowsHide: true })
+function manifests(): ManifestLike[] {
+  return readdirSync(methodsDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => JSON.parse(readFileSync(join(entry.parentPath, entry.name), "utf8")) as ManifestLike)
+}
+
+// The installed part's real listener and dispatcher under system Python, with only the HOM boundary stubbed.
+async function servedHost() {
+  const child = spawn(python, ["-I", probe, "--serve"], {
+    stdio: ["pipe", "pipe", "inherit"],
+    windowsHide: true,
+  })
   const line = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill()
@@ -27,29 +48,23 @@ it("the actual Houdini host transport is authenticated, loopback-only and has no
     })
   })
   const endpoint = JSON.parse(line) as { host: string; port: number; token: string }
-  const plugin = await loadPlugin()
+  return {
+    endpoint,
+    close: async () => {
+      const stopped = new Promise((resolve) => child.once("exit", resolve))
+      child.stdin.end("stop\n")
+      await stopped
+    },
+  }
+}
+
+it("the actual Houdini host transport: authenticated, loopback-only, refusals with their text, data and code", async () => {
+  const host = await servedHost()
   try {
-    assert.deepEqual((await checkHostListener(endpoint)).errors, [])
-    const hello = (await requestHost(endpoint, "hello")) as { capabilities: { methods: string[] } }
-    assert.deepEqual(
-      await checkCodeExecutionGate({
-        app: "houdini",
-        manifests: [],
-        defaults: { appPreference: false, pluginOption: false },
-        probe: async () => ({
-          helloMethods: hello.capabilities.methods,
-          toolNames: [...plugin.tools.keys()].map((name) => `houdini_${name}`),
-          call: async () => ({ executed: false, permissionsAsked: [], error: "method_disabled" }),
-        }),
-      }),
-      [],
-    )
-    await assert.rejects(
-      requestHost(endpoint, "execute_code", { script_handle: "hip:test-document", code: "raise Exception()" }),
-    )
+    assert.deepEqual((await checkHostListener(host.endpoint)).errors, [])
     // A refusal keeps the host's message, its data and its own code (data.reason).
     await assert.rejects(
-      requestHost(endpoint, "apply", {
+      requestHost(host.endpoint, "apply", {
         script_handle: "hip:test-document",
         session_id: "ses_test",
         if_revision: 0,
@@ -62,12 +77,64 @@ it("the actual Houdini host transport is authenticated, loopback-only and has no
         return true
       },
     )
+    // status answers without the main thread.
+    assert.deepEqual(await requestHost(host.endpoint, "status", {}), { busy: false, queued: 0 })
   } finally {
-    await plugin.cleanup()
-    const stopped = new Promise((resolve) => child.once("exit", resolve))
-    child.stdin.end("stop\n")
-    await stopped
+    await host.close()
   }
+})
+
+it("checkCodeExecutionGate: declared dangerous, listed by the host, asked on every call", async () => {
+  let marker = 0
+  const cleanups: Array<() => Promise<void>> = []
+  const errors = await checkCodeExecutionGate({
+    app: "houdini",
+    manifests: manifests(),
+    async probe() {
+      const host = await servedHost()
+      let answer: "allow" | "deny" = "allow"
+      const plugin = await loadPlugin({
+        answer: (action) => {
+          if (action === "houdini_execute_code" && answer === "deny") throw new Error("Permission denied")
+        },
+      })
+      cleanups.push(async () => {
+        await plugin.cleanup()
+        await host.close()
+      })
+      const hello = (await requestHost(host.endpoint, "hello", {})) as {
+        script_handle: string
+        capabilities: { methods: string[] }
+      }
+      assert.deepEqual(await plugin.rpc("advertise", announcement(host.endpoint, hello.script_handle)), {
+        outcome: "accepted",
+      })
+      return {
+        helloMethods: hello.capabilities.methods,
+        toolNames: [...plugin.tools.keys()],
+        async call(permission) {
+          answer = permission
+          marker += 1
+          const file = join(scratch, `executed-${marker}.txt`)
+          const code = `open(${JSON.stringify(file)}, "w").write("ran")`
+          const asked = plugin.permissions.length
+          let error: string | undefined
+          try {
+            await plugin.tool("houdini_execute_code", { code })
+          } catch (thrown) {
+            error = String(thrown)
+          }
+          return {
+            executed: existsSync(file),
+            permissionsAsked: plugin.permissions.slice(asked),
+            ...(error ? { error } : {}),
+          }
+        },
+      }
+    },
+  })
+  for (const cleanup of cleanups.splice(0)) await cleanup()
+  assert.deepEqual(errors, [])
 })
 
 it("RPC sentinels stay out of every output and event, including bindingRead", async () => {
@@ -75,7 +142,7 @@ it("RPC sentinels stay out of every output and event, including bindingRead", as
   try {
     const result = await runSentinelScenario(
       { call: (method, input) => plugin.rpc(method, input as object), events: plugin.events },
-      { sessionID: "ses_test", hostVersion: "0.2.0", appVersion: "22.0.429" },
+      { sessionID: "ses_test", hostVersion: readPackage().version, appVersion: "22.0.429" },
     )
     assert.deepEqual(result.errors, [])
   } finally {
@@ -83,7 +150,15 @@ it("RPC sentinels stay out of every output and event, including bindingRead", as
   }
 })
 
-it("host preconditions, revision, headless and string-code boundaries", () => {
+it("host code runs, undo, quarantine, status and string-code boundaries under system Python", () => {
   const result = spawnSync(python, ["-I", probe], { windowsHide: true, encoding: "utf8" })
+  assert.equal(result.status, 0, result.stderr)
+})
+
+it("hints read Houdini's own knowledge (stub hou)", () => {
+  const result = spawnSync(python, ["-I", join(import.meta.dirname, "hints_probe.py")], {
+    windowsHide: true,
+    encoding: "utf8",
+  })
   assert.equal(result.status, 0, result.stderr)
 })

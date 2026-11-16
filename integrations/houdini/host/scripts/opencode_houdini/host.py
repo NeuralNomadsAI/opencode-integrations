@@ -11,10 +11,15 @@ import re
 import secrets
 import socket
 import threading
+import os
+import queue
+import time
 import uuid
 from typing import Any, Callable
 
 import hou
+
+from . import runner
 
 PROTOCOL_VERSION = 1
 MAX_REQUEST_BYTES = 1024 * 1024
@@ -28,7 +33,11 @@ OPERATIONS = (
     "graph.connect",
     "graph.delete",
 )
-METHODS = ("list_scripts", "hello", "context", "sync", "apply", "cancel", "resume")
+METHODS = ("list_scripts", "hello", "context", "sync", "apply", "cancel", "resume", "execute_code", "release", "status")
+# How long a request waits for Houdini's main thread to take it before answering busy (a modal dialog, a long
+# cook or render), and the longest main-thread job a request waits for (the plugin stops waiting earlier).
+QUEUE_WAIT_S = 10.0
+RUN_LIMIT_S = 3600.0
 NODE_TYPE_REGISTRY = {
     "Object": frozenset(("cam", "envlight", "geo", "hlight", "light", "null", "subnet")),
     "Sop": frozenset(("box", "grid", "line", "merge", "null", "output", "sphere", "subnet", "xform")),
@@ -93,6 +102,26 @@ def capabilities():
 
 def capability_hash():
     return hashlib.sha256(json.dumps(capabilities(), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def offer_label(document: str | None) -> str:
+    """The offer's label: "Houdini: <file>", as the user knows the open scene."""
+    name = (document or "untitled.hip").replace("/", " ").replace("\\", " ")
+    name = "".join(char for char in name if ord(char) >= 32 and char != "\x7f").strip() or "untitled.hip"
+    return ("Houdini: %s" % name)[:120]
+
+
+def temp_dir() -> str:
+    """Where Houdini writes its crash reports: $HOUDINI_TEMP_DIR (by default <temp>/houdini_temp)."""
+    try:
+        found = hou.getenv("HOUDINI_TEMP_DIR")
+    except Exception:  # noqa: BLE001 - a stub hou in tests
+        found = None
+    if not found:
+        import tempfile  # noqa: PLC0415
+
+        found = os.path.join(tempfile.gettempdir(), "houdini_temp")
+    return os.path.normpath(found)
 
 
 def host_version():
@@ -206,6 +235,7 @@ class ScriptState:
         self.epoch = str(uuid.uuid4())
         self.revision = 1
         self.quarantined = False
+        self.quarantine: dict[str, Any] | None = None
         self._refs_by_key: dict[tuple[Any, ...], str] = {}
         self._objects_by_ref: dict[str, hou.OpNode | hou.Parm] = {}
         self._tombstones: collections.OrderedDict[str, dict[str, Any]] = collections.OrderedDict()
@@ -246,6 +276,8 @@ class ScriptState:
             "host_version": host_version(),
             "app_version": hou.applicationVersionString(),
             "document": hou.hipFile.basename()[:120],
+            # This process and the folder Houdini writes its crash reports to (crash.<file>.<user>_<pid>_log.txt).
+            "process": {"pid": os.getpid(), "temp_dir": temp_dir()},
             "capabilities": capabilities(),
             "operations": list(OPERATIONS),
             "node_types": {category: sorted(types) for category, types in NODE_TYPE_REGISTRY.items()},
@@ -350,6 +382,7 @@ class ScriptState:
             "entities": entities,
             "working_set": entities,
             "diagnostics": ["Remote writes are quarantined"] if self.quarantined else [],
+            **({"quarantine": self.quarantine or {"cause": "a failed change"}} if self.quarantined else {}),
             "truncated": truncated,
         }
         if "affordances" in include:
@@ -410,7 +443,7 @@ class ScriptState:
             cancellation_generation = self.cancellation_state(session_id)[0]
         self._check_cancelled(session_id, cancellation_generation, request_was_cancelled)
         if self.quarantined:
-            raise HostError("script_quarantined", "Remote writes are disabled until the HIP is reloaded")
+            raise HostError("script_quarantined", runner.QUARANTINED, {"quarantine": self.quarantine or {}})
 
         command_id = str(request.get("command_id", ""))
         if not command_id or len(command_id) > 128:
@@ -489,6 +522,7 @@ class ScriptState:
                 rollback_error = RuntimeError("The OpenCode undo item was not available")
             if rollback_error is not None:
                 self.quarantined = True
+                self.quarantine = {"cause": ("failed apply: %s" % failure)[:200], "undo_error": str(rollback_error)[:300]}
                 self._reconcile_after_rollback()
                 self.flush(cause="rollback_failed", command_id=command_id)
                 raise HostError(
@@ -1144,48 +1178,107 @@ class ScriptState:
 
 
 class UIThreadGate:
+    """Runs requests on Houdini's main thread, and says which runs.
+
+    In the interface, through Houdini's event loop; in hython, through pump(), which the main thread calls (hou
+    records no undo off the main thread: undos.areEnabled() is false there). A request not taken within
+    QUEUE_WAIT_S is answered busy. `running()` answers from any thread: the request the main thread runs now and
+    for how long, so a call whose wait ended can learn that it still runs.
+    """
+
     def __init__(self) -> None:
         self._ui_thread = threading.get_ident()
+        self._running: tuple[str, float] | None = None
+        self._queued = 0
+        self._count = threading.Lock()
+        self._jobs: "queue.Queue[Callable[[], None]]" = queue.Queue()
 
-    def run(self, callback: Callable[[], Any]) -> Any:
-        if not hou.isUIAvailable() or not hasattr(hou, "ui") or threading.get_ident() == self._ui_thread:
+    def running(self) -> dict[str, Any]:
+        current = self._running
+        if current is None:
+            return {"busy": False, "queued": self._queued}
+        label, since = current
+        return {"busy": True, "running": label, "seconds": round(time.monotonic() - since, 1), "queued": self._queued}
+
+    def _invoke(self, label: str, callback: Callable[[], Any]) -> Any:
+        self._running = (label, time.monotonic())
+        try:
             return callback()
+        finally:
+            self._running = None
+
+    def pump(self, seconds: float = 0.05, stop: Callable[[], bool] | None = None) -> None:
+        """hython: runs the queued requests on this (the main) thread for `seconds`, or until `stop()`."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and not (stop is not None and stop()):
+            try:
+                job = self._jobs.get(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
+            except queue.Empty:
+                continue
+            job()
+
+    def run(self, callback: Callable[[], Any], label: str = "a request") -> Any:
+        if threading.get_ident() == self._ui_thread:
+            return self._invoke(label, callback)
+        started = threading.Event()
         complete = threading.Event()
         expired = threading.Event()
+        lock = threading.Lock()
         result: list[Any] = []
 
         def invoke() -> None:
-            if expired.is_set():
-                complete.set()
-                return
+            with lock:
+                if expired.is_set():
+                    return
+                started.set()
             try:
-                result.append((True, callback()))
+                result.append((True, self._invoke(label, callback)))
             except Exception as error:
                 result.append((False, error))
             finally:
                 complete.set()
 
-        if hasattr(hou.ui, "postEventCallback"):
-            hou.ui.postEventCallback(invoke)
-        else:
-            def event_loop_callback() -> None:
-                hou.ui.removeEventLoopCallback(event_loop_callback)
-                invoke()
+        with self._count:
+            self._queued += 1
+        try:
+            if not hou.isUIAvailable() or not hasattr(hou, "ui"):
+                self._jobs.put(invoke)
+            elif hasattr(hou.ui, "postEventCallback"):
+                hou.ui.postEventCallback(invoke)
+            else:
+                def event_loop_callback() -> None:
+                    hou.ui.removeEventLoopCallback(event_loop_callback)
+                    invoke()
 
-            hou.ui.addEventLoopCallback(event_loop_callback)
-        if not complete.wait(120):
-            expired.set()
-            raise HostError("ui_timeout", "Timed out waiting for Houdini's UI thread")
+                hou.ui.addEventLoopCallback(event_loop_callback)
+            if not started.wait(QUEUE_WAIT_S):
+                with lock:
+                    if not started.is_set():
+                        expired.set()
+                        raise HostError(
+                            "ui_timeout",
+                            "Houdini's main thread did not take the request within %d s (a modal dialog, a long "
+                            "cook or render)" % QUEUE_WAIT_S,
+                            {"running": self.running().get("running")},
+                        )
+        finally:
+            with self._count:
+                self._queued -= 1
+        if not complete.wait(RUN_LIMIT_S):
+            raise HostError("ui_timeout", "Houdini did not finish the request within %d s" % RUN_LIMIT_S)
         succeeded, value = result[0]
         if not succeeded:
             raise value
         return value
 
-
 class Host:
     def __init__(self) -> None:
         self.ui = UIThreadGate()
         self.state = ScriptState()
+        # Saves and loads seen (hip events): an execute_code run that saved or opened a file says so.
+        self.saves = 0
+        self.loads = 0
+        self.label = offer_label(hou.hipFile.basename())
         hou.hipFile.addEventCallback(self._hip_event)
 
     def close(self) -> None:
@@ -1203,6 +1296,9 @@ class Host:
         return self.state.handle
 
     def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        if method == "status":
+            # Answered on the request's own thread, never through the main thread: what it runs now.
+            return self.ui.running()
         if method in ("cancel", "resume"):
             state = self._require_state(params)
             session_id = params.get("session_id")
@@ -1235,9 +1331,15 @@ class Host:
                 return state.sync(params.get("after_revision", 0))
             if method == "apply":
                 return state.apply(params, cancellation[0], cancellation[1])
+            if method == "execute_code":
+                from . import hints  # noqa: PLC0415 - Houdini's own knowledge, loaded on first use
+
+                return runner.execute_code(self, state, params, hints.explain)
+            if method == "release":
+                return runner.release(state, params)
             raise HostError("unknown_method", "Unknown Houdini host method: " + method)
 
-        return self.ui.run(execute)
+        return self.ui.run(execute, method)
 
     def _require_state(self, params: dict[str, Any]) -> ScriptState:
         if str(params.get("script_handle", "")) != self.state.handle:
@@ -1246,10 +1348,18 @@ class Host:
 
     def _hip_event(self, event_type: hou.hipFileEventType) -> None:
         if event_type in (hou.hipFileEventType.AfterLoad, hou.hipFileEventType.AfterClear):
+            self.loads += 1
             self.reset()
         elif event_type in (hou.hipFileEventType.AfterSave, hou.hipFileEventType.AfterMerge):
+            if event_type == hou.hipFileEventType.AfterSave:
+                self.saves += 1
             self.state._summary_dirty = True
             self.state._schedule_flush()
+        # On the main thread: the offer's label follows the open file (the advertiser reads it from its thread).
+        try:
+            self.label = offer_label(hou.hipFile.basename())
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class HostServer:

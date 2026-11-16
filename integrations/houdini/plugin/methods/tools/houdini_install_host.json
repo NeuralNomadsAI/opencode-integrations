@@ -1,0 +1,9 @@
+{
+  "name": "houdini_install_host",
+  "domain": "tools",
+  "description": "Install or update OpenCode Link (the version of this plugin) as a Houdini package in the newest Houdini 21 or later preferences folder of the computer that runs OpenCode. Asks permission; restart Houdini afterwards if it is open.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {},
+  "execution": { "strategy": "plugin" }
+}

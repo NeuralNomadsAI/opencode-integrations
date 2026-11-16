@@ -1,5 +1,6 @@
 // Private JSONL panel client. Built into the installed host; credentials never leave this process.
-import { randomUUID } from "node:crypto"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
 import readline from "node:readline"
 import { OpenCode } from "@opencode/client"
 import { Service } from "@opencode/client/service"
@@ -11,7 +12,6 @@ type Channel = {
   directory: string
   sessionID: string
   label: string
-  key: string
   binding: { host: string; port: number; token: string }
   handle: string
   abort: AbortController
@@ -26,7 +26,15 @@ const channels = new Map<string, Channel>()
 const queues = new Map<string, Promise<void>>()
 const send = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`)
 const event = (c: Channel, name: string, data: object) => send({ channel: c.id, event: name, data })
-const options = (c: Channel) => ({ location: { directory: c.directory }, signal: AbortSignal.timeout(3000) })
+const options = (c: { directory: string }) => ({
+  location: { directory: c.directory },
+  signal: AbortSignal.timeout(3000),
+})
+// A message of this sidecar's own, safe to show in the panel (SDK and host errors never are).
+class PanelError extends Error {}
+
+// How long Connect waits for this Houdini's own offer (it offers itself every 5 s from its start).
+const OFFER_WAIT_MS = 8_000
 
 async function api() {
   if (client) return client
@@ -37,29 +45,56 @@ async function api() {
   return client
 }
 
-async function advertise(c: Channel) {
-  const result = await rpc.advertise?.(
-    {
-      host: c.binding.host,
-      port: c.binding.port,
-      token: c.binding.token,
-      script_handle: c.handle,
-      label: c.label,
-      protocol: 1,
-      offer_key: c.key,
-    },
-    options(c),
-  )
-  if (result?.outcome !== "accepted" && result?.outcome !== "renewed") throw new Error("Houdini offer was refused.")
+// The panel's conversation per Houdini file, kept next to the installed payloads: Connect takes it back.
+type Sessions = Record<string, { session: string; directory: string }>
+function readSessions(file: string): Sessions {
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8")) as unknown
+    return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Sessions) : {}
+  } catch {
+    return {}
+  }
+}
+function rememberSession(file: string, key: string, session: string, directory: string) {
+  if (!file || !key || key.startsWith("untitled:")) return
+  try {
+    const sessions = readSessions(file)
+    sessions[key] = { session, directory }
+    const keys = Object.keys(sessions)
+    for (const old of keys.slice(0, Math.max(0, keys.length - 200))) delete sessions[old]
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, `${JSON.stringify(sessions)}\n`)
+  } catch {
+    // a conversation that is not taken back next time
+  }
 }
 
-async function verify(c: Channel) {
+// This Houdini's offer: the one with its label among the offered hosts (Houdini offers itself; the panel never).
+async function findOffer(c: { directory: string; label: string }) {
+  const until = Date.now() + OFFER_WAIT_MS
+  for (;;) {
+    const result = await rpc.hosts?.({}, options(c))
+    const offers = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).filter(
+      (offer) => offer.label === c.label,
+    )
+    if (offers.length > 1)
+      throw new PanelError(`Several Houdinis offer ${c.label}: attach this conversation from OpenCode (houdini_hosts).`)
+    if (offers[0]) return offers[0]
+    if (Date.now() > until)
+      throw new PanelError(
+        "This Houdini does not offer itself to OpenCode (OPENCODE_HOUDINI_OFFER=0, or OpenCode Link not started).",
+      )
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+}
+
+async function attached(c: Channel) {
   const read = await rpc.bindingRead?.({ sessionID: c.sessionID }, options(c))
-  if (read?.state !== "attached") throw new Error("Houdini was detached; choose Connect to attach again.")
-  const binding = read.binding as { label?: string } | undefined
-  if (binding?.label !== c.label) throw new Error("This conversation is attached to another host.")
+  return read?.state === "attached" && (read.binding as { label?: string } | undefined)?.label === c.label
 }
 
+// Closing the panel releases its own conversation only: the offer stays, and other conversations attached to
+// this Houdini (CodeNomad, a terminal) keep it.
 async function close(c: Channel) {
   channels.delete(c.id)
   if (c.timer) clearInterval(c.timer)
@@ -71,10 +106,9 @@ async function close(c: Channel) {
     { timeoutMs: 2000 },
   ).catch(() => {})
   // A different client may have moved the session to another host. Never detach that binding.
-  await verify(c)
-    .then(() => rpc.detachHost?.({ sessionID: c.sessionID }, options(c)))
+  await attached(c)
+    .then((still) => (still ? rpc.detachHost?.({ sessionID: c.sessionID }, options(c)) : undefined))
     .catch(() => {})
-  await rpc.withdraw?.({ offer_key: c.key, token: c.binding.token }, options(c)).catch(() => {})
 }
 
 async function stream(c: Channel) {
@@ -97,7 +131,7 @@ async function stream(c: Channel) {
   }
 }
 
-async function connect(id: string, params: Record<string, unknown>) {
+async function connect(id: string, params: Record<string, unknown>, fresh: boolean) {
   const service = await api()
   const previous = channels.get(id)
   if (previous) await close(previous)
@@ -105,38 +139,55 @@ async function connect(id: string, params: Record<string, unknown>) {
     throw new Error("Invalid host endpoint.")
   const directory = String(params.directory ?? "")
   if (!directory) throw new Error("Select a project directory.")
-  const session = await service.session.create({ title: "Houdini", location: { directory } })
+  const label = String(params.offer_label ?? "")
+  if (!label) throw new PanelError("This Houdini's offer is unknown.")
+  const key = String(params.script_key ?? "")
+  const store = String(params.sessions_file ?? "")
+  // The file's conversation, when it still exists; otherwise (or with New) a new one.
+  let sessionID: string | undefined
+  let resumed = false
+  const known = !fresh && store ? readSessions(store)[key] : undefined
+  if (known?.session) {
+    try {
+      const found = (await service.session.get({ sessionID: known.session } as never)) as { id?: string } | undefined
+      if (found?.id === known.session) {
+        sessionID = known.session
+        resumed = true
+      }
+    } catch {
+      // gone: a new one
+    }
+  }
+  if (!sessionID) {
+    const label = String(params.script_name || "Houdini")
+    sessionID = (await service.session.create({ title: `Houdini: ${label}`, location: { directory } })).id
+  }
   const c: Channel = {
     id,
-    directory,
-    sessionID: session.id,
-    label: `Houdini ${randomUUID().slice(0, 8)}`,
-    key: randomUUID(),
+    directory: resumed && known ? known.directory : directory,
+    sessionID,
+    label,
     binding: { host: "127.0.0.1", port: Number(params.port), token: String(params.token) },
     handle: String(params.script_handle),
     abort: new AbortController(),
     pending: false,
   }
   try {
-    await advertise(c)
-    const result = await rpc.hosts?.({}, options(c))
-    const offer = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).find(
-      (offer) => offer.label === c.label,
-    )
-    if (!offer) throw new Error("No validated Houdini offer.")
-    const attached = await rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c))
-    if (attached?.outcome !== "attached") throw new Error("Houdini attachment was refused.")
+    const offer = await findOffer(c)
+    const result = await rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c))
+    if (result?.outcome !== "attached") throw new PanelError("Houdini attachment was refused.")
+    rememberSession(store, key, c.sessionID, c.directory)
     channels.set(id, c)
     let warned = false
     c.timer = setInterval(() => {
       if (c.pending) return
       c.pending = true
       void api()
-        .then(() => advertise(c))
-        .then(() => verify(c))
+        .then(() => attached(c))
+        .then((still) => {
+          if (!still) throw new Error("detached")
+        })
         .catch(() => {
-          // Offering the application is independent from its conversation binding. Keep renewing
-          // for other clients after a detach; discovery may recover, attachment is always explicit.
           client = undefined
           if (!warned)
             event(c, "error", { message: "Conversation detached or service unavailable; choose Connect to reconnect." })
@@ -147,7 +198,7 @@ async function connect(id: string, params: Record<string, unknown>) {
         })
     }, 5000)
     void stream(c)
-    event(c, "session", { id: session.id, resumed: false })
+    event(c, "session", { id: c.sessionID, resumed })
     event(c, "history", { messages: [] })
     event(c, "status", { state: "idle" })
   } catch (error) {
@@ -155,11 +206,11 @@ async function connect(id: string, params: Record<string, unknown>) {
     throw error
   }
 }
-
 async function dispatch(request: Request) {
   try {
     const params = request.params ?? {}
-    if (request.method === "connect" || request.method === "new_session") await connect(request.channel, params)
+    if (request.method === "connect" || request.method === "new_session")
+      await connect(request.channel, params, request.method === "new_session")
     else {
       const c = channels.get(request.channel)
       if (!c) throw new Error("Choose Connect first.")
@@ -174,7 +225,7 @@ async function dispatch(request: Request) {
         )
         await service.session.interrupt({ sessionID: c.sessionID, resume: false })
       } else if (request.method === "prompt") {
-        await verify(c)
+        if (!(await attached(c))) throw new PanelError("Houdini was detached; choose Connect to attach again.")
         await requestHost(
           c.binding,
           "resume",
@@ -189,12 +240,17 @@ async function dispatch(request: Request) {
       } else throw new Error("Unknown panel action.")
     }
     send({ id: request.id, result: {} })
-  } catch {
+  } catch (error) {
     // Never forward SDK/host errors: their details can include credentials or endpoints.
     send({
       channel: request.channel,
       event: "error",
-      data: { message: "Connection or action failed. Check OpenCode and Houdini, then choose Connect." },
+      data: {
+        message:
+          error instanceof PanelError
+            ? error.message
+            : "Connection or action failed. Check OpenCode and Houdini, then choose Connect.",
+      },
     })
     send({ id: request.id, error: { message: "Panel action failed." } })
   }

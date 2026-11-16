@@ -2,28 +2,29 @@
 // no socket, process, download or installation (PKG-6); the host is reached only once a session is
 // attached to an offer validated by hello.
 
-import { readFileSync, statSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import type { Plugin } from "@opencode/plugin"
 import type { ToolContext } from "@opencode/plugin/promise/tool"
 
 import { type AttachmentStorage, createAttachments, trackAdvertise } from "./attachments.ts"
-import { closedMessage, crashReport, type HostProcess, readProcess, silentMessage } from "./closed.ts"
+import { closedMessage, crashReport, silentMessage } from "./closed.ts"
 import { extensionsDir, inspectHost, installHost } from "./host-install.ts"
 import {
-  type BindingAuthority,
   buildPluginTools,
+  createHostSession,
   createIntegrationRpc,
   HELLO_TIMEOUT_MS,
-  type HostBinding,
   HostError,
   type HostExpectation,
+  hostErrorWith,
   type IntegrationMarker,
   isWslDaemon,
   loadMethodRegistry,
   type OfferRegistry,
   offerRegistryName,
+  readScript,
   registerPluginTools,
   requestHost,
   type SessionBindings,
@@ -35,7 +36,7 @@ import { type EntryPut, methodAttacher } from "./method.ts"
 import { type BlenderOptions, readOptions } from "./options.ts"
 import { defaultPathEnv, methodsDir, type PathEnv, packageRoot } from "./paths.ts"
 import { type ProgramName, programCode } from "./programs.ts"
-import { addTask, cancelTask, getTask, isAlive, type RenderStart, taskStatus } from "./tasks.ts"
+import { addTask, cancelTask, getTask, type RenderStart, taskStatus } from "./tasks.ts"
 import { validatePlan } from "./validate.ts"
 
 export const APP = "blender"
@@ -70,15 +71,9 @@ export const LAB_TOOLS = [
 
 const MAX_TEXT = 100_000
 const VERIFY_TIMEOUT_MS = 600_000
-// The status method answers off Blender's main thread: no answer within this long means the add-on is frozen.
-const STATUS_TIMEOUT_MS = 3_000
-// How often a running call looks for its Blender's crash report.
-const CRASH_POLL_MS = 2_000
 // A save that failed while the .blend was briefly held by another process, retried once after SAVE_RETRY_MS.
 export const TRANSIENT_SAVE = /unable to make version backup|file saved with @/i
 export const SAVE_RETRY_MS = 1_000
-// Ownership snapshots taken again when other conversations or offers moved the shared registry meanwhile.
-const OWNERSHIP_ATTEMPTS = 5
 // Longest wait of one blender_render call that follows a task.
 export const RENDER_WAIT_MAX_S = 3_600
 
@@ -116,32 +111,11 @@ export function readPackage(): PackageJson {
   return JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as PackageJson
 }
 
-// The longest script blender_execute_code reads from a file: the host reads requests of at most 1 MiB.
-export const SCRIPT_MAX_BYTES = 900 * 1024
+// The longest script blender_execute_code reads from a file, and its reading (the kit's).
+export { readScript, SCRIPT_MAX_BYTES } from "./kit.ts"
 
-// A Python script on disk (absolute, or relative to the Location's directory), as UTF-8 text.
-export function readScript(path: string, base?: string) {
-  const file = resolve(base ?? process.cwd(), path)
-  let bytes: Buffer
-  try {
-    if (statSync(file).size > SCRIPT_MAX_BYTES)
-      throw new Error(`${file} is over ${SCRIPT_MAX_BYTES} bytes: split it, or have it exec() its parts.`)
-    bytes = readFileSync(file)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`No script ${file}.`)
-    throw error
-  }
-  const code = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^﻿/, "")
-  return { path: file, code }
-}
-
-function hostError(error: unknown): Error {
-  if (error instanceof HostError) {
-    const hint = HINTS[error.code] ?? `Blender refused the request (${error.code}).`
-    return new Error(error.detail ? `${hint} ${error.detail}` : hint)
-  }
-  return error instanceof Error ? error : new Error(String(error))
-}
+// The add-on's explanation follows the hint (HostError.detail: bounded, without path separators).
+const hostError = hostErrorWith(HINTS, "Blender", (error) => error.detail ?? "")
 
 function bounded(text: string) {
   return text.length > MAX_TEXT
@@ -179,11 +153,8 @@ export function createRegistry(marker: IntegrationMarker, options: BlenderOption
   })
 }
 
-// label: the attached offer's label when the ticket was taken (a permission prompt shows it).
-type Ticket = { authority: BindingAuthority; bound: HostBinding; label?: string }
 // A fixed program's run: its result, with what the open document's file lacks and what a save wrote.
 type ProgramRun = { result?: unknown; unsaved?: unknown; saved?: boolean; saved_steps?: string[] }
-type Hello = { script_handle: string; revision: number; host_version?: string; document?: unknown }
 
 export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) {
   const env = deps.env ?? process.env
@@ -266,202 +237,28 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   const put = session?.instructions?.entry?.put
   const attachMethod = methodAttacher(put ? (input) => put.call(session?.instructions?.entry, input) : undefined)
 
-  // Whether a conversation other than `sessionID` is attached to the offer: the conversations this daemon recorded
-  // (attachments.ts); with one offer, also the registry's count of attached sessions, which are all on it.
-  const heldElsewhere = (offerID: string, sessionID: string) => {
-    if (attachments.heldBy(offerID, sessionID)) return true
-    const offers = registry.hosts().offers
-    if (offers.length !== 1 || offers[0]?.offerID !== offerID) return false
-    return registry.counts().attachedSessions - (registry.binding(sessionID)?.offerID === offerID ? 1 : 0) > 0
-  }
-
-  // This conversation's ownership, fenced by the registry's revision. That revision is shared by every offer and
-  // conversation: another conversation attaching another Blender, or an offer appearing, during the native
-  // lookup moves it. Only then is the snapshot taken again (an ownership that does not hold fails at once).
-  const ownership = async (sessionID: string, signal?: AbortSignal) => {
-    for (let attempt = 0; attempt < OWNERSHIP_ATTEMPTS; attempt += 1) {
-      const before = registry.authority()
-      const authority = await bindings.snapshot(sessionID, signal)
-      if (authority || signal?.aborted) return authority
-      const after = registry.authority()
-      const moved =
-        before &&
-        after &&
-        before.serviceGeneration === after.serviceGeneration &&
-        (before.registryGeneration !== after.registryGeneration || before.revision !== after.revision)
-      if (!moved) return null
-    }
-    return null
-  }
-
-  // After a wait (a permission): this conversation still owned, still attached to the same offer. Unrelated
-  // changes of other offers and conversations do not count.
-  const reheld = async (context: ToolContext, held: Ticket): Promise<Ticket | null> => {
-    const authority = await ownership(context.sessionID, context.signal)
-    const bound = authority && registry.current(authority) ? registry.binding(context.sessionID) : null
-    const label = attachedTo(context.sessionID)?.label
-    return bound &&
-      bound.offerID === held.bound.offerID &&
-      bound.scriptHandle === held.bound.scriptHandle &&
-      label === held.label
-      ? { authority: authority as BindingAuthority, bound, label }
-      : null
-  }
-
-  // The Blender this conversation acts on, as blender_hosts and blender_context name it.
-  const attachedTo = (sessionID: string) => {
-    const bound = registry.binding(sessionID)
-    const offer = bound && registry.hosts().offers.find((candidate) => candidate.offerID === bound.offerID)
-    return offer ? { offerID: offer.offerID, label: offer.label } : null
-  }
-
-  // The process of the Blender each conversation last reached (its hello): a later call that cannot reach it says
-  // that Blender closed, and where its crash report is. Not from WSL, where Blender's process is on Windows.
-  const reached = new Map<string, HostProcess>()
-  const helloed = new Map<string, string>() // sessionID -> the offer whose hello was read
+  // The conversations' attached Blender and its calls (the kit's host session): ownership, automatic and
+  // restored attachment, and what a call says of a Blender that crashed, closed or does not answer.
   const wsl = deps.wsl ?? (() => isWslDaemon())
-  // Its offer gone: crashed, closed, or alive without renewing its offer. Never another Blender in its place.
-  const goneFor = (sessionID: string) => {
-    const host = reached.get(sessionID)
-    if (!host || wsl() || registry.hosts().offers.some((offer) => offer.offerID === host.offerID)) return null
-    return closedMessage(host) ?? silentMessage(host)
-  }
-  // A call that failed, timed out or was refused as busy: what Blender is doing. Its crash report (written since
-  // this conversation reached that process), the process gone, or the request its main thread runs now (the status
-  // method answers off the main thread).
-  const diagnose = async (sessionID: string, bound: HostBinding, code: string) => {
-    const host = reached.get(sessionID)
-    if (!host || wsl()) return null
-    const closed = closedMessage(host, isAlive)
-    if (closed || code === "unreachable" || !bound.methods.includes("status")) return closed
-    try {
-      const status = (await requestHost(bound.endpoint, "status", {}, { timeoutMs: STATUS_TIMEOUT_MS })) as {
-        busy?: boolean
-        running?: string
-        seconds?: number
-      }
-      if (!status.busy) return null
-      return `Blender is still running ${status.running ?? "a request"} (${status.seconds ?? "?"} s so far): it goes on in Blender, nothing is lost. blender_context answers once it has finished; read it before acting again.`
-    } catch {
-      return `Blender does not answer: its process ${host.pid} runs, but OpenCode Link answered nothing within ${STATUS_TIMEOUT_MS / 1_000} s (frozen?).`
-    }
-  }
-  const remember = async (context: ToolContext, held: Ticket) => {
-    if (helloed.get(context.sessionID) === held.bound.offerID) return
-    helloed.set(context.sessionID, held.bound.offerID)
-    try {
-      const found = readProcess(await hello(held.bound, context.signal), held.label)
-      if (found) reached.set(context.sessionID, { ...found, offerID: held.bound.offerID })
-      else reached.delete(context.sessionID)
-    } catch {
-      // an add-on without process in its hello, or a failed hello: the call itself reports
-    }
-  }
-
-  const hello = async (bound: HostBinding, signal: AbortSignal) =>
-    (await requestHost(bound.endpoint, "hello", {}, { signal, timeoutMs: HELLO_TIMEOUT_MS })) as Hello
-
-  // The conversation's attached Blender. Without one, the only offered Blender, compatible and attached to no
-  // conversation, attaches itself (spec FAM-5): checked against the ownership snapshot with no wait in between.
-  const ticket = async (context: ToolContext): Promise<Ticket> => {
-    const authority = await ownership(context.sessionID, context.signal)
-    if (!authority || context.signal.aborted || !registry.current(authority)) {
-      throw new Error("This conversation's ownership is unverifiable: try again.")
-    }
-    let bound = registry.binding(context.sessionID)
-    // Its stored attachment first: the Blender it used before an OpenCode restart.
-    if (!bound && attachments.has(context.sessionID)) {
-      await attachments.restore(context.sessionID)
-      bound = registry.binding(context.sessionID)
-    }
-    if (!bound) {
-      // Its Blender crashed or closed: said, and no other Blender attaches itself in its place.
-      const gone = goneFor(context.sessionID)
-      if (gone) throw new Error(gone)
-      const offers = registry.hosts().offers
-      const only = offers.length === 1 ? offers[0] : undefined
-      if (
-        only &&
-        only.protocol === "ok" &&
-        !heldElsewhere(only.offerID, context.sessionID) &&
-        registry.current(authority)
-      ) {
-        if (registry.attach(only.offerID, context.sessionID).outcome === "attached") {
-          bound = registry.binding(context.sessionID)
-          await attachments.remember(context.sessionID)
-        }
-      }
-      if (!bound) {
-        if (!offers.length)
-          throw new Error("No Blender is offered: open Blender 5.3 or later with the OpenCode Link add-on enabled.")
-        const list = offers
-          .map(
-            (offer) =>
-              `${offer.label} [${offer.offerID}]${heldElsewhere(offer.offerID, context.sessionID) ? " (attached to another conversation)" : ""}${offer.protocol === "incompatible" ? " (incompatible add-on)" : ""}`,
-          )
-          .join(", ")
-        throw new Error(
-          `No Blender is attached to this conversation. Offered: ${list}. Attach one with blender_hosts attach.`,
-        )
-      }
-    }
-    const current = registry.authority()
-    if (!current) throw new Error("This conversation's ownership is unverifiable: try again.")
-    await attachMethod(context.sessionID)
-    return { authority: current, bound, label: attachedTo(context.sessionID)?.label }
-  }
-
-  const callHost = async (
-    context: ToolContext,
-    method: string,
-    params: Record<string, unknown>,
-    timeoutMs = options.requestTimeoutMs,
-    captured?: Ticket,
-  ) => {
-    const held = captured ? await reheld(context, captured) : await ticket(context)
-    if (!held) throw new Error("This conversation's Blender changed while permission was asked; retry the action.")
-    if (context.signal.aborted || !registry.current(held.authority))
-      throw new Error("Application attachment is unverifiable.")
-    const { bound } = held
-    if (!bound.methods.includes(method)) {
-      throw new Error(
-        `The attached Blender's OpenCode Link has no ${method} method: install OpenCode Link ${pkg.version} (blender_install_host) and restart Blender.`,
-      )
-    }
-    await remember(context, held)
-    // A crash ends the wait at once: on Windows a crashed Blender stays open behind its crash window and its
-    // connection with it, so the call would wait its whole timeout. Its crash report is watched meanwhile.
-    const host = wsl() ? undefined : reached.get(context.sessionID)
-    const stop = new AbortController()
-    const abort = () => stop.abort()
-    context.signal.addEventListener("abort", abort)
-    let crashed: string | null = null
-    const watch = host
-      ? setInterval(() => {
-          crashed = crashReport(host) ? closedMessage(host, isAlive) : null
-          if (crashed) stop.abort()
-        }, CRASH_POLL_MS)
-      : undefined
-    try {
-      return await requestHost(
-        bound.endpoint,
-        method,
-        { script_handle: bound.scriptHandle, ...params },
-        { signal: stop.signal, timeoutMs },
-      )
-    } catch (error) {
-      if (crashed) throw new Error(crashed)
-      const said =
-        error instanceof HostError && ["unreachable", "timeout", "busy"].includes(error.code)
-          ? await diagnose(context.sessionID, bound, error.code)
-          : null
-      throw said ? new Error(said) : hostError(error)
-    } finally {
-      clearInterval(watch)
-      context.signal.removeEventListener("abort", abort)
-    }
-  }
-
+  const hostSession = createHostSession({
+    texts: {
+      appName: "Blender",
+      app: APP,
+      part: "OpenCode Link",
+      partKind: "add-on",
+      noneOffered: "No Blender is offered: open Blender 5.3 or later with the OpenCode Link add-on enabled.",
+      installHint: `install OpenCode Link ${pkg.version} (blender_install_host) and restart Blender`,
+    },
+    registry,
+    bindings,
+    attachments,
+    attachMethod,
+    crash: { crashReport, closedMessage, silentMessage },
+    wsl,
+    requestTimeoutMs: options.requestTimeoutMs,
+    hostError,
+  })
+  const { attachedTo, ticket, callHost, hello } = hostSession
   // A fixed program through the host's code execution, read only (programs.ts).
   const programRun = async (context: ToolContext, name: ProgramName, params: unknown, timeoutMs?: number) => {
     const out = (await callHost(
@@ -499,51 +296,14 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
     (args: Record<string, unknown>, context: ToolContext) => Promise<string | ToolContent[]>
   > = {
     async blender_hosts(args, context) {
-      const out: Record<string, unknown> = {}
-      // Only a conversation of this Location sees and changes its attachment (RPC-12).
-      const owned = await ownership(context.sessionID, context.signal)
-      if (!owned) throw new Error("This conversation's ownership is unverifiable: try again.")
-      if (args.detach === true) {
-        await attachments.forget(context.sessionID) // first: the detach's change event must not restore it
-        const authority = await ownership(context.sessionID, context.signal)
-        if (!authority || !registry.current(authority))
-          throw new Error("This conversation's ownership is unverifiable: try again.")
-        out.detached = registry.detach(context.sessionID).outcome
-        reached.delete(context.sessionID) // detached on purpose: its Blender closing later is no news here
-        helloed.delete(context.sessionID)
-      }
-      if (typeof args.attach === "string") {
-        const offer = registry.hosts().offers.find((candidate) => candidate.offerID === args.attach)
-        if (!offer) throw new Error(`No offered Blender ${String(args.attach)}: call blender_hosts again.`)
-        await assert(context, PERMISSIONS.attach, [offer.label], { label: offer.label })
-        // After the permission: this conversation still owned, the chosen offer still the same Blender.
-        const authority = await ownership(context.sessionID, context.signal)
-        const still = registry.hosts().offers.find((candidate) => candidate.offerID === offer.offerID)
-        if (!authority || !registry.current(authority) || !still || still.label !== offer.label)
-          throw new Error("This conversation or the chosen Blender changed while permission was asked: try again.")
-        out.attached = registry.attach(offer.offerID, context.sessionID).outcome
-        if (out.attached === "attached") {
-          await attachments.remember(context.sessionID)
-          await attachMethod(context.sessionID)
-          if (heldElsewhere(offer.offerID, context.sessionID))
-            out.shared =
-              "Another conversation is attached to this Blender too: both change the same document, and each call is checked against its revision."
-        }
-      }
-      void legacy.refresh()
-      const status = await rpc.status()
-      const mine = registry.binding(context.sessionID)?.offerID
-      out.attached_to = attachedTo(context.sessionID)
-      out.host = status.host
-      out.blenders = registry.hosts().offers.map((offer) => ({
-        ...offer,
-        attached:
-          offer.offerID === mine
-            ? "this conversation"
-            : heldElsewhere(offer.offerID, context.sessionID)
-              ? "another conversation"
-              : null,
-      }))
+      const out = await hostSession.hosts(args, context, {
+        allow: (held, offer) => assert(held, PERMISSIONS.attach, [offer.label], { label: offer.label }),
+        status: async () => {
+          void legacy.refresh()
+          return rpc.status()
+        },
+        list: "blenders",
+      })
       return json(out)
     },
 
@@ -813,27 +573,8 @@ export async function setupBlender(ctx: Plugin.Context, deps: BlenderDeps = {}) 
   )
 
   // Renews or forgets the stored attachments and attaches back the conversations whose Blender offers itself
-  // again: one run at a time, and once more when the offers changed during it.
-  let running: Promise<void> | undefined
-  let again = false
-  const maintain = (): Promise<void> => {
-    if (running) {
-      again = true
-      return running
-    }
-    running = (async () => {
-      do {
-        again = false
-        try {
-          await attachments.sweep()
-          await attachments.restore()
-        } catch {}
-      } while (again)
-    })().finally(() => {
-      running = undefined
-    })
-    return running
-  }
+  // again (the host session's maintain).
+  const { maintain } = hostSession
 
   const registrations: Array<{ dispose: () => Promise<void> }> = []
   let disconnect = () => {}

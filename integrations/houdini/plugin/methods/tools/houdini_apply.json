@@ -1,0 +1,29 @@
+{
+  "name": "houdini_apply",
+  "domain": "tools",
+  "description": "A revision-checked graph intent of 1 to 50 typed operations: node.create, node.rename, parm.set_value (numbers and booleans), graph.connect, graph.delete. Dry run by default; dry_run false with confirm true applies it, with permission, as one undo group (restored on failure). expect: preconditions. Needs Houdini's interface (refused in hython). For anything else, houdini_execute_code.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "if_revision": { "type": "integer", "required": true, "description": "The revision of your last houdini_context." },
+    "command_id": {
+      "type": "string",
+      "required": true,
+      "description": "Idempotent ID: a replay applies nothing twice."
+    },
+    "summary": { "type": "string" },
+    "operations": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "{op, ...}: node.create {parent, type, name?, bind?}, node.rename {target, name}, parm.set_value {target, value}, graph.connect {source, destination, input_index?}, graph.delete {target}. $alias names a node created earlier in the intent."
+    },
+    "expect": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "{subject, predicate: exists, name_equals, value_equals, connected_to, value?}"
+    },
+    "dry_run": { "type": "boolean", "default": true },
+    "confirm": { "type": "boolean", "default": false }
+  },
+  "execution": { "strategy": "host_method", "method": "apply" }
+}

@@ -71,10 +71,10 @@ it("a tool's error carries the host's own message and data", async () => {
     await plugin.rpc("advertise", announce(fake, "errors"))
     const offerID = plugin.registry.hosts().offers[0]?.offerID as string
     assert.deepEqual(await plugin.rpc("attachHost", { offerID, sessionID: "ses_test" }), { outcome: "attached" })
-    await assert.rejects(plugin.tool("context", { script_handle: fake.scriptHandle }), (error: Error) => {
+    await assert.rejects(plugin.tool("houdini_context"), (error: Error) => {
       assert.match(
         error.message,
-        /\(stale_revision\): The Houdini graph changed after the intent was prepared: \/obj\/geo1/,
+        /^The scene changed since your last read: call houdini_context and use its revision\. The Houdini graph changed after the intent was prepared: \/obj\/geo1 /,
       )
       assert.match(error.message, /"reason":"revision_conflict","expected_revision":3,"current_revision":5/)
       return true

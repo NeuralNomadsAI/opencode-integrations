@@ -1,6 +1,8 @@
 // The working method, attached once to a conversation when it attaches a Blender (a native instructions
 // entry, not a skill): what to check before writing code, and how to verify a step.
 
+import { type EntryPut, methodAttacher as kitAttacher, resetMethodForTests as resetKit } from "./kit.ts"
+
 export const METHOD_KEY = "blender.method"
 export const METHOD_TEXT = [
   "Working on the open Blender:",
@@ -14,26 +16,11 @@ export const METHOD_TEXT = [
   "- Write down what you discover (a recent change, a silent failure) in your report, with the Blender version.",
 ].join("\n")
 
-export type EntryPut = (input: { sessionID: string; key: string; value: string }) => Promise<void>
+export type { EntryPut }
 
-// Sessions the method is attached to, per daemon process (OpenCode loads the plugin once per Location).
-const shared = globalThis as { __neuralnomadsBlenderMethod?: Set<string> }
-shared.__neuralnomadsBlenderMethod ??= new Set<string>()
-const attached = shared.__neuralnomadsBlenderMethod
-
-// A failure never fails the Blender call: the method is tried again at the next one.
-export function methodAttacher(put: EntryPut | undefined) {
-  return async (sessionID: string) => {
-    if (!put || !sessionID || attached.has(sessionID)) return
-    attached.add(sessionID)
-    try {
-      await put({ sessionID, key: METHOD_KEY, value: METHOD_TEXT })
-    } catch {
-      attached.delete(sessionID)
-    }
-  }
-}
+// The kit attaches it once per conversation; a failure is tried again at the next Blender call.
+export const methodAttacher = (put: EntryPut | undefined) => kitAttacher(put, { key: METHOD_KEY, text: METHOD_TEXT })
 
 export function resetMethodForTests() {
-  attached.clear()
+  resetKit(METHOD_KEY)
 }

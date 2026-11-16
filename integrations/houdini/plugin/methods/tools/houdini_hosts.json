@@ -1,0 +1,12 @@
+{
+  "name": "houdini_hosts",
+  "domain": "tools",
+  "description": "List the Houdinis offered to OpenCode on this computer (Houdini with OpenCode Link installed offers itself when it starts): label, document, Houdini version, and whether this conversation or another one is attached to each (attached_to: the one this conversation acts on), with the installed part's state. attach: attach one (its offerID) to this conversation, which asks permission; detach: release this conversation's Houdini. With one offered Houdini that no conversation uses, the first Houdini tool call attaches it.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {
+    "attach": { "type": "string", "description": "An offerID from this list." },
+    "detach": { "type": "boolean", "description": "Release this conversation's Houdini." }
+  },
+  "execution": { "strategy": "plugin" }
+}

@@ -36,6 +36,16 @@ const entries = walk(host).map((file) => ({
   data: Buffer.from(readFileSync(file, "utf8").replaceAll("\r\n", "\n")),
 }))
 entries.push({ name: "sidecar.cjs", data: sidecar })
+// The kit's discovery client, which the installed part's advertiser uses to offer Houdini to OpenCode.
+entries.push({
+  name: "scripts/opencode_houdini/opencode_service.py",
+  data: Buffer.from(
+    readFileSync(
+      join(root, "..", "..", "..", "packages", "integration-kit", "python", "opencode_service.py"),
+      "utf8",
+    ).replaceAll("\r\n", "\n"),
+  ),
+})
 const payload = writeStoredZip(entries.sort((a, b) => (a.name < b.name ? -1 : 1)))
 const name = `host/houdini/opencode_link-${pkg.version}.zip`
 const digest = createHash("sha256").update(payload).digest("hex")
