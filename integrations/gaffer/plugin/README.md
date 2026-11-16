@@ -1,39 +1,60 @@
-# OpenCode for Gaffer
+# OpenCode for Gaffer (preview)
 
-Inspect and edit an open Gaffer graph through an authenticated loopback host. Works in every OpenCode client, including the terminal UI and CodeNomad. The optional Gaffer panel remains an OpenCode client. Preview, draft 0.2; Gaffer >=1.6.
+Read, change and check the scripts open in Gaffer from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode for Gaffer** panel inside Gaffer. Gaffer 1.6 or later and OpenCode 2.2 or later are required; the panel also needs Node.js 22 or later.
 
 ## Install
 
-Add the plugin to the **Global** OpenCode `plugins` list:
+Add the plugin to the **global** OpenCode configuration (in CodeNomad: from the reviewed catalogue, in Plugins):
 
 ```jsonc
 {
-  "plugins": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/gaffer/plugin"]
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": [{ "package": "@neuralnomads/opencode-gaffer@^0.3" }]
 }
 ```
 
-The npm package name is `@neuralnomads/opencode-gaffer`; npm publication is a separate maintainer-approved action. Build a Git checkout with `npm ci && npm run build` before loading its local plugin directory.
+Then install OpenCode Link, the part that runs inside Gaffer: `gaffer_install_host` (it asks permission), or CodeNomad's install action. It writes the loader `neuralnomadsOpenCode.py` into Gaffer's user startup folder (`~/gaffer/startup/gui`; `hostStartupDir` in the plugin's options names another one), which starts a checksummed copy of OpenCode Link under `%LOCALAPPDATA%/NeuralNomads/opencode-gaffer/hosts/` (`$XDG_STATE_HOME/neuralnomads/opencode-gaffer/hosts/` elsewhere). Installing again is idempotent; an existing loader not written by this integration is left untouched and the installation refused. To remove it, delete that loader.
 
-Install the embedded application part explicitly with the permission-gated `gaffer_install_host` tool (or RPC `installHost` after client confirmation). It verifies the bundled ZIP's SHA-256, copies it into the integration's content-addressed state directory, and adds its managed loader to `~/gaffer/startup/gui/neuralnomadsOpenCode.py`. Set plugin option `hostStartupDir` (environment fallback `NEURALNOMADS_GAFFER_HOST_STARTUP_DIR`) for a different native Gaffer GUI startup directory. Existing unmanaged files are refused. Restart Gaffer to load the application part. To remove it, delete only that managed loader; content-addressed payloads can be retained offline.
+Restart Gaffer: OpenCode Link starts with Gaffer's interface and offers each open script to OpenCode every 5 seconds, labelled with its file (`Gaffer: shot.gfr`; two scripts with the same file are numbered). `OPENCODE_GAFFER_OFFER=0` in Gaffer's environment keeps it from offering them. A background `gaffer python` (verification, renders) never offers itself.
 
-The state directory is `$XDG_STATE_HOME/neuralnomads/opencode-gaffer` (default `~/.local/state/neuralnomads/opencode-gaffer`), or `%LOCALAPPDATA%/NeuralNomads/opencode-gaffer` on Windows. No file references the npm cache. The host and plugin share the package version and MIT licence. Gaffer's BSD-licensed APIs are used without redistributing its source.
+An earlier OpenCode installation (`~/gaffer/startup/gui/openCode.py` and the `~/gaffer/OpenCode` folder) registers another editor and loads a package of the same name next to OpenCode Link: `gaffer_hosts` and CodeNomad's status say so. Remove them, then restart Gaffer.
 
-## Connect
+## Use
 
-Start OpenCode yourself. Open the **OpenCode for Gaffer** editor in Gaffer and press **Connect** to offer its script. **Disconnect** or closing the panel withdraws the offer. The authenticated host listens only on `127.0.0.1` at an ephemeral port; its 256-bit process token stays in memory. Offers expire after 15 seconds and renew every 5 seconds. No RPC output or event contains credentials, the port or the script handle. An application closed without inspection reports host state `unknown`.
+The first Gaffer tool call of a conversation attaches the only script offered when no other conversation uses it; otherwise `gaffer_hosts` lists the scripts offered and `gaffer_hosts attach` attaches one (permission `gaffer_attach`). An attachment is kept across an OpenCode restart. A working method joins the conversation when it first uses a Gaffer script.
 
-The panel requires **Bun >=1.3 on PATH** (or `NEURALNOMADS_GAFFER_BUN` pointing to its executable). It runs the **compiled, self-contained `sidecar.js` shipped inside the host payload**, beside the Python host, rather than TypeScript in the npm cache. `NEURALNOMADS_GAFFER_SIDECAR` can explicitly override that path. The sidecar discovers a running service and never launches a daemon. The matching `@opencode/client` 2.2.5 is bundled into it. If your daemon uses a custom `OPENCODE_CONFIG_DIR`, set `NEURALNOMADS_GAFFER_GLOBAL_CONFIG_DIR` in Gaffer's environment to that daemon's Global configuration directory.
+| Tool                  |                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gaffer_hosts`        | The scripts offered, which conversation holds each; `attach`, `detach`.                                                                                    |
+| `gaffer_context`      | A bounded read: revision, file, selection, focus, node cards; `release_quarantine` after a failed change.                                                  |
+| `gaffer_execute_code` | Python in Gaffer on the attached script (`script`, `Gaffer`, `GafferScene`, ...), as code or a script file; permission `gaffer_execute_code` on every run. |
+| `gaffer_inspect`      | Search node classes, plugs and descriptions; a class with its plugs; a live node (plugs, values, errors, scene); a Python symbol.                          |
+| `gaffer_verify`       | Measured criteria, computation errors; `saved: true` reads the saved file in a background `gaffer python`.                                                 |
+| `gaffer_save`         | Save the script, or a copy that leaves the script's file name.                                                                                             |
+| `gaffer_render`       | A task node (a render, an image writer) executed by a background `gaffer python`, followed as a task (`task`, `wait_s`, `cancel`).                         |
+| `gaffer_apply`        | Typed graph edits (`node.create`, `node.rename`, `plug.set_value`, `graph.connect`, `graph.delete`, ...) as one undo step, permission `gaffer_write`.      |
+| `gaffer_install_host` | Install or update OpenCode Link.                                                                                                                           |
 
-From another client, use `gaffer_hosts` and `gaffer_attach` with the offered opaque ID. Both require the named `gaffer_attach` permission. `gaffer_context` returns bounded reads and the current revision; `gaffer_apply` uses that exact revision, a unique command ID, 1–50 operations, native preflight, verification and transactional undo. Render and Viewer actions are separate side-effecting intents. There is no arbitrary-code tool. Detached conversations require an explicit reconnect; polling only renews offers, never silently reattaches them.
+A code run that changes the script is one undo step (`OpenCode: code`); when it fails, the step is undone and the script compared with what it was. When that cannot be proven, changes are refused (reads and checks still run) until the agent reads the script and releases the quarantine with that read's revision. A failure says what Gaffer knows: the closest plug or child names, the closest classes of a module, the value type a plug's `setValue` takes, the plug a computation failed on with the node's expression or file, the types of two plugs that cannot connect.
 
-Service discovery validates `service.json` under `$XDG_STATE_HOME/opencode` (default `~/.local/state/opencode`) before authentication: literal HTTP `127.0.0.1` or `::1`, with matching PID and version from `/api/info`. Probes and subsequent requests bypass proxies and refuse redirects. Each Render or Viewer intent contains one operation and no postconditions; its result declares `side_effect: true` and `undoable: false`. Render previews from individual jobs and job lists are returned as image attachments.
+A call that outlasts its wait says whether Gaffer still runs it (OpenCode Link answers `status` off Gaffer's main thread). Gaffer writes no crash report: a Gaffer that closed or crashed is said as closed, one alive without renewing its offers as no longer offering them, and no other Gaffer attaches itself in its place.
 
-## In CodeNomad
+## The OpenCode for Gaffer panel
 
-Install the Global plugin in Plugins, install its application part after confirmation, then select the open script in **Status › Gaffer** and attach the displayed conversation. Detach affects that conversation only. The in-app panel can also keep its own conversation attached.
+The **OpenCode for Gaffer** editor is a conversation inside Gaffer. **Connect** attaches the panel's conversation to its script's own offer, resuming the conversation it had for this script; **New** starts another. Closing the panel releases its conversation only: the script stays offered and other conversations attached to it keep it. The panel and other conversations (CodeNomad's, for instance) can be attached to the same script together; both write to it, each change checked against its revision. The panel's conversation lives in the script's folder: the first Connect there waits while OpenCode opens that folder and loads its plugins. A failed Connect says which step failed and why. Node.js is found on `PATH`; `NEURALNOMADS_GAFFER_NODE` names another one.
 
-## Build and checks
+## Limits
 
-`npm run build:host --workspace @neuralnomads/opencode-gaffer` deterministically compiles the sidecar, archives the Python host and panel, and refreshes the marker digest. `npm run build` verifies the archive before compiling the plugin. The generic protected publication workflow resolves `gaffer`, attests its archive and supports trusted publishing; it must be approved separately.
+- Gaffer records undo only on its main thread: OpenCode Link runs every request there through Gaffer's event loop (in `gaffer python`, a script serves them with `GafferOpenCode.pump()`). A request the main thread has not taken within 10 s, because another one still runs there, is answered with what runs and since when; nothing is done for it.
+- `gaffer_verify` with `saved` only starts its background `gaffer python` from Gaffer: the file is read while Gaffer stays free, `timeout_s` bounds the read and a stopped read says what it was doing.
+- Node and plug descriptions come from Gaffer's UI modules, which `gaffer_inspect` imports (no window opens).
 
-Run `node --test integrations/gaffer/test/*.test.ts`. Set `GAFFER_TEST_BIN` to Gaffer's launcher to exercise the real installed application in a private HOME/TEMP; the normal suite tests the actual authenticated host listener under a stub application as well as the plugin's RPC handlers. See [test/MANUAL.md](../test/MANUAL.md).
+## Safety
+
+OpenCode Link listens on `127.0.0.1` only, on an ephemeral port, and authenticates every request with a process-random 256-bit token that lives in memory and private pipes only. Credentials, ports and script handles stay out of status outputs and events. Loading the plugin opens no socket and starts no process.
+
+## Tests
+
+`node --test integrations/gaffer/test/*.test.ts` runs the plugin, the panel's sidecar and the listener under a stub application. With `GAFFER_TEST_BIN` naming Gaffer's launcher (`gaffer.cmd` on Windows), `test/python/real_host.py` runs OpenCode Link in a real Gaffer (its event loop offscreen: code runs, undo, hints, quarantine, the busy answer, the offers) and `test/programs_gaffer.py` the plugin's programs, each with private HOME, USERPROFILE and temp folders.
+
+Publication uses the repository's manually approved OIDC workflow and `gaffer-v<version>` tags.

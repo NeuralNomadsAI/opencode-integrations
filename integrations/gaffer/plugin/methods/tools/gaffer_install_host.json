@@ -1,0 +1,9 @@
+{
+  "name": "gaffer_install_host",
+  "domain": "tools",
+  "description": "Install or update OpenCode Link (the version of this plugin) in Gaffer's user startup folder (~/gaffer/startup/gui) of the computer that runs OpenCode. Asks permission; restart Gaffer afterwards if it is open.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {},
+  "execution": { "strategy": "plugin" }
+}

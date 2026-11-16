@@ -1,0 +1,12 @@
+{
+  "name": "gaffer_hosts",
+  "domain": "tools",
+  "description": "List the Gaffer scripts offered to OpenCode on this computer (Gaffer with OpenCode Link installed offers each open script when it starts): label, document, Gaffer version, and whether this conversation or another one is attached to each (attached_to: the one this conversation acts on), with the installed part's state. attach: attach one (its offerID) to this conversation, which asks permission; detach: release this conversation's script. With one offered script that no conversation uses, the first Gaffer tool call attaches it.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {
+    "attach": { "type": "string", "description": "An offerID from this list." },
+    "detach": { "type": "boolean", "description": "Release this conversation's script." }
+  },
+  "execution": { "strategy": "plugin" }
+}

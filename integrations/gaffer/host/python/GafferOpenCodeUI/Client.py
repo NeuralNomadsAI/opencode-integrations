@@ -29,13 +29,13 @@ class ClientProcess :
 		self.__process.finished.connect( self.__finished )
 		self.__process.errorOccurred.connect( self.__processError )
 		self.__channels = {}
-		self.__connectParams = {}
 		self.__pending = []
 		self.__stdout = b""
 		self.__nextRequest = 0
 		self.__start()
 
-	def register( self, callback, connectParams ) :
+	## One panel's events; the callback is held weakly.
+	def register( self, callback ) :
 
 		channel = str( uuid.uuid4() )
 		try :
@@ -43,8 +43,6 @@ class ClientProcess :
 		except TypeError :
 			callbackRef = weakref.ref( callback )
 		self.__channels[channel] = callbackRef
-		self.__connectParams[channel] = connectParams
-		self.send( channel, "connect", connectParams )
 		return channel
 
 	def close( self, channel ) :
@@ -53,7 +51,6 @@ class ClientProcess :
 			return
 		self.send( channel, "close", {} )
 		self.__channels.pop( channel, None )
-		self.__connectParams.pop( channel, None )
 
 	def send( self, channel, method, params ) :
 
@@ -81,22 +78,18 @@ class ClientProcess :
 
 		if self.__process.state() != QtCore.QProcess.NotRunning :
 			return
-		bun = os.environ.get( "NEURALNOMADS_GAFFER_BUN" ) or shutil.which( "bun" )
-		if not bun :
+		node = os.environ.get( "NEURALNOMADS_GAFFER_NODE" ) or shutil.which( "node" )
+		if not node :
 			self.__pending = []
-			self.__emitAll( "error", { "message" : "Install Bun or set NEURALNOMADS_GAFFER_BUN" } )
+			self.__emitAll( "error", { "message" : "Install Node.js 22 or set NEURALNOMADS_GAFFER_NODE" } )
 			return
-		sidecar = pathlib.Path(
-			os.environ.get(
-				"NEURALNOMADS_GAFFER_SIDECAR",
-				str( pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.js" ),
-			)
-		)
+		# Built into the installed part, beside the Python packages.
+		sidecar = pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.cjs"
 		if not sidecar.is_file() :
 			self.__pending = []
-			self.__emitAll( "error", { "message" : "OpenCode Gaffer sidecar not found: " + str( sidecar ) } )
+			self.__emitAll( "error", { "message" : "OpenCode Link sidecar is missing; reinstall the application part." } )
 			return
-		self.__process.setProgram( bun )
+		self.__process.setProgram( node )
 		self.__process.setArguments( [ str( sidecar ) ] )
 		self.__process.setWorkingDirectory( str( sidecar.parent.parent ) )
 		self.__process.start()
@@ -149,7 +142,6 @@ class ClientProcess :
 		callback = callbackRef() if callbackRef is not None else None
 		if callback is None :
 			self.__channels.pop( channel, None )
-			self.__connectParams.pop( channel, None )
 			return
 		callback( name, data )
 

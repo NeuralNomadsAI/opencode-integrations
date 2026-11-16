@@ -2,7 +2,7 @@ import functools
 import hashlib
 import os
 import pathlib
-import uuid
+import weakref
 
 import IECore
 import imath
@@ -108,16 +108,15 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		self.__permissionRequest = None
 		self.__streaming = False
 		self.__busy = False
+		# A plain client: Gaffer offers this script to OpenCode by itself (GafferOpenCode), whether or not a
+		# panel is open; the panel only attaches its own conversation to that offer.
 		self.__client = None
 		self.__channel = None
-		hostInfo = GafferOpenCode.hostInfo()
-		scriptHandle = GafferOpenCode.scriptHandle( scriptNode )
-		if not scriptHandle :
+		self.__active = False
+		self.__connected = False
+		if not GafferOpenCode.scriptHandle( scriptNode ) :
 			raise RuntimeError( "OpenCodeEditor requires a ScriptNode registered with the Gaffer application" )
-		self.__connectParams = dict( hostInfo )
-		self.__connectParams["script_handle"] = scriptHandle
-		self.__unsavedKey = uuid.uuid4().hex
-		self.__updateConnectParams()
+		self.__scriptKey = self.__currentScriptKey()
 		self.__scriptConnections = [
 			scriptNode.plugSetSignal().connect( Gaffer.WeakMethod( self.__scriptPlugSet ), scoped = True ),
 		]
@@ -126,32 +125,65 @@ class OpenCodeEditor( GafferUI.Editor ) :
 
 		return "GafferOpenCodeUI.OpenCodeEditor( scriptNode )"
 
-	def __toggleConnection( self, unusedButton = None ) :
-
-		if self.__channel is not None :
-			self.__client.close( self.__channel )
-			self.__channel = None
-			self.__connectButton.setText( "Connect" )
-			self.__statusLabel.setText( "DISCONNECTED" )
-			self.__sendButton.setEnabled( False )
-			self.__newButton.setEnabled( False )
-			return
-		self.__client = ClientProcess.acquire()
-		self.__updateConnectParams()
-		self.__channel = self.__client.register( self.__event, self.__connectParams )
-		self.__connectButton.setText( "Disconnect" )
-		self.__newButton.setEnabled( True )
-
-	def __del__( self ) :
+	## Closing the editor releases its conversation only: the script's offer stays for every other conversation.
+	@staticmethod
+	def __release( client, channel ) :
 
 		try :
-			self.__client.close( self.__channel )
-		except Exception :
-			pass
+			client.close( channel )
+		finally :
+			GafferOpenCode.releasePanel( channel )
+
+	def __ensureChannel( self ) :
+
+		if self.__channel is None :
+			self.__client = ClientProcess.acquire()
+			self.__channel = self.__client.register( self.__event )
+			weakref.finalize( self, OpenCodeEditor.__release, self.__client, self.__channel )
+		return self.__channel
+
+	def __toggleConnection( self, unusedButton = None ) :
+
+		if self.__active :
+			self.__disconnect()
+		else :
+			self.__connect( "connect" )
+
+	def __connect( self, method ) :
+
+		params = self.__connectParams()
+		if params is None :
+			return
+		channel = self.__ensureChannel()
+		GafferOpenCode.acquirePanel( channel )
+		self.__active = True
+		self.__connected = False
+		self.__connectButton.setText( "Disconnect" )
+		self.__newButton.setEnabled( True )
+		self.__statusLabel.setText( "CONNECTING" )
+		self.__sendButton.setEnabled( False )
+		self.__client.send( channel, method, params )
+
+	def __disconnect( self ) :
+
+		self.__active = False
+		self.__connected = False
+		if self.__channel is not None :
+			self.__client.send( self.__channel, "close", {} )
+			GafferOpenCode.releasePanel( self.__channel )
+		self.__connectButton.setText( "Connect" )
+		self.__statusLabel.setText( "DISCONNECTED" )
+		self.__sendButton.setEnabled( False )
+		self.__stopButton.setEnabled( False )
+		self.__newButton.setEnabled( False )
+		self.__modelButton.setEnabled( False )
 
 	def __event( self, name, data ) :
 
+		if not self.__active and name != "error" :
+			return  # a reply to a connection this editor has since closed
 		if name == "session" :
+			self.__connected = True
 			self.__sessionLabel.setText( "SESSION  " + str( data.get( "id", "" ) )[-8:] )
 			self.__sessionLabel.setToolTip( "Workspace: " + str( data.get( "workspace", "" ) ) )
 			self.__setModel( str( data.get( "model", "" ) ) )
@@ -185,20 +217,18 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			self.__statusLabel.setText( state.upper() )
 			self.__busy = state in ( "busy", "retry" )
 			self.__stopButton.setEnabled( self.__busy )
-			self.__sendButton.setEnabled( not self.__busy )
+			self.__sendButton.setEnabled( self.__connected and not self.__busy )
 			self.__prompt.setEnabled( not self.__busy )
-			self.__modelButton.setEnabled( bool( self.__models ) and not self.__busy )
-		elif name == "graph_revision" :
-			self.__statusLabel.setToolTip( "Gaffer graph revision " + str( data.get( "revision" ) ) )
+			self.__modelButton.setEnabled( self.__connected and bool( self.__models ) and not self.__busy )
 		elif name == "error" :
 			self.__append( "error", data.get( "message", "Unknown OpenCode error" ) )
 			self.__statusLabel.setText( "ERROR" )
 			self.__busy = False
 			self.__streaming = False
 			self.__stopButton.setEnabled( False )
-			self.__sendButton.setEnabled( True )
+			self.__sendButton.setEnabled( self.__connected )
 			self.__prompt.setEnabled( True )
-			self.__modelButton.setEnabled( bool( self.__models ) )
+			self.__modelButton.setEnabled( self.__connected and bool( self.__models ) )
 
 	def __setModel( self, model ) :
 
@@ -227,37 +257,55 @@ class OpenCodeEditor( GafferUI.Editor ) :
 
 	def __selectModel( self, unusedMenu = None, model = "" ) :
 
-		if self.__busy or not model or model == self.__model :
+		if self.__busy or not self.__connected or not model or model == self.__model :
 			return
 		self.__client.send( self.__channel, "switch_model", { "model" : model } )
 
-	def __updateConnectParams( self ) :
+	## The conversation marked for this script is taken back at Connect: a saved script by its file, an unsaved
+	# one while it stays open.
+	def __currentScriptKey( self ) :
 
 		scriptNode = self.scriptNode()
 		fileName = str( scriptNode["fileName"].getValue() )
-		directory = str( pathlib.Path( fileName ).resolve().parent ) if fileName else os.getcwd()
-		self.__connectParams.update( {
-			"script_key" : "document:" + hashlib.sha256( str( pathlib.Path( fileName ).resolve() ).encode( "utf-8" ) ).hexdigest() if fileName else "untitled:" + self.__unsavedKey,
+		if not fileName :
+			return "untitled:" + GafferOpenCode.scriptHandle( scriptNode )
+		return "document:" + hashlib.sha256( str( pathlib.Path( fileName ).resolve() ).encode( "utf-8" ) ).hexdigest()
+
+	def __connectParams( self ) :
+
+		scriptNode = self.scriptNode()
+		offer = GafferOpenCode.offerInfo( scriptNode )
+		if not offer.get( "advertising" ) or not offer.get( "label" ) :
+			self.__append( "error", "OpenCode Link does not offer this script to OpenCode." )
+			return None
+		fileName = str( scriptNode["fileName"].getValue() )
+		params = dict( GafferOpenCode.hostInfo() )
+		params.update( {
+			"script_handle" : GafferOpenCode.scriptHandle( scriptNode ),
+			"offer_label" : offer["label"],
+			"script_key" : self.__scriptKey,
 			"script_name" : pathlib.Path( fileName ).name if fileName else scriptNode.getName(),
-			"directory" : directory,
+			"directory" : str( pathlib.Path( fileName ).resolve().parent ) if fileName else os.getcwd(),
 		} )
+		return params
 
 	def __scriptPlugSet( self, plug ) :
 
 		if not plug.isSame( self.scriptNode()["fileName"] ) :
 			return
-		previousKey = self.__connectParams["script_key"]
-		self.__updateConnectParams()
-		if self.__connectParams["script_key"] != previousKey and self.__channel is not None :
-			self.__toggleConnection()
+		previousKey = self.__scriptKey
+		self.__scriptKey = self.__currentScriptKey()
+		# Another file is another script's conversation: Connect takes that one.
+		if self.__scriptKey != previousKey and self.__active :
+			self.__disconnect()
 
 	def __newSession( self, unusedButton ) :
 
-		self.__client.send( self.__channel, "new_session", self.__connectParams )
+		self.__connect( "new_session" )
 
 	def __send( self, unusedWidget ) :
 
-		if self.__busy or self.__channel is None :
+		if self.__busy or not self.__connected :
 			return
 		text = self.__prompt.getText().strip()
 		if not text :

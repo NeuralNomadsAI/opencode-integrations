@@ -1,0 +1,58 @@
+{
+  "name": "gaffer_render",
+  "domain": "tools",
+  "description": "Run a task node (Render, ImageWriter, SceneWriter, SystemCommand...) and its upstream tasks for frames in a separate background gaffer python, dispatched there by a LocalDispatcher: the open Gaffer stays usable and its file keeps its name. It reads a working copy of the open script (default) or the file as saved. The node writes its own outputs, or the EXACT output you name (shots/shot_####.png gives shot_0001.png...; a Render node needs exactly one file output for that), with size [w, h] for a Render node, for this run only. Returns a task: call again with task (and wait_s) for progress, or cancel. Relative paths are next to the .gfr.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "node": {
+      "type": "string",
+      "description": "A task node path, e.g. Render or Box.ImageWriter."
+    },
+    "output": {
+      "type": "string",
+      "description": "The exact output path; several frames need a # run or ${frame}."
+    },
+    "frames": {
+      "type": "any",
+      "description": "A frame, [start, end] or [start, end, step], whole frames (default: the script's current frame)."
+    },
+    "size": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "description": "Render node only: [width, height], 4 to 16384."
+    },
+    "source": {
+      "type": "string",
+      "description": "What is run.",
+      "enum": ["copy", "saved"],
+      "default": "copy"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    },
+    "task": {
+      "type": "string",
+      "description": "A task from an earlier call: its progress."
+    },
+    "wait_s": {
+      "type": "integer",
+      "description": "With task: wait up to this long for it to finish (0 to 3600).",
+      "default": 0
+    },
+    "cancel": {
+      "type": "boolean",
+      "description": "With task: stop it."
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/render.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

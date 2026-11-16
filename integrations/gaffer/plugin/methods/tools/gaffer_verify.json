@@ -1,0 +1,51 @@
+{
+  "name": "gaffer_verify",
+  "domain": "tools",
+  "description": "Check a result by measurement. criteria: your own acceptance checks, each measured on computed scenes, images or plug values (at a frame, without moving the script's frame) and passed or failed with the measured value. errors (default on): the outputs of every node under the roots computed, with each compute error, its plug and the node it arises in. render: a low-resolution Cycles image with facts read from its pixels (size, brightness, black, uniform, transparent), made by a separate background gaffer python on a working copy, so a crash there never touches this Gaffer. saved: the same checks on the file as written on disk, read by a background gaffer python; check the delivered file before reporting. Nothing in the open script changes.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "criteria": {
+      "type": "array",
+      "description": "Up to 50 checks: {expr: a read-only Python expression; op: < <= > >= == != approx between in contains; value; tol (approx, default 1e-4); frame (default: the call's); label}. In expr (scene: a node path, its out, or a ScenePlug path; location: a scene path, default /): node(path), plug(path) (its value), scene(path), exists(scene, location), bound(scene, location).min/.max/.size/.center, world_bound(scene, location), translate(scene, location), attributes(scene, location), child_names(scene, location), object(scene, location), object_type(scene, location), primitive_variables(scene, location), set_names(scene), set_members(scene, set_name), globals(scene), image(path) (format, channels, average, min, max), errors(path), script, frame, Gaffer, GafferScene, GafferImage, IECore, imath, math. Sequences compare element by element.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "frame": {
+      "type": "number",
+      "description": "Default: the script's current frame."
+    },
+    "errors": {
+      "type": "boolean",
+      "description": "Report the nodes whose outputs fail to compute.",
+      "default": true
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Nodes (Boxes) the errors are read under (default: the whole script, /)."
+    },
+    "render": {
+      "type": "any",
+      "description": "true, or {scene?, camera?, size?: longest side 64 to 1024 (default 320), samples? (default 16), frame?}. Default scene: the input of the first Render node, else the one scene output that leads nowhere; default camera: the scene's render:camera, else its first camera. The script's own outputs are not written."
+    },
+    "saved": {
+      "type": "any",
+      "description": "true: read the open script's file as saved on disk (same criteria, errors and render), or a .gfr path. A background gaffer python reads it while this Gaffer stays free; the answer lists its load errors. Past timeout_s it is stopped and the answer says what it was doing."
+    },
+    "timeout_s": {
+      "type": "integer",
+      "description": "For render and saved: how long the background gaffer python may take (default 300; 540 with saved)."
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/verify.py"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "gaffer_context",
+  "domain": "tools",
+  "description": "Bounded read of the attached Gaffer script: script_handle, revision, the file, selection, focus, and node cards (ref, name, type, plugs; values and connections with include). refs, match (glob on name and type) and radius pick the nodes; without them, the selection, focus and recent nodes. Call first; pass revision to gaffer_apply. quarantined: changes wait until release_quarantine with this read's revision.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "refs": { "type": "array", "items": { "type": "string" }, "description": "Up to 50 node or plug refs." },
+    "match": { "type": "object", "description": "{name, type}: glob patterns." },
+    "radius": { "type": "integer", "description": "Neighbours of the picked nodes, 0 to 2.", "default": 0 },
+    "plugs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Plug names to read on the picked nodes."
+    },
+    "plug_limit": { "type": "integer", "description": "Plugs per node, 1 to 1000." },
+    "recipe_match": {
+      "type": "object",
+      "description": "{id?, node_type?, menu_path?, variant?}: the node menu's recipes (with include recipes)."
+    },
+    "job": {
+      "type": "object",
+      "description": "{id, after?, limit?}: a render job started by gaffer_apply render.start."
+    },
+    "include": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "values, connections, schema, affordances, capabilities, recipes, renders."
+    },
+    "limit": { "type": "integer", "description": "Nodes listed, 1 to 100.", "default": 20 },
+    "if_revision": {
+      "type": "integer",
+      "description": "The changes since that revision, when the journal still holds them."
+    },
+    "release_quarantine": {
+      "type": "integer",
+      "description": "After a failed change that could not be proven undone: the revision of the read that showed the script, once you checked it; lifts the quarantine."
+    }
+  },
+  "execution": { "strategy": "host_method", "method": "context" }
+}
