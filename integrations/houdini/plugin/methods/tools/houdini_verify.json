@@ -34,7 +34,7 @@
     },
     "saved": {
       "type": "any",
-      "description": "true: read the open scene's file as saved on disk (same criteria, errors and render), or a .hip/.hipnc/.hiplc path."
+      "description": "true: read the open scene's file as saved on disk (same criteria, errors and render), or a .hip/.hipnc/.hiplc path. A background hython reads it while this Houdini stays free; facts.read says which geometry came from cache files and which was cooked (a simulation read without its cache is simulated again). Past timeout_s it is stopped and the answer says what it was doing."
     },
     "timeout_s": {
       "type": "integer",

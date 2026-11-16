@@ -28,6 +28,9 @@ ERRORS_MAX = 60
 NODES_MAX = 200000
 OPS = ("<", "<=", ">", ">=", "==", "!=", "approx", "between", "in", "contains")
 THROWAWAY = os.environ.get("OPENCODE_HOUDINI_ROLE") in ("verify", "render") and not hou.isUIAvailable()
+# houdini_verify saved: the background hython's job defines STEP, a line in its log saying what it does now (the
+# plugin reads it to say where a verify that ran out of time stopped). In the open scene: nothing.
+STEP = globals().get("STEP") or (lambda **what: None)
 if not isinstance(CRITERIA, list) or len(CRITERIA) > 50:
     raise ValueError("criteria: a list of at most 50 {expr, op, value, tol?, frame?, label?}")
 
@@ -97,6 +100,58 @@ def sop_of(path):
 
 
 COOKED = []
+READ = []  # nodes the criteria named (node(path)): where their geometry came from is said in facts.read
+SOLVERS = ("dopnet", "dopimport", "dopimportfield", "dopimportrecords")
+
+
+def source_of(n):
+    """Where a SOP's geometry comes from: files on disk (a File SOP, or a File Cache that loads from disk), or
+    cooked, simulated by an upstream solver from its start frame when no cache is read on the way."""
+    kind = n.type().name()
+    loads = kind == "file" or (kind.startswith("filecache") and n.parm("loadfromdisk") is not None and n.evalParm("loadfromdisk"))
+    if loads:
+        p = n.parm("file") or n.parm("sopoutput")
+        return {"from": "files on disk", **({"files": p.unexpandedString()} if p is not None else {})}
+    solvers = []
+    try:
+        for a in n.inputAncestors():
+            name = a.type().name()
+            if name == "file" or (name.startswith("filecache") and a.parm("loadfromdisk") is not None and a.evalParm("loadfromdisk")):
+                continue
+            if "solver" in name or name in SOLVERS:
+                solvers.append(a.path())
+    except Exception:  # noqa: BLE001
+        pass
+    if solvers and (kind in SOLVERS or "solver" in kind or n.isTimeDependent()):
+        return {"from": "cooked: simulated from the start frame (no cache read)", "solvers": solvers[:4]}
+    if "solver" in kind or kind in SOLVERS:
+        return {"from": "cooked: simulated from the start frame (no cache read)", "solvers": [n.path()]}
+    return {"from": "cooked"}
+
+
+def read_sources():
+    found = []
+    for path in READ + [p for p in COOKED if p not in READ]:
+        n = hou.node(path)
+        if n is None or n.type().category().name() != "Sop":
+            continue
+        # A node a criterion only named (its parms, its inputs) gave no geometry: not listed.
+        if path not in COOKED and not n.cookCount():
+            continue
+        try:
+            found.append(dict({"node": path}, **source_of(n)))
+        except Exception:  # noqa: BLE001
+            continue
+        if len(found) >= 20:
+            break
+    return found
+
+
+def node_read(path):
+    n = need(path)
+    if path not in READ:
+        READ.append(n.path())
+    return n
 
 
 def namespace(frame):
@@ -170,7 +225,7 @@ def namespace(frame):
             return values if size == 1 else [tuple(values[i:i + size]) for i in range(0, len(values), size)]
         return list(getattr(g, fn[cls].replace("Float", "String"))(name))
 
-    return {"__builtins__": SAFE_BUILTINS, "hou": hou, "math": math, "frame": frame, "node": need, "geo": geo,
+    return {"__builtins__": SAFE_BUILTINS, "hou": hou, "math": math, "frame": frame, "node": node_read, "geo": geo,
             "bbox": bbox, "npoints": lambda path: geo(path).intrinsicValue("pointcount"),
             "nprims": lambda path: geo(path).intrinsicValue("primitivecount"), "stage": stage, "prim": prim,
             "usd_attr": usd_attr, "usd_prims": usd_prims, "parm": parm, "attrib_names": attrib_names,
@@ -236,6 +291,8 @@ for i, c in enumerate(CRITERIA):
     code = read_only_expression(str(c["expr"]))
     frame = float(c["frame"]) if c.get("frame") is not None else FRAME
     row = {"label": c.get("label") or c["expr"], "check": "%s %s %s" % (c["expr"], c["op"], json.dumps(c["value"])), "frame": rounded(frame)}
+    STEP(step="criterion", index=i + 1, of=len(CRITERIA), label=row["label"][:120], frame=rounded(frame))
+    measuring = time.time()
     try:
         measured = eval(code, namespace(frame))  # noqa: S307 - a checked read-only expression
         row["measured"] = rounded(measured)
@@ -243,6 +300,7 @@ for i, c in enumerate(CRITERIA):
     except Exception as ex:  # noqa: BLE001
         row["passed"] = False
         row["error"] = ("%s: %s" % (type(ex).__name__, ex))[:400]
+    row["seconds"] = round(time.time() - measuring, 2)
     rows.append(row)
 
 facts = {"hip": None if hou.hipFile.isNewFile() else hou.hipFile.path(), "frame": rounded(hou.frame()), "fps": rounded(hou.fps()),
@@ -256,6 +314,10 @@ def cook_targets():
         for n in [root] + list(root.allSubChildren(recurse_in_locked_nodes=False)):
             category = n.childTypeCategory()
             if category is None or not n.children():
+                continue
+            # A network inside a network of its kind (a SOP subnet, a solver asset's inside): its parent's display
+            # node cooks what is shown; cooking its own could run a whole simulation up to this frame.
+            if n.type().category() == category:
                 continue
             if category.name() in ("Sop", "Lop"):
                 for getter in ("displayNode", "renderNode"):
@@ -275,6 +337,7 @@ def scan_errors():
         if time.time() - STARTED > COOK_BUDGET:
             skipped.append(path)
             continue
+        STEP(step="cook", node=path)
         n = hou.node(path)
         try:
             n.cook()
@@ -313,8 +376,12 @@ def scan_errors():
 
 
 roots = [need(r) for r in (P.get("roots") or ["/"])]
+sources = read_sources()
+if sources:
+    facts["read"] = sources
 error_rows = []
 if P.get("errors", True):
+    STEP(step="errors", roots=[r.path() for r in roots])
     error_rows, facts["error_scan"] = scan_errors()
     if len(error_rows) >= ERRORS_MAX:
         facts["error_scan"]["listed"] = ERRORS_MAX
@@ -519,6 +586,7 @@ def render_image(options):
 
 image = None
 if P.get("render"):
+    STEP(step="render")
     rendered = render_image(render_options(P["render"]))
     facts["render"] = rendered["facts"]
     image = rendered.get("image_base64")

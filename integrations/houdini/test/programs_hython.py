@@ -112,6 +112,26 @@ def program(name, params, job=None):
     return json.loads(json.dumps(namespace.get("result", {}), default=repr))
 
 
+def verify_saved(params, timeout=600):
+    """houdini_verify saved as the plugin runs it: the program starts the background hython and returns at once;
+    its result is followed from outside (saved-verify.ts). Returns (result, steps of its log, seconds to start)."""
+    started_at = time.time()
+    start = program("verify_saved.py", params, job="verify.py")["started"]
+    start_s = time.time() - started_at
+    deadline = time.time() + timeout
+    while time.time() < deadline and not os.path.isfile(start["result"]):
+        time.sleep(0.2)
+    with open(start["log"], encoding="utf-8", errors="replace") as fh:
+        steps = [json.loads(l[14:]) for l in fh.read().splitlines() if l.startswith("OPENCODE_STEP ")]
+    with open(start["result"], encoding="utf-8") as fh:
+        result = json.load(fh)
+    if "error" in result:
+        raise AssertionError(result["error"])
+    result["read"] = {"file": start["file"], "bytes": start["bytes"], "seconds": round(time.time() - started_at, 1)}
+    shutil.rmtree(start["work"], ignore_errors=True)
+    return result, steps, start_s
+
+
 def failing(name, params, job=None):
     try:
         program(name, params, job)
@@ -390,14 +410,57 @@ def save_and_verify_saved():
                 {"expr": "npoints('/obj/geo1')", "op": "==", "value": 8}]
     live = program("verify.py", {"criteria": criteria, "errors": False})
     check(live["failed"] == 1, live["criteria"])
-    r = program("verify_saved.py", {"saved": True, "criteria": criteria}, job="verify.py")
+    r, steps, start_s = verify_saved({"saved": True, "criteria": criteria})
     EVIDENCE["verify_saved"] = r
     check(r["all_passed"] and r["read"]["file"] and r["read"]["bytes"] > 1000, r)
     check(any(e["node"] == "/obj/bad/broken" for e in r["errors"]), r["errors"])
-    r2 = program("verify_saved.py", {"saved": copy, "criteria": criteria[:1], "render": {"size": 128}}, job="verify.py")
+    # Started, not waited for, on the main thread; its log says each step.
+    check(start_s < 3, start_s)
+    check([s["step"] for s in steps][:4] == ["load", "loaded", "criterion", "criterion"] and steps[-1]["step"] == "done", steps)
+    r2, _, _ = verify_saved({"saved": copy, "criteria": criteria[:1], "render": {"size": 128}})
     EVIDENCE["verify_saved_render"] = dict(r2, image_base64=len(r2.get("image_base64") or ""))
     check(r2["all_passed"] and r2.get("image_base64"), r2)
     EVIDENCE["verify_saved_seconds"] = {"criteria_and_errors": r["read"]["seconds"], "with_render": r2["read"]["seconds"]}
+
+
+@test
+def verify_saved_says_what_was_read_from_cache():
+    # Sol ex03 retrial: a Vellum scene with its 48 cached frames. verify saved says which geometry it read from the
+    # cache files and which it cooked (a solver read directly simulates), and its error scan cooks no solver inside.
+    reset_scene()
+    geo = hou.node("/obj").createNode("geo", "sim")
+    grid = geo.createNode("grid")
+    solver = geo.createNode("solver", "solver1")
+    solver.setInput(0, grid)
+    cached = geo.createNode("file", "cached")
+    cached.parm("file").set("$HIP/cache/sim.$F4.bgeo.sc")
+    cached.setDisplayFlag(True)
+    cached.setRenderFlag(True)
+    hip = os.path.join(WORK, "sim", "sim.hipnc")
+    os.makedirs(os.path.dirname(hip), exist_ok=True)
+    hou.hipFile.save(hip)
+    rop = hou.node("/out").createNode("geometry", "cache")
+    rop.parm("soppath").set(solver.path())
+    rop.parm("sopoutput").set("$HIP/cache/sim.$F4.bgeo.sc")
+    rop.parm("trange").set(1)
+    rop.parmTuple("f").set((1, 5, 1))
+    rop.render()
+    hou.hipFile.save(hip)
+    criteria = [
+        {"label": "5 cached frames", "expr": "[len(node('/obj/sim/cached').geometryAtFrame(f).points()) for f in range(1, 6)]",
+         "op": "==", "value": [100] * 5},
+        {"label": "the solver itself", "expr": "npoints('/obj/sim/solver1')", "op": "==", "value": 100, "frame": 3},
+    ]
+    r, steps, _ = verify_saved({"saved": True, "criteria": criteria, "frame": 5, "roots": ["/obj/sim"]})
+    EVIDENCE["verify_saved_read"] = {"read": r["facts"].get("read"), "cooked": r["facts"]["error_scan"]["cooked"],
+                                     "criteria": [(c["label"], c["passed"], c["seconds"]) for c in r["criteria"]]}
+    check(r["all_passed"], r["criteria"])
+    read = {entry["node"]: entry for entry in r["facts"]["read"]}
+    check(read["/obj/sim/cached"]["from"] == "files on disk" and read["/obj/sim/cached"]["files"] == "$HIP/cache/sim.$F4.bgeo.sc", read)
+    check(read["/obj/sim/solver1"]["from"].startswith("cooked: simulated"), read)
+    check(all(c["seconds"] >= 0 for c in r["criteria"]), r["criteria"])
+    check(not any(p.startswith("/obj/sim/solver1/") for p in r["facts"]["error_scan"]["cooked"]), r["facts"]["error_scan"])
+    check([s.get("label") for s in steps if s["step"] == "criterion"] == ["5 cached frames", "the solver itself"], steps)
 
 
 # --- render and PDG --------------------------------------------------------------------------------------------
@@ -564,6 +627,30 @@ def call(server, method, params):
     server.host.ui.pump(120, stop=lambda: not worker.is_alive())
     worker.join()
     return reply[0]
+
+
+@test
+def host_execute_code_reloading_the_open_file():
+    # Sol ex03 retrial: execute_code loaded the open (saved) file again and moved the frame; the main thread stayed
+    # busy for 14 minutes and every later call, houdini_verify saved: true included, waited behind it.
+    host, server = served()
+    try:
+        geo = hou.node("/obj").createNode("geo", "reloaded")
+        geo.createNode("box").setDisplayFlag(True)
+        hip = os.path.join(WORK, "reload", "reload.hipnc").replace("\\", "/")
+        os.makedirs(os.path.dirname(hip), exist_ok=True)
+        hou.hipFile.save(hip)
+        handle = call(server, "hello", {})["result"]["script_handle"]
+        started = time.time()
+        reply = call(server, "execute_code", {"script_handle": handle, "code":
+                     "hou.hipFile.load(hou.hipFile.path(), suppress_save_prompt=True)\nhou.setFrame(1)\nhou.setFrame(4)\n"
+                     "result = {'path': hou.hipFile.path(), 'frame': hou.frame()}"})
+        EVIDENCE["host_reload"] = {"seconds": round(time.time() - started, 1), "reply": reply}
+        check(time.time() - started < 30, EVIDENCE["host_reload"])
+        check("result" in reply, reply)
+    finally:
+        server.close()
+        host.close()
 
 
 @test

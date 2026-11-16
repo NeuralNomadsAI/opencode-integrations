@@ -1184,6 +1184,11 @@ class UIThreadGate:
     records no undo off the main thread: undos.areEnabled() is false there). A request not taken within
     QUEUE_WAIT_S is answered busy. `running()` answers from any thread: the request the main thread runs now and
     for how long, so a call whose wait ended can learn that it still runs.
+
+    A request's thread never calls hou: hou serialises its calls across threads, so a hou call made there (even
+    hou.ui.postEventCallback) waits until the main thread's request ends, and the QUEUE_WAIT_S answer never came
+    (Sol ex03: calls waited 2 and 10 minutes behind an execute_code). Requests wait in a queue that an event loop
+    callback, registered here on the main thread, runs; never one inside another.
     """
 
     def __init__(self) -> None:
@@ -1192,6 +1197,33 @@ class UIThreadGate:
         self._queued = 0
         self._count = threading.Lock()
         self._jobs: "queue.Queue[Callable[[], None]]" = queue.Queue()
+        self._event_loop = False
+        try:
+            if hou.isUIAvailable() and hasattr(hou, "ui") and hasattr(hou.ui, "addEventLoopCallback"):
+                hou.ui.addEventLoopCallback(self._drain)
+                self._event_loop = True
+        except Exception:  # noqa: BLE001 - no interface: pump() serves the queue
+            self._event_loop = False
+
+    def _drain(self) -> None:
+        """Houdini's event loop, on the main thread: the queued requests, unless one runs already (a request that
+        lets the event loop turn, a file load for instance, never runs another inside it)."""
+        if self._running is not None:
+            return
+        while True:
+            try:
+                job = self._jobs.get_nowait()
+            except queue.Empty:
+                return
+            job()
+
+    def close(self) -> None:
+        if self._event_loop:
+            self._event_loop = False
+            try:
+                hou.ui.removeEventLoopCallback(self._drain)
+            except Exception:  # noqa: BLE001
+                pass
 
     def running(self) -> dict[str, Any]:
         current = self._running
@@ -1241,25 +1273,23 @@ class UIThreadGate:
         with self._count:
             self._queued += 1
         try:
-            if not hou.isUIAvailable() or not hasattr(hou, "ui"):
-                self._jobs.put(invoke)
-            elif hasattr(hou.ui, "postEventCallback"):
-                hou.ui.postEventCallback(invoke)
-            else:
-                def event_loop_callback() -> None:
-                    hou.ui.removeEventLoopCallback(event_loop_callback)
-                    invoke()
-
-                hou.ui.addEventLoopCallback(event_loop_callback)
+            # The interface's event loop (_drain) or hython's pump() takes it: no hou call on this thread.
+            self._jobs.put(invoke)
             if not started.wait(QUEUE_WAIT_S):
                 with lock:
                     if not started.is_set():
                         expired.set()
+                        now = self.running()
+                        doing = (
+                            "it still runs %s (%s s so far): nothing was done for this request; ask again once it has "
+                            "finished" % (now["running"], now["seconds"])
+                            if now.get("busy")
+                            else "a modal dialog, a long cook or render, or a script outside OpenCode holds it"
+                        )
                         raise HostError(
                             "ui_timeout",
-                            "Houdini's main thread did not take the request within %d s (a modal dialog, a long "
-                            "cook or render)" % QUEUE_WAIT_S,
-                            {"running": self.running().get("running")},
+                            "Houdini's main thread did not take the request within %d s: %s" % (QUEUE_WAIT_S, doing),
+                            {"running": now.get("running"), "seconds": now.get("seconds")},
                         )
         finally:
             with self._count:
@@ -1309,6 +1339,7 @@ class Host:
             hou.hipFile.removeEventCallback(self._hip_event)
         except hou.Error:
             pass
+        self.ui.close()
         self.state.close()
 
     def reset(self) -> None:

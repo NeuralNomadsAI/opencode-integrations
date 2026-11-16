@@ -232,6 +232,83 @@ class HostTests(unittest.TestCase):
         self.assertEqual((status["busy"], status["running"]), (True, "execute_code"))
         self.assertEqual(host.dispatch("status", {})["busy"], False)
 
+    def test_interface_requests_behind_a_busy_main_thread_are_answered_busy_in_time(self):
+        # Sol ex03 retrial: in the interface, hou serialises calls across threads; a request's thread calling
+        # hou.ui.postEventCallback waited for the execute_code the main thread ran (2 and 10 minutes), and the
+        # QUEUE_WAIT_S answer never came. Here hou calls off the main thread wait for the main thread's request.
+        main = threading.get_ident()
+        hom = threading.Lock()
+        loop = []
+
+        def guarded(value):
+            def call(*args):
+                if threading.get_ident() != main:
+                    with hom:
+                        pass
+                return value(*args) if callable(value) else value
+            return call
+
+        ui = types.SimpleNamespace(
+            addEventLoopCallback=lambda callback: loop.append(callback),
+            removeEventLoopCallback=lambda callback: loop.remove(callback),
+            postEventCallback=guarded(lambda callback: loop.append(callback)),
+        )
+        saved = (hou.isUIAvailable, getattr(hou, "ui", None), module.QUEUE_WAIT_S)
+        hou.isUIAvailable, hou.ui, module.QUEUE_WAIT_S = guarded(True), ui, 0.5
+        try:
+            gate = module.UIThreadGate()
+            answers = []
+
+            def ask():
+                started = time.monotonic()
+                try:
+                    answers.append(gate.run(lambda: "ran", "context"))
+                except module.HostError as error:
+                    answers.append((error.code, str(error), round(time.monotonic() - started, 1)))
+
+            # The main thread runs a request (hou held) and lets no event loop turn for 3 s.
+            hom.acquire()
+            gate._running = ("execute_code", time.monotonic())
+            asker = threading.Thread(target=ask)
+            asker.start()
+            asker.join(2.5)
+            done_in_time = not asker.is_alive()
+            time.sleep(0.5)
+            gate._running = None
+            hom.release()
+            asker.join(5)
+            self.assertTrue(done_in_time, "the request waited for the main thread's request to end")
+            code, message, seconds = answers[0]
+            self.assertEqual(code, "ui_timeout")
+            self.assertLess(seconds, 1.5)
+            self.assertIn("still runs execute_code", message)
+            self.assertEqual(loop, [gate._drain])
+            # Idle again: a request waits in the queue until the event loop turns.
+            asker = threading.Thread(target=ask)
+            asker.start()
+            time.sleep(0.1)
+            for callback in list(loop):
+                callback()
+            asker.join(2)
+            self.assertEqual(answers[1], "ran")
+            # Never one request inside another: a loop turn during a request runs nothing.
+            gate._running = ("execute_code", time.monotonic())
+            ran = []
+            gate._jobs.put(lambda: ran.append(1))
+            gate._drain()
+            self.assertEqual(ran, [])
+            gate._running = None
+            gate._drain()
+            self.assertEqual(ran, [1])
+            gate.close()
+            self.assertEqual(loop, [])
+        finally:
+            hou.isUIAvailable, module.QUEUE_WAIT_S = saved[0], saved[2]
+            if saved[1] is None:
+                del hou.ui
+            else:
+                hou.ui = saved[1]
+
     def test_hello_answers_while_the_main_thread_is_busy(self):
         # OpenCode checks each new offer with hello, one offer at a time: a hello waiting behind a cook held every
         # offer of the computer back in the Sol trial. It no longer goes through the main thread.

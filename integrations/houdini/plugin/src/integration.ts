@@ -36,6 +36,7 @@ import { type EntryPut, methodAttacher } from "./method.ts"
 import { type HoudiniOptions, readOptions } from "./options.ts"
 import { defaultPathEnv, defaultPrefsDir, methodsDir, type PathEnv, packageRoot } from "./paths.ts"
 import { type ProgramName, programCode } from "./programs.ts"
+import { isSavedStart, waitSaved } from "./saved-verify.ts"
 import { addTask, cancelTask, getTask, isRenderStart, taskStatus } from "./tasks.ts"
 
 export const APP = "houdini"
@@ -357,7 +358,13 @@ export async function setupHoudini(ctx: Plugin.Context, deps: HoudiniDeps = {}) 
       const saved = args.saved !== undefined && args.saved !== false
       if (saved && args.saved !== true && typeof args.saved !== "string")
         throw new Error("saved: true (the open file as saved) or a .hip, .hipnc or .hiplc path.")
-      return withImage(await program(context, saved ? "verify_saved" : "verify", args, VERIFY_TIMEOUT_MS), "verify.png")
+      if (!saved) return withImage(await program(context, "verify", args, VERIFY_TIMEOUT_MS), "verify.png")
+      // Houdini only starts the background hython (a moment on its main thread); it is followed here.
+      const timeout_s =
+        typeof args.timeout_s === "number" ? Math.min(Math.max(Math.round(args.timeout_s), 5), 3_600) : 540
+      const started = (await program(context, "verify_saved", { ...args, timeout_s })) as { started?: unknown }
+      if (!isSavedStart(started?.started)) throw new Error("houdini_verify saved: the background hython did not start.")
+      return withImage(await waitSaved(started.started, { signal: context.signal }), "verify.png")
     },
 
     async houdini_render(args, context) {
