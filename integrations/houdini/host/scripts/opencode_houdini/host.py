@@ -1279,7 +1279,30 @@ class Host:
         self.saves = 0
         self.loads = 0
         self.label = offer_label(hou.hipFile.basename())
+        self.document = hou.hipFile.basename()[:120]
+        # What hello says that does not change while Houdini runs, read once here on the main thread.
+        self._hello = {
+            "protocol": PROTOCOL_VERSION,
+            "capability_hash": capability_hash(),
+            "host_version": host_version(),
+            "app_version": hou.applicationVersionString(),
+            "process": {"pid": os.getpid(), "temp_dir": temp_dir()},
+            "capabilities": capabilities(),
+            "operations": list(OPERATIONS),
+            "node_types": {category: sorted(types) for category, types in NODE_TYPE_REGISTRY.items()},
+        }
         hou.hipFile.addEventCallback(self._hip_event)
+
+    def quick_hello(self) -> dict[str, Any] | None:
+        """hello without Houdini's main thread: OpenCode checks each new offer with it, and a hello waiting behind a
+        long cook or a file being loaded would hold every offer of the computer back (they are checked one at a
+        time). The revision is the last one recorded."""
+        static = getattr(self, "_hello", None)
+        if static is None:
+            return None
+        state = self.state
+        return dict(static, script_handle=state.handle, script_epoch=state.epoch, revision=state.revision,
+                    document=self.document)
 
     def close(self) -> None:
         try:
@@ -1299,6 +1322,10 @@ class Host:
         if method == "status":
             # Answered on the request's own thread, never through the main thread: what it runs now.
             return self.ui.running()
+        if method == "hello":
+            quick = self.quick_hello()
+            if quick is not None:
+                return quick
         if method in ("cancel", "resume"):
             state = self._require_state(params)
             session_id = params.get("session_id")
@@ -1358,6 +1385,7 @@ class Host:
         # On the main thread: the offer's label follows the open file (the advertiser reads it from its thread).
         try:
             self.label = offer_label(hou.hipFile.basename())
+            self.document = hou.hipFile.basename()[:120]
         except Exception:  # noqa: BLE001
             pass
 

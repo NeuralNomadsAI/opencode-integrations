@@ -86,7 +86,7 @@ class PanelTests(unittest.TestCase):
         import opencode_houdini as integration
         from opencode_houdini import panel
         register.assert_called_once_with(integration.shutdown)
-        state = Mock(handle="hip:two-panels", _closed=False)
+        state = Mock(handle="hip:two-panels", epoch="test-epoch", revision=1, _closed=False)
         state.hello.return_value = {"script_handle": state.handle, "revision": 1}
         # Only the HOM scene boundary is stubbed; Host, HostServer and panel methods are real.
         with patch.object(integration.host, "ScriptState", return_value=state):

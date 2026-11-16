@@ -493,6 +493,32 @@ def render_opengl():
 
 
 @test
+def render_opengl_without_hq_lighting():
+    # Sol ex07: an OpenGL ROP with High Quality Lighting off crashed its render hython (and, rendered in the open
+    # Houdini, Houdini itself) in the Vulkan renderer. The start says so; the job's log holds the crash.
+    render_scene()
+    hou.node("/out/gl1").parm("hqlighting").set(0)
+    output = os.path.join(WORK, "gl_nohq", "frame.png")
+    r = program("render.py", {"rop": "/out/gl1", "output": output, "frames": 1}, job="render_job.py")
+    EVIDENCE["render_opengl_nohq_start"] = r.get("facts")
+    check("hqlighting" in r["facts"].get("crash_risk", ""), r["facts"])
+    deadline = time.time() + 120
+    text = ""
+    while time.time() < deadline and "TRACEBACK END" not in text and "OPENCODE_DONE" not in text:
+        time.sleep(0.5)
+        with open(r["log"], encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    current = text[text.find("CURRENT THREAD"):] if "CURRENT THREAD" in text else ""
+    EVIDENCE["render_opengl_nohq_crash"] = [line.split("[")[1].split("]")[0] for line in current.splitlines() if "[" in line][:4]
+    check("Segmentation fault" in text, text[-600:])
+    hou.node("/out/gl1").parm("hqlighting").set(1)
+    r = program("render.py", {"rop": "/out/gl1", "output": os.path.join(WORK, "gl_hq", "frame.png"), "frames": 1},
+                job="render_job.py")
+    check("crash_risk" not in r["facts"], r["facts"])
+    check(wait_job(r)[-1][0] == "DONE", "the same ROP with High Quality Lighting on")
+
+
+@test
 def render_pdg():
     folder = render_scene()
     r = program("render.py", {"top": "/obj/tasks"}, job="render_job.py")

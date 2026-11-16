@@ -46,6 +46,7 @@ The **OpenCode Link** Python panel is a conversation inside Houdini. **Connect**
 ## Limits
 
 - Houdini Apprentice: files are non-commercial, renders are at most 1920×1080 and carry the Houdini logo; render results say so.
+- With Houdini 22.0.429, an OpenGL ROP with High Quality Lighting off (`hqlighting` 0) crashes in Houdini's Vulkan renderer, in `hython` as in the interface: `houdini_render` says so when it starts such a render and when its background `hython` crashed. Rendered with `houdini_render`, a crash never closes the open Houdini; `.render()` in `houdini_execute_code` runs in it.
 - `houdini_apply` refuses changes in `hython` (no interface); `houdini_execute_code` works in both. Houdini records undo only on its main thread: OpenCode Link runs every request there (in `hython`, a script serves them with `opencode_houdini.pump()`).
 - `hou.hipFile.hasUnsavedChanges()` stays true after a save in `hython`: OpenCode Link judges a save by the file's date on disk.
 

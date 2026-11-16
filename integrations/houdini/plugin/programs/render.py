@@ -106,6 +106,12 @@ if kind == "render":
         raise ValueError("%s already exists (%d file(s)): pass overwrite true or name another output" % (taken[0], len(taken)))
     for t in targets[:1]:
         os.makedirs(os.path.dirname(t), exist_ok=True)
+    # Measured with Houdini 22.0.429: an OpenGL ROP with High Quality Lighting off crashes in its Vulkan renderer
+    # (RV_VKImage::getInfo or DM_RenderVulkan::compositePasses), in hython as in the interface.
+    hq = node.parm("hqlighting") if node.type().name() == "opengl" else None
+    if hq is not None and not hq.eval():
+        facts["crash_risk"] = ("High Quality Lighting is off on this OpenGL ROP (hqlighting 0): with it off, Houdini "
+                               "22.0.429's OpenGL ROP crashed in its Vulkan renderer every time; set hqlighting to 1")
     size = P.get("size")
     if size is not None and (not isinstance(size, list) or len(size) != 2 or not all(isinstance(v, int) and 4 <= v <= 16384 for v in size)):
         raise ValueError("size: [width, height], 4 to 16384")

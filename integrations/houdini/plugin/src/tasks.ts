@@ -84,6 +84,7 @@ export function taskStatus(task: RenderTask) {
   const failed = marker(text, "FAILED")
   const progress = marker(text, "PROGRESS") as { done?: number; total?: number } | undefined
   const alive = isAlive(task.pid)
+  const crash = crashOf(text)
   // "done" only when the job said so and every expected file is there, not empty.
   const missing = done ? task.targets.filter((file) => !existsSync(file) || statSync(file).size === 0) : []
   const verified = done !== undefined && !missing.length
@@ -91,7 +92,7 @@ export function taskStatus(task: RenderTask) {
     ? "cancelled"
     : verified
       ? "done"
-      : done !== undefined || failed !== undefined || !alive
+      : done !== undefined || failed !== undefined || crash || !alive
         ? "failed"
         : task.kind === "pdg"
           ? "cooking"
@@ -122,7 +123,13 @@ export function taskStatus(task: RenderTask) {
               ? failed.slice(-1500)
               : failed !== undefined
                 ? JSON.stringify(failed).slice(-1500)
-                : errors.join(" | ") || `the background hython stopped without finishing; see ${task.log}`,
+                : crash
+                  ? `the background hython crashed (${crash}); the open Houdini is not affected.${
+                      typeof (task.facts as { crash_risk?: unknown } | undefined)?.crash_risk === "string"
+                        ? ` ${(task.facts as { crash_risk: string }).crash_risk}.`
+                        : ""
+                    } See ${task.log}`
+                  : errors.join(" | ") || `the background hython stopped without finishing; see ${task.log}`,
         }
       : {}),
     ...(errors.length && state !== "failed" ? { log_errors: errors } : {}),
@@ -130,6 +137,20 @@ export function taskStatus(task: RenderTask) {
     log: task.log,
     ...(task.working_copy ? { working_copy: task.working_copy } : {}),
   }
+}
+
+// A hython that crashed writes "Fatal error: Segmentation fault" (or "Caught signal N") and its crashing thread's
+// frames: the signal and the first functions, innermost first.
+export function crashOf(text: string): string | undefined {
+  const fatal = /Fatal error: ([^\r\n]+)|Caught signal (\d+)/.exec(text)
+  if (!fatal) return undefined
+  const what = fatal[1]?.trim() ?? `signal ${fatal[2]}`
+  const thread = text.slice(text.indexOf("CURRENT THREAD") >= 0 ? text.indexOf("CURRENT THREAD") : fatal.index)
+  const frames = [...thread.matchAll(/\[([A-Za-z_][\w:~<>]*)\]/g)]
+    .map((match) => match[1])
+    .filter((name, index, all) => name && all.indexOf(name) === index)
+    .slice(0, 3)
+  return frames.length ? `${what} in ${frames.join(" < ")}` : what
 }
 
 export function cancelTask(task: RenderTask) {

@@ -65,6 +65,24 @@ describe("OpenCode for Houdini 0.3.0", () => {
     }
   })
 
+  it("two Houdinis with the same file open are said, not left to look like one (Sol ex03)", async () => {
+    const plugin = await loadPlugin()
+    const first = await offered()
+    const second = await offered()
+    try {
+      await plugin.rpc("advertise", announcement(first.endpoint, first.scriptHandle, "first", "Houdini: ex03.hipnc"))
+      assert.equal(content(await plugin.tool("houdini_hosts")).same_label, undefined)
+      await plugin.rpc("advertise", announcement(second.endpoint, second.scriptHandle, "second", "Houdini: ex03.hipnc"))
+      const listed = content(await plugin.tool("houdini_hosts"))
+      assert.equal(listed.houdinis.length, 2)
+      assert.match(listed.same_label, /Several Houdinis have the same file open \(Houdini: ex03\.hipnc\)/)
+    } finally {
+      await plugin.cleanup()
+      await first.close()
+      await second.close()
+    }
+  })
+
   it("says how to offer a Houdini when none is", async () => {
     const plugin = await loadPlugin()
     try {

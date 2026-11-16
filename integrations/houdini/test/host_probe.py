@@ -232,6 +232,62 @@ class HostTests(unittest.TestCase):
         self.assertEqual((status["busy"], status["running"]), (True, "execute_code"))
         self.assertEqual(host.dispatch("status", {})["busy"], False)
 
+    def test_hello_answers_while_the_main_thread_is_busy(self):
+        # OpenCode checks each new offer with hello, one offer at a time: a hello waiting behind a cook held every
+        # offer of the computer back in the Sol trial. It no longer goes through the main thread.
+        host = module.Host.__new__(module.Host)
+        host.state = state()
+        host.ui = module.UIThreadGate()
+        host.saves = host.loads = 0
+        host.document = "shot.hipnc"
+        host._hello = {"protocol": 1, "host_version": "0.3.0", "app_version": "22.0.429", "capability_hash": "x",
+                       "capabilities": {"methods": ["hello"]}, "process": {"pid": 1, "temp_dir": "t"}}
+        replies = []
+        asker = threading.Thread(target=lambda: replies.append(host.dispatch("hello", {})))
+        started = time.monotonic()
+        asker.start()
+        asker.join(2)  # nobody serves the main thread here
+        self.assertTrue(replies, "hello waited for the main thread")
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual((replies[0]["script_handle"], replies[0]["revision"], replies[0]["document"]),
+                         (host.state.handle, host.state.revision, "shot.hipnc"))
+
+    def test_renewals_go_straight_to_the_service_and_discover_again_after_a_failure(self):
+        advertiser = importlib.import_module("opencode_houdini.advertiser")
+        calls = []
+        service = types.SimpleNamespace(file="service.json")
+        outcomes = []
+        fake = types.ModuleType("opencode_service")
+        fake.TIMEOUT = 3.0
+        fake.discover = lambda env=None, timeout=3.0: calls.append("discover") or [service]
+        fake.location_candidates = lambda setting=None, env=None: ["global"]
+        fake._ready = lambda service, rpc, directory, deadline: (calls.append("status") or (200, {"output": {}}))
+        fake._unavailable = lambda status, body: False
+        fake._outcome = lambda method, status, body: body
+        fake.call = lambda service, rpc, method, payload, directory, timeout: (
+            calls.append("%s:%.0f" % (method, timeout)) or (200, outcomes.pop(0) if outcomes else "renewed"))
+        sys.modules["opencode_houdini.opencode_service"] = fake
+        import opencode_houdini
+        opencode_houdini.opencode_service = fake
+        try:
+            ad = advertiser.Advertiser(lambda: (1, "t" * 64, "hip:x", "Houdini: a.hipnc"))
+            outcomes[:] = ["accepted"]
+            ad.advertise_once()
+            self.assertEqual(calls, ["discover", "status", "advertise:8"])
+            calls.clear()
+            ad.advertise_once()
+            ad.advertise_once()
+            # Renewals: one request each, with time for a busy service.
+            self.assertEqual(calls, ["advertise:8", "advertise:8"])
+            calls.clear()
+            outcomes[:] = ["error", "accepted"]
+            results = ad.advertise_once()
+            self.assertEqual(calls, ["advertise:8", "discover", "status", "advertise:8"])
+            self.assertEqual(results, [{"service": "service.json", "outcome": "accepted"}])
+        finally:
+            sys.modules.pop("opencode_houdini.opencode_service", None)
+            del opencode_houdini.opencode_service
+
     def test_hello_names_the_process_and_its_crash_folder(self):
         self.assertTrue(module.temp_dir().endswith("houdini_temp"))
         self.assertEqual(module.offer_label("shot/v2.hipnc"), "Houdini: shot v2.hipnc")

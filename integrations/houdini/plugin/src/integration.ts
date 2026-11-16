@@ -263,17 +263,25 @@ export async function setupHoudini(ctx: Plugin.Context, deps: HoudiniDeps = {}) 
         list: "houdinis",
       })
       const found = legacy()
-      return json(
-        found.length
+      // Two Houdinis with the same file open offer the same label: said, so that the right one is attached.
+      const labels = registry.hosts().offers.map((offer) => offer.label)
+      const twice = [...new Set(labels.filter((label, index) => labels.indexOf(label) !== index))]
+      return json({
+        ...out,
+        ...(twice.length
           ? {
-              ...out,
+              same_label: `Several Houdinis have the same file open (${twice.join(", ")}): their offers differ by offerID only; attach the one you mean, or close the others.`,
+            }
+          : {}),
+        ...(found.length
+          ? {
               legacy_install: {
                 found,
                 fix: 'An earlier OpenCode package also loads in Houdini (another panel and host): remove it, or set "enable": false in it, then restart Houdini.',
               },
             }
-          : out,
-      )
+          : {}),
+      })
     },
 
     async houdini_install_host(_args, context) {

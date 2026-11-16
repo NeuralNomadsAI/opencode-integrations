@@ -10,6 +10,7 @@ export const METHOD_TEXT = [
   "- Inspect the exact element before coding it (houdini_inspect search, type with its parms, node, hou symbol).",
   "- After an error, read its hint and inspect again; never guess twice. A parm that does not exist returns None.",
   "- Cook what you build and read its errors and warnings; a node in error is not done.",
+  "- Render and cook long jobs with houdini_render: a background hython runs them, so a renderer crash leaves this Houdini open.",
   "- Turn each requirement of your task into a measured check (houdini_verify criteria).",
   "- The saved file is what you deliver: save, then run every check on it with houdini_verify saved: true.",
   "- Report each requirement with its measured value from the file. A failed or unchecked one is not done: say so.",
