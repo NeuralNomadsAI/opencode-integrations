@@ -37,6 +37,10 @@ var _stop_button := Button.new()
 
 func _ready() -> void:
 	_channel = "dock-" + Crypto.new().generate_random_bytes(8).hex_encode()
+	visibility_changed.connect(func():
+		if _active and not is_visible_in_tree():
+			disconnect_dock()
+	)
 	var header := HBoxContainer.new()
 	var brand := Label.new()
 	brand.text = "OpenCode"
@@ -107,7 +111,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _active:
-		_send("close", {})
+		disconnect_dock()
 	if _stdio != null:
 		# The sidecar ends once its input closes, after releasing its conversations.
 		_stdio.close()
@@ -142,6 +146,9 @@ func disconnect_dock() -> void:
 	_send("close", {})
 	_connect_button.text = "Connect"
 	_status_label.text = "DISCONNECTED"
+	_permission = ""
+	_permission_row.hide()
+	_streaming = false
 	_set_busy(false)
 	_new_button.disabled = true
 	_model_button.disabled = true

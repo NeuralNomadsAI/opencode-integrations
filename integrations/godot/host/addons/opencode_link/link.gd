@@ -216,6 +216,9 @@ func pump() -> void:
 func _on_main(label: String, work: Callable, session_id: String) -> Variant:
 	var job := {"label": label, "work": work, "state": "queued", "result": null, "done": Semaphore.new(), "session": session_id}
 	_mutex.lock()
+	if _cancelled.has(session_id):
+		_mutex.unlock()
+		return error("busy", "The conversation was stopped before Godot ran this request.", {"reason": "cancelled"})
 	_jobs.append(job)
 	_mutex.unlock()
 	var asked := Time.get_ticks_msec()
@@ -415,18 +418,18 @@ func _handle(peer: StreamPeerTCP) -> void:
 	var request_id: Variant = null
 	while true:
 		peer.poll()
-		if peer.get_status() != StreamPeerTCP.STATUS_CONNECTED or Time.get_ticks_msec() > until:
+		if _stopping or peer.get_status() != StreamPeerTCP.STATUS_CONNECTED or Time.get_ticks_msec() > until:
 			break
 		var available := peer.get_available_bytes()
 		if available > 0:
-			buffer.append_array(peer.get_partial_data(available)[1])
+			buffer.append_array(peer.get_partial_data(mini(available, MAX_REQUEST_BYTES + 1 - buffer.size()))[1])
 			if buffer.find(10) >= 0 or buffer.size() > MAX_REQUEST_BYTES:
 				break
 		else:
 			OS.delay_msec(2)
 	var newline := buffer.find(10)
 	var result: Variant
-	if newline < 0:
+	if newline < 0 or newline >= MAX_REQUEST_BYTES:
 		result = error("invalid_request", "Godot host request exceeded the size limit" if buffer.size() > MAX_REQUEST_BYTES else "Incomplete request")
 	else:
 		var parser := JSON.new()

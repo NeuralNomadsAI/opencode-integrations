@@ -90,6 +90,9 @@ export function installHost(marker: IntegrationMarker, project?: string): Instal
   if (same && enabled) return { outcome: "unchanged" }
   const staging = join(folder, "addons", `.opencode_link-${randomUUID()}`)
   const previous = join(folder, "addons", `.opencode_link-old-${randomUUID()}`)
+  const temporary = `${settingsFile}-${randomUUID()}`
+  let movedPrevious = false
+  let movedNew = false
   try {
     if (!same) {
       for (const entry of entries) {
@@ -97,18 +100,38 @@ export function installHost(marker: IntegrationMarker, project?: string): Instal
         mkdirSync(dirname(file), { recursive: true })
         writeFileSync(file, entry.data)
       }
-      if (existsSync(target)) renameSync(target, previous)
+      if (existsSync(target)) {
+        renameSync(target, previous)
+        movedPrevious = true
+      }
       renameSync(staging, target)
+      movedNew = true
     }
     if (!enabled) {
-      const temporary = `${settingsFile}-${randomUUID()}`
       writeFileSync(temporary, enablePlugin(settings))
+      if (readFileSync(settingsFile, "utf8") !== settings)
+        throw new Error("Project settings changed during installation.")
       renameSync(temporary, settingsFile)
+    }
+  } catch {
+    try {
+      if (movedNew) rmSync(target, { recursive: true, force: true })
+      if (movedPrevious) renameSync(previous, target)
+    } catch {
+      return {
+        outcome: "failed",
+        detail: "Installation failed; the previous add-on may need restoring from addons/.opencode_link-old-*.",
+      }
+    }
+    return {
+      outcome: "failed",
+      detail: "Could not write the add-on or project settings. Close the editor before retrying.",
     }
   } finally {
     rmSync(staging, { recursive: true, force: true })
-    rmSync(previous, { recursive: true, force: true })
+    rmSync(temporary, { force: true })
   }
+  rmSync(previous, { recursive: true, force: true })
   return {
     outcome: cfg && !same ? "updated" : "installed",
     detail:

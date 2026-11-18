@@ -31,5 +31,6 @@ export const { crashReport, closedMessage, silentMessage } = crashWatch({
   appName: "Godot",
   app: "godot",
   part: "OpenCode Link",
-  isReport: (name, host) => name.endsWith(".log") && CRASHED.test(logTail(join(host.tempDir, name))),
+  isReport: (name, host) =>
+    name === `opencode-crash-${host.pid}.log` && CRASHED.test(logTail(join(host.tempDir, name))),
 })
