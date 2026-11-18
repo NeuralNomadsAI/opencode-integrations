@@ -1,0 +1,68 @@
+{
+  "name": "@neuralnomads/opencode-godot",
+  "version": "0.1.0",
+  "description": "OpenCode for Godot: GDScript in the editor as one undo action, checks and runs in a background Godot, through an authenticated local add-on, with an optional in-editor conversation dock.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "opencode-integration",
+    "opencode",
+    "godot"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeuralNomadsAI/opencode-integrations",
+    "directory": "integrations/godot/plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "methods",
+    "programs",
+    "host",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:host": "node scripts/build-host.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "^2.2.0 || ^0.0.0-dev"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.2.5",
+    "@opencode/client": "2.2.5",
+    "esbuild": "0.28.2"
+  },
+  "opencodeIntegration": {
+    "spec": 0,
+    "id": "godot",
+    "displayName": "OpenCode for Godot",
+    "family": "native",
+    "plugin": "neuralnomads.godot",
+    "rpc": "neuralnomads.godot",
+    "host": {
+      "app": "godot",
+      "protocol": 1,
+      "range": "^0.1.0",
+      "appVersions": ">=4.7 <5",
+      "payload": "host/godot/opencode_link-0.1.0.zip",
+      "sha256": "5d6ce783792f9b2233c6a576f82d465ef869b02543aedf80d5ab6432ff853790"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "godot_execute_code",
+  "domain": "tools",
+  "dangerous": true,
+  "description": "DANGEROUS: run GDScript in the attached Godot editor (a @tool script, extending RefCounted), given as code or as a script file (path): statements (the body of func run()), or a script with its own func run() and helper functions. In scope: scene (the edited scene's root), EditorInterface, every engine class and singleton. Assign a JSON-able Dictionary to result; print() output is returned. A node you add needs node.owner = scene to be saved. A run that changes the scene is one undo action (OpenCode: code); a failing one (parse or script error) is undone and compared, and its error says what Godot knows (line, closest class, property or method names, real signatures, closest children of a missing node). No await. Every run asks permission.",
+  "kind": "host-backed",
+  "risk": "destructive",
+  "args": {
+    "code": {
+      "type": "string",
+      "description": "GDScript code (or path)."
+    },
+    "path": {
+      "type": "string",
+      "description": "A .gd file to run instead of code, read as is (absolute or relative to the conversation's folder)."
+    },
+    "read_only": {
+      "type": "boolean",
+      "description": "Inspection: no undo action, the scene is not compared."
+    },
+    "timeout_s": {
+      "type": "integer",
+      "description": "Longest wait in seconds (1 to 3600).",
+      "default": 120
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "execute_code"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

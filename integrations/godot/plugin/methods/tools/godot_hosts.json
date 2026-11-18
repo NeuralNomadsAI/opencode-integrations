@@ -1,0 +1,20 @@
+{
+  "name": "godot_hosts",
+  "domain": "tools",
+  "description": "List the Godot editors offered to OpenCode on this computer (an editor whose project has OpenCode Link offers it when it starts, labelled with the project and the open scene): label, Godot version, and whether this conversation or another one is attached to each (attached_to: the one this conversation acts on), with the installed part's state. attach: attach one (its offerID) to this conversation, which asks permission; detach: release this conversation's editor. With one editor offered that no conversation uses, the first Godot tool call attaches it.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {
+    "attach": {
+      "type": "string",
+      "description": "An offerID from this list."
+    },
+    "detach": {
+      "type": "boolean",
+      "description": "Release this conversation's editor."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

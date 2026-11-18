@@ -1,0 +1,16 @@
+{
+  "name": "godot_install_host",
+  "domain": "tools",
+  "description": "Install or update OpenCode Link (the version of this plugin) in a Godot project: its add-on folder addons/opencode_link and its project.godot's enabled editor plugins. project: the project folder; by default the attached editor's project, else the conversation's folder. Asks permission; restart that project's editor afterwards if it is open.",
+  "kind": "hostless",
+  "risk": "write",
+  "args": {
+    "project": {
+      "type": "string",
+      "description": "A Godot project folder (with project.godot), absolute or relative to the conversation's folder."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  }
+}

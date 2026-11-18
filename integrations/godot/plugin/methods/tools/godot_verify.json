@@ -1,0 +1,41 @@
+{
+  "name": "godot_verify",
+  "domain": "tools",
+  "description": "Check a result by measurement. criteria: your own acceptance checks, each a Godot Expression measured on a scene and passed or failed with the measured value. errors (default on): the nodes whose script does not compile; with saved or frames, also the errors Godot logged loading and running the scene. Without saved or frames: the open scene, in the editor. saved: the same checks on the scene file as written on disk, read by a background --headless Godot (the editor stays free); check the delivered files before reporting. frames: run the scene that many frames first (its scripts run, as in the game; at a fixed 60 fps) for runtime values, in a background Godot, on a working copy of the open scene or on the saved file. Past timeout_s the background Godot is stopped and the answer says what it was doing. Nothing in the open scene changes.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Up to 50 checks: {expr: a Godot Expression; op: true (default) == != < <= > >= approx between in contains; value; tol (approx, default 1e-4); label}. In expr: scene and root (the scene's root node), node(path) (relative to the root), exists(path), prop(path, name), children(path), nodes(class) (paths), count(class), in_group(path, group), script_of(path), and Godot's own types and functions: node(\"Player\").position.y, count(\"MeshInstance3D\"), node(\"Light\").light_energy. Vectors and colors compare as [x, y, z] element by element."
+    },
+    "errors": {
+      "type": "boolean",
+      "description": "Report the scripts that do not compile and the errors logged.",
+      "default": true
+    },
+    "saved": {
+      "type": "any",
+      "description": "true: the open scene's file as saved on disk; or a scene file (res://..., a path relative to the project, or absolute)."
+    },
+    "frames": {
+      "type": "integer",
+      "description": "Run the scene this many frames (at 60 fps) before measuring, in a background Godot."
+    },
+    "timeout_s": {
+      "type": "integer",
+      "description": "For saved and frames: how long the background Godot may take (5 to 3600).",
+      "default": 300
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/verify.gd"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

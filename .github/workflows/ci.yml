@@ -133,6 +133,29 @@ jobs:
           export BLENDER_TEST_BIN="$HOME/blender-${{ matrix.blender }}/blender"
           node --test integrations/blender/test/extension.test.ts
 
+  godot:
+    name: Godot host and dock (4.7.2, headless)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Download Godot and exercise the packaged add-on
+        run: |
+          archive=Godot_v4.7.2-stable_linux.x86_64.zip
+          curl --fail --location --silent --show-error -o "$RUNNER_TEMP/$archive" "https://github.com/godotengine/godot/releases/download/4.7.2-stable/$archive"
+          echo "cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  $RUNNER_TEMP/$archive" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP/godot"
+          export GODOT_TEST_BIN="$RUNNER_TEMP/godot/${archive%.zip}"
+          "$GODOT_TEST_BIN" --headless --version
+          node --test integrations/godot/test/godot.test.ts
+
   trace-scan:
     name: Trace scan
     runs-on: ubuntu-latest
