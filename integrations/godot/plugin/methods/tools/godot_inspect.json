@@ -1,0 +1,46 @@
+{
+  "name": "godot_inspect",
+  "domain": "tools",
+  "description": "Ask THIS Godot what it really exposes, in one call: search (words found in class names and in the properties, methods with their signature and signals of every class of its ClassDB, and the project's script classes; ranked), a class (its inheritance, own properties with type, hint and default, methods with their real signatures, signals, enums, its documentation page; with match, the inherited members too), a live node of the open scene (class, script, instanced scene, children, groups, the property values that differ from the defaults, persistent connections, configuration warnings) and/or the open scene's tree. Entries beyond limit are named. Always says the Godot version and its documentation. Read only.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "search": {
+      "type": "string",
+      "description": "Words, e.g. \"rigid body\", \"collision layer\", \"tween\"."
+    },
+    "class": {
+      "type": "string",
+      "description": "A class: Node3D, CharacterBody2D, or a project script class."
+    },
+    "node": {
+      "type": "string",
+      "description": "A node path in the open scene, relative to its root (Player/Camera3D)."
+    },
+    "tree": {
+      "type": "boolean",
+      "description": "The open scene's tree."
+    },
+    "depth": {
+      "type": "integer",
+      "description": "With tree: levels, 1 to 32.",
+      "default": 6
+    },
+    "match": {
+      "type": "string",
+      "description": "Keep the members matching: a glob on names (collision_*), or words found in them."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Entries in detail (1 to 200).",
+      "default": 40
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/inspect.gd"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

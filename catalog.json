@@ -56,6 +56,24 @@
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/gaffer/plugin"] }
     },
     {
+      "id": "godot",
+      "package": "@neuralnomads/opencode-godot",
+      "range": "^0.1",
+      "displayName": "OpenCode for Godot",
+      "family": "native",
+      "plugin": "neuralnomads.godot",
+      "rpc": "neuralnomads.godot",
+      "summary": {
+        "en": "Read, change and check the project open in the Godot editor from any OpenCode conversation: GDScript as one undo action, checks and runs in a background Godot, and an optional conversation dock in the editor.",
+        "fr": "Lire, modifier et vérifier le projet ouvert dans l'éditeur Godot depuis toute conversation OpenCode : GDScript en une action d'annulation, vérifications et exécutions dans un Godot en arrière-plan, et un dock de conversation facultatif dans l'éditeur."
+      },
+      "app": { "name": "Godot", "versions": ">=4.7 <5" },
+      "host": { "protocol": 1, "range": "^0.1.0" },
+      "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/godot/plugin/README.md",
+      "status": "preview",
+      "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/godot/plugin"] }
+    },
+    {
       "id": "houdini",
       "package": "@neuralnomads/opencode-houdini",
       "range": "^0.3",

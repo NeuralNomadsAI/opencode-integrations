@@ -1,0 +1,27 @@
+{
+  "name": "godot_save",
+  "domain": "tools",
+  "description": "Save the open scene; with path, save it under that .tscn or .scn (as the open scene's file, or a copy with copy true: the open scene keeps its file). Relative paths are next to the open scene's file; an existing other file needs overwrite. Says what was written, read from the disk (path, file, bytes, time), the open file afterwards and whether unsaved changes remain. Project settings changed by code are saved by ProjectSettings.save() in godot_execute_code. godot_verify with saved reads the file back.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "path": {
+      "type": "string"
+    },
+    "copy": {
+      "type": "boolean",
+      "default": false
+    },
+    "overwrite": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "execution": {
+    "strategy": "program",
+    "program": "programs/save.gd"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}

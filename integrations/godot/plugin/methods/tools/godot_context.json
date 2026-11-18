@@ -1,0 +1,42 @@
+{
+  "name": "godot_context",
+  "domain": "tools",
+  "description": "Bounded read of the attached Godot editor: revision, Godot version, the project (name, folder, main scene), open scenes, the edited scene (file, root, unsaved), selection, and node cards (path relative to the scene root, class, script, children, instanced scene) from node down depth levels, matching match (a glob on name or class). properties: values to read on the listed nodes. Call first. quarantined: changes wait until release_quarantine with this read's revision.",
+  "kind": "host-backed",
+  "risk": "read",
+  "args": {
+    "node": {
+      "type": "string",
+      "description": "Start below this node path (relative to the scene root)."
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Levels below node, 0 to 32.",
+      "default": 3
+    },
+    "match": {
+      "type": "string",
+      "description": "A glob on node names and classes (Player*, *Light3D)."
+    },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Property names to read on the listed nodes."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Nodes listed, 0 to 500.",
+      "default": 40
+    },
+    "release_quarantine": {
+      "type": "integer",
+      "description": "After a failed change that could not be proven undone: the revision of the read that showed the scene, once you checked it; lifts the quarantine."
+    }
+  },
+  "execution": {
+    "strategy": "host_method",
+    "method": "context"
+  }
+}

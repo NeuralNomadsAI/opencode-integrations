@@ -1,0 +1,47 @@
+{
+  "name": "godot_run",
+  "domain": "tools",
+  "description": "Run the project or a scene in a separate background Godot for some frames, as a task: the open editor stays usable and a crash there never touches it. Headless by default (the game's scripts run, its output and errors are read from its log); with capture, Godot's Movie Maker writes the frames as PNG images and the first, middle and last frames come back as images (a window of its own; hidden on Windows). It runs a working copy of the open scene (default), the scene as saved (source saved), a scene file, or the project's main scene (scene main). Returns a task: call again with task (and wait_s) for its state, or cancel.",
+  "kind": "host-backed",
+  "risk": "write",
+  "args": {
+    "scene": {
+      "type": "string",
+      "description": "A scene file (res://..., relative to the project, or absolute), or main for the project's main scene (default: the open scene)."
+    },
+    "source": {
+      "type": "string",
+      "description": "For the open scene: copy (as it is now in the editor) or saved (its file).",
+      "enum": ["copy", "saved"],
+      "default": "copy"
+    },
+    "frames": {
+      "type": "integer",
+      "description": "Frames to run (1 to 100000).",
+      "default": 60
+    },
+    "capture": {
+      "type": "any",
+      "description": "true, or {fps?: 1 to 240 (default 30), size?: [width, height]}: write the frames with Movie Maker."
+    },
+    "task": {
+      "type": "string",
+      "description": "A task from an earlier call: its state."
+    },
+    "wait_s": {
+      "type": "integer",
+      "description": "Wait up to this long for the task to finish (0 to 3600).",
+      "default": 0
+    },
+    "cancel": {
+      "type": "boolean",
+      "description": "With task: stop it."
+    }
+  },
+  "execution": {
+    "strategy": "plugin"
+  },
+  "requires": {
+    "hostMethods": ["execute_code"]
+  }
+}
