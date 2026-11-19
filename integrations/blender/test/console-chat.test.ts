@@ -14,12 +14,12 @@ it("formats and fans out streamed lines in the Blender timer without bpy", () =>
   assert.equal(result.status, 0, result.error?.message ?? result.stderr)
 })
 
-it("the shared sidecar binds only Blender's marked conversation and streams tools and interruption", async () => {
+it("the sidecar resumes a folder conversation and streams wrapped tool names and interruption", async () => {
   const calls: unknown[] = []
   const out: unknown[] = []
   const bindings = new Map([["ses_codenomad", "offer_here"]])
   const location = { directory: import.meta.dirname }
-  const session = { id: "ses_console", agent: "build", metadata: { [blenderPanel.marker]: "test.blend" } }
+  const session = { id: "ses_console", agent: "build", time: { updated: 2 } }
   let push: (value: unknown) => void = () => {}
   const api = {
     rpc: (rpc: { id: string }) => {
@@ -101,17 +101,23 @@ it("the shared sidecar binds only Blender's marked conversation and streams tool
     await emit("session.text.delta", { delta: "hello\n" })
     await emit("session.tool.input.started", { id: "tool_1", name: "blender_context" })
     await emit("session.tool.success", { id: "tool_1" })
+    await emit("session.tool.input.started", { id: "tool_2", name: "execute" })
+    await emit("session.tool.called", { id: "tool_2", input: { code: "await tools.blender.context({})" } })
+    await emit("session.tool.success", { id: "tool_2" })
     await call("interrupt")
     await emit("session.execution.interrupted", {})
-    assert.deepEqual(out.slice(0, 3), [
+    assert.deepEqual(out.slice(0, 4), [
+      event("user_message", { text: "hello" }),
       { id: "prompt", result: {} },
       event("assistant_delta", { text: "hello\n" }),
       event("tool", { id: "tool_1", name: "blender_context", state: "starting" }),
     ])
-    const completed = out[3] as { data: { name: string; state: string; duration_ms: number } }
+    const completed = out[4] as { data: { name: string; state: string; duration_ms: number } }
     assert.equal(completed.data.name, "blender_context")
     assert.equal(completed.data.state, "completed")
     assert.ok(completed.data.duration_ms >= 0)
+    assert.equal((out[5] as typeof completed).data.name, "blender_context")
+    assert.equal((out[6] as typeof completed).data.name, "blender_context")
     assert.deepEqual(out.at(-1), event("status", { state: "idle", interrupted: true }))
     assert.deepEqual(calls, [
       { sessionID: session.id, text: "hello" },

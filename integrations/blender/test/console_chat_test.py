@@ -42,6 +42,7 @@ class ConsoleTests(unittest.TestCase):
         chat = console.chat = console.Chat()
         chat.pipes = NS(out=Queue(), inbox=Queue())
         chat.state = "Working"
+        console._sync = lambda append: None
 
         def add(event, **data):
             chat.pipes.out.put({"event": event, "data": data})
@@ -60,9 +61,10 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(second.rows, first.rows)
         self.assertEqual(first.redraws, 2)
         self.assertEqual(python.rows, [])
-        add("exit", message="sidecar closed")
-        self.assertIsNone(console._drain())
-        self.assertEqual(first.rows[-1], {"text": "sidecar closed", "type": "ERROR"})
+        add("exit", message="")
+        self.assertEqual(console._drain(), console.INTERVAL)
+        self.assertIsNone(chat.pipes)
+        self.assertEqual(chat.state, "Connecting")
 
 
 if __name__ == "__main__":

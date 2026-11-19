@@ -64,7 +64,7 @@
       "range": "^0.4.8",
       "appVersions": ">=5.3",
       "payload": "host/blender/opencode_link-0.4.8.zip",
-      "sha256": "491b63857e2856d9fa680c6a6db562c60dbc6d4bf4d74e708465cc9c2be704d1"
+      "sha256": "ed8ec9be1fdb6464765a343782fe42823a6c6b3fce1e34cbc86942b88c5ba246"
     }
   }
 }

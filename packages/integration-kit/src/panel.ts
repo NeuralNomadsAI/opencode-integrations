@@ -1,4 +1,6 @@
 // An in-app chat is a plain client: attach its conversation to the host's existing offer, never announce one.
+
+import { basename, normalize } from "node:path"
 import type { OpenCode } from "@opencode/client"
 import { rpcDefinition } from "./contract.ts"
 import { requestHost as kitRequestHost } from "./host-client.ts"
@@ -19,22 +21,28 @@ type Channel = {
   offerID: string
   host: { host: string; port: number; token: string }
   handle: string
+  rpc: Rpc
   abort: AbortController
-  timer?: NodeJS.Timeout
-  checking: boolean
-  tools: Map<string, { name: string; started: number }>
+  tools: Map<string, { name: string; inner?: string; started: number }>
   model?: ModelRef
+}
+type Target = {
+  id: string
+  params?: Record<string, unknown>
+  fresh?: boolean
+  empty?: boolean
+  selected?: string
+  taken?: boolean
+  pending: string[]
+  problem?: string
+  retry?: NodeJS.Timeout
 }
 export type PanelRequest = { id: string; channel: string; method: string; params?: Record<string, unknown> }
 
 export type PanelHost = {
   app: string
   rpcID: string
-  marker: string
   document: string
-  keyField: string
-  nameField: string
-  defaultName: string
   duplicateOffer: string
   agent?: boolean
   consoleEvents?: boolean
@@ -45,12 +53,25 @@ export type PanelDependencies = {
   discover: (registration?: string) => Promise<Api | undefined>
   send: (message: unknown) => void
   requestHost?: typeof kitRequestHost
-  offerWaitMs?: number
   checkEveryMs?: number
+  retryMs?: number
 }
 
 // A message of this sidecar's own, safe to show in the panel.
 class PanelError extends Error {}
+class WaitingForOffer extends Error {}
+
+function innerTools(input: unknown) {
+  const code = (input as { code?: unknown } | null)?.code
+  if (typeof code !== "string") return undefined
+  const names = new Set(
+    Array.from(
+      code.matchAll(/\btools\.(\w+)(?:\.(\w+)|\[['"]([\w-]+)['"]\])\s*\(/g),
+      ([, ns, dot, key]) => `${ns}_${dot ?? key}`,
+    ),
+  )
+  return names.size ? [...names].join(", ") : undefined
+}
 
 // An error in one line for the panel: its first line, bounded, without a token, an authorization or a port.
 export function briefly(error: unknown) {
@@ -68,9 +89,18 @@ const modelKey = (model: ModelRef | undefined) =>
 
 type Part = { type?: string; text?: string; name?: string; state?: { status?: string } }
 type Message = { type?: string; text?: string; content?: Part[] }
+type Conversation = { id: string; title?: string; time?: { updated?: number } }
+
+function conversationEntry({ id, title, time }: Conversation) {
+  const minutes = time?.updated ? Math.max(0, Math.floor((Date.now() - time.updated) / 60_000)) : 0
+  const age =
+    minutes >= 1440 ? `${Math.floor(minutes / 1440)}d` : minutes >= 60 ? `${Math.floor(minutes / 60)}h` : `${minutes}m`
+  return { id, title: `${title || "Untitled"} (${age} ago)` }
+}
 type EventData = {
   sessionID?: string
   delta?: string
+  input?: unknown
   id?: string
   name?: string
   action?: string
@@ -94,10 +124,11 @@ function history(messages: ReadonlyArray<Message>) {
 
 export function createPanel(config: PanelHost, deps: PanelDependencies) {
   const requestHost = deps.requestHost ?? kitRequestHost
-  // A Location opened for the panel loads its plugins first, which took tens of seconds in a trial.
-  const offerWaitMs = deps.offerWaitMs ?? 30_000
   const checkEveryMs = deps.checkEveryMs ?? 5_000
   const channels = new Map<string, Channel>()
+  const targets = new Map<string, Target>()
+  const queues = new Map<string, Promise<void>>()
+  let stopping = false
   let client: Api | undefined
   let registration: string | undefined
   let rpc: Rpc = {}
@@ -114,7 +145,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
   async function api() {
     if (client) return client
     const found = await deps.discover(registration)
-    if (!found) throw new PanelError("Start OpenCode before connecting the panel.")
+    if (!found) throw new PanelError("Start OpenCode to use this conversation.")
     client = found
     rpc = found.rpc(rpcDefinition(config.rpcID, "native") as never) as unknown as Rpc
     return client
@@ -122,67 +153,67 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
 
   // This project's offer: the one with its label among the offered hosts (offer keys stay private to the service).
   async function findOffer(c: { directory: string; label: string }) {
-    const until = Date.now() + offerWaitMs
-    for (;;) {
-      let result: { offers?: unknown } | undefined
-      try {
-        result = (await rpc.hosts?.({}, options(c))) as typeof result
-      } catch (error) {
-        // The first call in the project's folder: OpenCode opens that Location and loads its plugins meanwhile, and
-        // the integration's RPC is not there yet (a CodeNomad conversation's own Location is long loaded).
-        if (
-          !/RPC is unavailable/i.test(String((error as { message?: unknown })?.message ?? error)) ||
-          Date.now() > until
-        )
-          throw error
-        await new Promise((resolve) => setTimeout(resolve, 1_000))
-        continue
-      }
-      const offers = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).filter(
-        (offer) => offer.label === c.label,
-      )
-      if (offers.length > 1)
-        throw new PanelError(
-          `Several ${config.duplicateOffer} offer ${c.label}: attach this conversation from OpenCode (${config.app.toLowerCase()}_hosts).`,
-        )
-      if (offers[0]) return offers[0]
-      if (Date.now() > until)
-        throw new PanelError(`This ${config.document} is not offered to OpenCode yet; choose Connect again.`)
-      await new Promise((resolve) => setTimeout(resolve, 1_000))
+    let result: Record<string, unknown> | undefined
+    try {
+      result = await rpc.hosts?.({}, options(c))
+    } catch (error) {
+      // A new Location may still be loading its plugins.
+      if (/RPC is unavailable|timed out|TimeoutError/i.test(briefly(error))) throw new WaitingForOffer()
+      throw error
     }
+    const offers = ((result?.offers ?? []) as Array<{ label: string; offerID: string }>).filter(
+      (offer) => offer.label === c.label,
+    )
+    if (offers.length > 1)
+      throw new PanelError(`Several ${config.duplicateOffer} offer ${c.label}; this panel cannot pick one.`)
+    if (!offers[0]) throw new WaitingForOffer()
+    return offers[0]
   }
 
   async function attached(c: Channel) {
-    const read = await rpc.bindingRead?.({ sessionID: c.sessionID }, options(c))
+    const read = await c.rpc.bindingRead?.({ sessionID: c.sessionID }, options(c))
     return read?.state === "attached" && (read.binding as { offerID?: string } | undefined)?.offerID === c.offerID
   }
 
-  // The project's own conversation, when one is marked for it and still open.
-  async function markedSession(service: Api, directory: string, key: string) {
+  async function folderSessions(service: Api, directory: string) {
     let cursor: string | undefined
-    for (let page = 0; page < 10; page += 1) {
-      const listed = await service.session.list({ directory, order: "desc", limit: 100, cursor })
-      const found = listed.data.find(
-        (candidate) =>
-          !candidate.time?.archived &&
-          (candidate.metadata as Record<string, unknown> | undefined)?.[config.marker] === key,
+    const sessions = []
+    do {
+      const listed = await service.session.list({ directory, archived: false, order: "desc", limit: 100, cursor })
+      sessions.push(
+        ...listed.data.filter(
+          (candidate) =>
+            !candidate.time?.archived &&
+            (!candidate.location || folderKey(candidate.location.directory) === folderKey(directory)),
+        ),
       )
-      if (found) return found
       cursor = listed.cursor.next ?? undefined
-      if (!cursor) return undefined
-    }
-    return undefined
+    } while (cursor)
+    return sessions.sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))
+  }
+
+  function folderKey(path: unknown) {
+    const key = normalize(String(path ?? "")).replace(/[/\\]$/, "")
+    return process.platform === "win32" ? key.toLowerCase() : key
+  }
+
+  async function conversationList(target: Target, directory: string) {
+    const sessions = await folderSessions(await api(), directory)
+    event(target, "conversations", {
+      selected: target.selected,
+      entries: sessions.map(conversationEntry),
+    })
+    return sessions
   }
 
   // Closing releases this panel's conversation only: the offer stays for every other conversation.
   async function close(c: Channel) {
     if (channels.get(c.id) === c) channels.delete(c.id)
-    if (c.timer) clearInterval(c.timer)
     c.abort.abort()
-    await host(c, "cancel").catch(() => {})
+    if ([...channels.values()].some((other) => other.sessionID === c.sessionID && other.offerID === c.offerID)) return
     // Another client may have moved the conversation to another host: never detach that binding.
     await attached(c)
-      .then((still) => (still ? rpc.detachHost?.({ sessionID: c.sessionID }, options(c)) : undefined))
+      .then((still) => (still ? c.rpc.detachHost?.({ sessionID: c.sessionID }, options(c)) : undefined))
       .catch(() => {})
   }
 
@@ -200,13 +231,19 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     else if (type === "session.text.ended") event(c, "assistant_end", {})
     else if (type === "session.tool.input.started") {
       c.tools.set(String(data.id), { name: String(data.name ?? "tool"), started: performance.now() })
-      event(c, "tool", { id: data.id, name: data.name, state: "starting" })
+      if (data.name !== "execute") event(c, "tool", { id: data.id, name: data.name, state: "starting" })
+    } else if (type === "session.tool.called") {
+      const tool = c.tools.get(String(data.id))
+      if (tool?.name === "execute") {
+        tool.inner = innerTools(data.input)
+        event(c, "tool", { id: data.id, name: tool.inner ?? tool.name, state: "starting" })
+      }
     } else if (type === "session.tool.success" || type === "session.tool.failed") {
       const tool = c.tools.get(String(data.id))
       c.tools.delete(String(data.id))
       event(c, "tool", {
         id: data.id,
-        name: tool?.name,
+        name: tool?.inner ?? tool?.name,
         state: type === "session.tool.success" ? "completed" : "failed",
         ...(config.consoleEvents && tool ? { duration_ms: Math.round(performance.now() - tool.started) } : {}),
       })
@@ -234,36 +271,13 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     } catch {
       // ended below
     }
-    if (!c.abort.signal.aborted)
-      event(c, config.consoleEvents ? "disconnected" : "error", {
-        message: "OpenCode disconnected; choose Connect to reconnect.",
+    if (!c.abort.signal.aborted) {
+      void serialize(c.id, async () => {
+        if (channels.get(c.id) !== c) return
+        const target = targets.get(c.id)
+        if (target) await reconnect(target, c)
       })
-  }
-
-  function watch(c: Channel) {
-    let warned = false
-    c.timer = setInterval(() => {
-      if (c.checking) return
-      c.checking = true
-      void api()
-        .then(() => attached(c))
-        .then((still) => {
-          if (!still) throw new Error("detached")
-          warned = false
-        })
-        .catch(() => {
-          client = undefined
-          if (!warned && channels.get(c.id) === c)
-            event(c, config.consoleEvents ? "disconnected" : "error", {
-              message: "Conversation detached or service unavailable; choose Connect to reconnect.",
-            })
-          warned = true
-        })
-        .finally(() => {
-          c.checking = false
-        })
-    }, checkEveryMs)
-    c.timer.unref?.()
+    }
   }
 
   // A failed Connect says which step failed and why, in a line (never a credential): the user knows what to check.
@@ -271,67 +285,75 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     try {
       return await work()
     } catch (error) {
-      if (error instanceof PanelError) throw error
-      throw new PanelError(
-        `Connect failed while ${doing}: ${briefly(error)} Check that OpenCode runs, then choose Connect.`,
-      )
+      if (error instanceof PanelError || error instanceof WaitingForOffer) throw error
+      throw new PanelError(`Could not connect while ${doing}: ${briefly(error)}`)
     }
   }
 
-  async function connect(id: string, params: Record<string, unknown>, fresh: boolean) {
+  async function connect(target: Target, params: Record<string, unknown>) {
+    const id = target.id
     const previous = channels.get(id)
     if (previous) await close(previous)
+    if (!params.token || !params.offer_label) throw new WaitingForOffer()
     if (params.host !== "127.0.0.1" || !Number.isInteger(params.port) || !/^[0-9a-f]{64}$/.test(String(params.token)))
       throw new Error("Invalid host endpoint.")
     const directory = String(params.directory ?? "")
     const label = String(params.offer_label ?? "")
-    const key = String(params[config.keyField] ?? "")
     const handle = String(params.script_handle ?? "")
-    if (!directory || !label || !key || !handle) throw new Error("Incomplete connect request.")
-    if (config.hostControls === false) {
-      const next = typeof params.registration === "string" ? params.registration : undefined
-      if (next !== registration) client = undefined
-      registration = next
-    }
+    if (!directory || !label || !handle) throw new Error("Incomplete connect request.")
+    const next = typeof params.registration === "string" ? params.registration : undefined
+    if (next !== registration) client = undefined
+    registration = next
     const service = await step("reaching OpenCode", api)
+    const currentRpc = service.rpc(rpcDefinition(config.rpcID, "native") as never) as unknown as Rpc
+    const offer = await step(`finding this ${config.document}'s offer`, () => findOffer({ directory, label }))
     // The project's conversation, unless New asked for another one.
-    const known = fresh
-      ? undefined
-      : await step(`finding this ${config.document}'s conversation`, () => markedSession(service, directory, key))
+    const sessions = await step("listing conversations in this folder", () => folderSessions(service, directory))
+    const known = target.fresh ? undefined : (sessions.find((s) => s.id === target.selected) ?? sessions[0])
+    if (!known && !target.pending.length) {
+      if (!target.empty) {
+        target.empty = true
+        event(target, "session", { id: null, draft: Boolean(target.fresh), workspace: directory })
+        event(target, "history", { messages: [] })
+        event(target, "conversations", {
+          entries: sessions.map(conversationEntry),
+        })
+        event(target, "status", { state: "idle" })
+      }
+      return
+    }
     const session =
       known ??
       (await step(`creating this ${config.document}'s conversation`, () =>
         service.session.create({
-          title: `${config.app}: ${String(params[config.nameField] || config.defaultName)}`,
+          title: `${config.app}: ${basename(directory) || directory}`,
           location: { directory },
-          metadata: { [config.marker]: key },
         }),
       ))
+    target.fresh = false
+    target.empty = false
+    target.selected = session.id
     const c: Channel = {
       id,
       directory,
       sessionID: session.id,
       label,
-      offerID: "",
+      offerID: offer.offerID,
       host: { host: "127.0.0.1", port: Number(params.port), token: String(params.token) },
       handle,
+      rpc: currentRpc,
       abort: new AbortController(),
-      checking: false,
       tools: new Map(),
       model: (session as { model?: ModelRef }).model,
     }
     try {
-      const offer = await step(`finding this ${config.document}'s offer`, () => findOffer(c))
       const result = await step(`attaching the conversation to this ${config.document}`, async () =>
-        rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID }, options(c)),
+        c.rpc.attachHost?.({ offerID: offer.offerID, sessionID: c.sessionID, takeover: true }, options(c)),
       )
       if (result?.outcome === "busy")
         throw new PanelError("This conversation is attached to another application; detach it there first.")
       if (result?.outcome !== "attached") throw new PanelError(`${config.app} attachment was refused.`)
-      c.offerID = offer.offerID
       channels.set(id, c)
-      watch(c)
-      void stream(c, service)
       const [messages, models, configured, active] = await step("loading the conversation", () =>
         Promise.all([
           service.message.list({ sessionID: c.sessionID, order: "desc", limit: 200 }),
@@ -355,9 +377,15 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
           .map((model) => ({ id: model.id, provider_id: model.providerID, name: model.name })),
       })
       event(c, "history", { messages: history([...messages.data].reverse() as never) })
+      event(target, "conversations", {
+        selected: session.id,
+        entries: (known ? sessions : [session, ...sessions]).map(conversationEntry),
+      })
+      if (result.replaced) event(c, "notice", { message: "Conversation moved from another host to this one." })
       event(c, "status", {
         state: (active as Record<string, { type?: string }>)[c.sessionID]?.type === "running" ? "busy" : "idle",
       })
+      void stream(c, service)
     } catch (error) {
       await close(c)
       throw error
@@ -370,10 +398,6 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     if (method === "interrupt") {
       await host(c, "cancel").catch(() => {})
       await service.session.interrupt({ sessionID: c.sessionID, resume: false })
-    } else if (method === "prompt") {
-      if (!(await attached(c))) throw new PanelError(`${config.app} was detached; choose Connect to attach again.`)
-      await host(c, "resume")
-      await service.session.prompt({ sessionID: c.sessionID, text: String(params.text ?? "") })
     } else if (method === "switch_model") {
       const key = String(params.model ?? "")
       const catalog = await service.model.list({ location: { directory: c.directory } })
@@ -389,15 +413,148 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     } else throw new Error("Unknown panel action.")
   }
 
-  async function dispatch(request: PanelRequest) {
+  function serialize(id: string, work: () => Promise<void>) {
+    if (stopping) return Promise.resolve()
+    const next = (queues.get(id) ?? Promise.resolve()).then(work)
+    queues.set(id, next)
+    void next
+      .finally(() => {
+        if (queues.get(id) === next) queues.delete(id)
+      })
+      .catch(() => {})
+    return next
+  }
+
+  function later(target: Target, ms: number) {
+    clearTimeout(target.retry)
+    if (stopping) return
+    target.retry = setTimeout(() => {
+      void serialize(target.id, async () => {
+        if (targets.get(target.id) !== target) return
+        const c = channels.get(target.id)
+        if (c && !(await attached(c).catch(() => false))) await reconnect(target, c)
+        else await reconcile(target)
+      })
+    }, ms)
+    target.retry.unref?.()
+  }
+
+  async function reconnect(target: Target, c: Channel) {
+    const read = await c.rpc.bindingRead?.({ sessionID: c.sessionID }, options(c)).catch(() => undefined)
+    if (read?.state === "attached" && (read.binding as { offerID?: string }).offerID !== c.offerID) {
+      // Do not steal it back from the host whose user just opened it.
+      target.taken = true
+      await close(c)
+      event(target, "status", { state: "connecting" })
+      event(target, "notice", { message: "Conversation moved to another host. Open it again here to take it back." })
+      return
+    }
+    event(target, "status", { state: "connecting" })
+    await close(c)
+    client = undefined
+    later(target, deps.retryMs ?? 1_000)
+  }
+
+  async function reconcile(target: Target) {
+    if (!target.params || target.taken || stopping) return
+    let c = channels.get(target.id)
+    if (!c) {
+      try {
+        await connect(target, target.params)
+        target.problem = undefined
+      } catch (error) {
+        client = undefined
+        if (!(error instanceof WaitingForOffer)) {
+          const message = error instanceof PanelError ? error.message : `Could not connect: ${briefly(error)}`
+          if (message !== target.problem) event(target, "error", { message })
+          target.problem = message
+        }
+      }
+      c = channels.get(target.id)
+    }
+    if (!c) {
+      if (!target.empty || target.pending.length) later(target, deps.retryMs ?? 1_000)
+      return
+    }
+    later(target, checkEveryMs)
+    while (target.pending.length) {
+      if (!(await attached(c).catch(() => false))) return await reconnect(target, c)
+      try {
+        await host(c, "resume")
+      } catch {
+        return later(target, deps.retryMs ?? 1_000)
+      }
+      const text = target.pending.shift() as string
+      event(target, "user_message", { text })
+      try {
+        await (await api()).session.prompt({ sessionID: c.sessionID, text })
+      } catch (error) {
+        // Delivery is uncertain once submitted: never replay automatically.
+        event(target, "error", { message: `Message delivery could not be confirmed: ${briefly(error)}` })
+      }
+    }
+  }
+
+  async function handle(request: PanelRequest) {
     try {
       const params = request.params ?? {}
-      if (request.method === "connect" || request.method === "new_session")
-        await connect(request.channel, params, request.method === "new_session")
-      else {
-        const c = channels.get(request.channel)
-        if (c) await act(c, request.method, params)
-        else if (request.method !== "close") throw new PanelError("Choose Connect first.")
+      const id = request.channel
+      const target = targets.get(id) ?? { id, pending: [] }
+      const c = channels.get(id)
+      if (request.method === "close") {
+        clearTimeout(target.retry)
+        targets.delete(id)
+        if (c) await close(c)
+      } else {
+        targets.set(id, target)
+        if (request.method === "list" && target.params) {
+          await conversationList(target, String(target.params.directory))
+        } else if (request.method === "open" && target.params) {
+          const sessions = await folderSessions(await api(), String(target.params.directory))
+          const selected = sessions.find((s) => s.id === params.session_id)
+          if (!selected) throw new PanelError("That conversation is not in this folder.")
+          target.selected = selected.id
+          target.taken = false
+          target.fresh = false
+          target.pending = []
+          if (c?.sessionID !== selected.id) {
+            event(target, "status", { state: "connecting" })
+            if (c) await close(c)
+            await reconcile(target)
+          }
+        } else if (request.method === "connect" || request.method === "new_session") {
+          const fresh = request.method === "new_session"
+          const moved = target.params && folderKey(target.params.directory) !== folderKey(params.directory)
+          if (moved) target.selected = undefined
+          if (!target.params) {
+            if (typeof params.session_id === "string") target.selected = params.session_id
+            target.fresh = params.draft === true
+          }
+          if (fresh || moved) {
+            if (target.pending.length)
+              event(target, "notice", { message: "Queued messages were not sent to the new conversation." })
+            target.pending = []
+          }
+          target.params = params
+          if (fresh || moved) {
+            target.selected = undefined
+            target.fresh = fresh
+            target.empty = false
+          } else if (target.empty) {
+            target.empty = false
+          }
+          target.taken = false
+          target.problem = undefined
+          event(target, "status", { state: "connecting" })
+          if (c) await close(c)
+          await reconcile(target)
+        } else if (request.method === "prompt") {
+          target.pending.push(String(params.text ?? ""))
+          if (target.params) await reconcile(target)
+        } else if (request.method === "interrupt") {
+          target.pending = []
+          if (c) await act(c, request.method, params)
+        } else if (c) await act(c, request.method, params)
       }
       deps.send({ id: request.id, result: {} })
     } catch (error) {
@@ -405,10 +562,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
         channel: request.channel,
         event: "error",
         data: {
-          message:
-            error instanceof PanelError
-              ? error.message
-              : `The panel action failed: ${briefly(error)} Check that OpenCode runs, then choose Connect.`,
+          message: error instanceof PanelError ? error.message : `The panel action failed: ${briefly(error)}`,
         },
       })
       deps.send({ id: request.id, error: { message: "Panel action failed." } })
@@ -416,7 +570,12 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
   }
 
   return {
-    dispatch,
-    closeAll: () => Promise.allSettled([...channels.values()].map(close)),
+    dispatch: (request: PanelRequest) => serialize(request.channel, () => handle(request)),
+    closeAll: async () => {
+      stopping = true
+      for (const target of targets.values()) clearTimeout(target.retry)
+      await Promise.allSettled(queues.values())
+      await Promise.allSettled([...channels.values()].map(close))
+    },
   }
 }

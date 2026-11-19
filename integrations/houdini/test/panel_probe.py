@@ -32,7 +32,7 @@ class Widget:
     def closeEvent(self, event):
         event.accept()
 
-qt.QtWidgets = types.SimpleNamespace(QWidget=Widget, QPlainTextEdit=object)
+qt.QtWidgets = types.SimpleNamespace(QWidget=Widget, QPlainTextEdit=object, QComboBox=object)
 sys.modules["PySide6"] = qt
 
 
@@ -72,10 +72,14 @@ class PanelTests(unittest.TestCase):
         process.state.return_value = 0
         client = panel.JsonlClient.__new__(panel.JsonlClient)
         client._process = process
-        with patch.object(panel.shutil, "which", return_value=sys.executable):
+        client._targets = {"test": {}}
+        client._problem = ""
+        qt.QtCore.QProcessEnvironment = Mock()
+        with patch.object(panel, "panel_launcher", return_value=(sys.executable, True)):
             client.start()
         process.setArguments.assert_called_once_with([str(root / "sidecar.cjs")])
         process.start.assert_called_once()
+        qt.QtCore.QProcessEnvironment.systemEnvironment.return_value.insert.assert_called_once_with("BUN_BE_BUN", "1")
         self.assertTrue((root / "sidecar.cjs").is_file())
 
     def test_shared_host_lifetime(self):
@@ -102,10 +106,12 @@ class PanelTests(unittest.TestCase):
                 widget._prompt = Mock()
                 widget._session = Mock()
                 widget._append = Mock()
+                widget._target = None
+                integration.acquirePanel(widget._channel)
                 with patch.object(panel, "create_interface", return_value=widget):
                     interfaces[index]["create_interface"] = panel.create_interface
                     self.assertIs(interfaces[index]["onCreateInterface"](), widget)
-                widget._connect()
+                widget._sync()
                 widget._event(widget._channel, "session", {"id": "session-" + str(index)})
             endpoint = integration.hostInfo()
             host, server = integration._host, integration._server
@@ -133,11 +139,6 @@ class PanelTests(unittest.TestCase):
                 self.assertEqual(result["result"]["script_handle"], state.handle)
 
             try:
-                first._disconnect()
-                client.send.assert_called_with(first._channel, "close", {})
-                self.assertFalse(first._connected)
-                assert_live()
-                first._connect()
                 first._new_session()
                 interfaces[0]["onDestroyInterface"]()
                 client.send.assert_called_with(first._channel, "close", {})
@@ -145,7 +146,7 @@ class PanelTests(unittest.TestCase):
                 sends = client.send.call_count
                 interfaces[0]["onDestroyInterface"]()
                 first._destroyed()
-                first._connect()
+                first._sync()
                 self.assertEqual(client.send.call_count, sends)
                 assert_live()
                 # The last panel closing leaves the host with Houdini: its offer serves the other conversations.

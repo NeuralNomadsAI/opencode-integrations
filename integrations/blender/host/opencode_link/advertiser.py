@@ -43,7 +43,7 @@ def offer_label(document):
     name = (document or "Untitled").replace("/", " ").replace("\\", " ")
     name = "".join(char for char in name if ord(char) >= 32 and char != "\x7f").strip() or "Untitled"
     # Public selector for the in-app console: two Blender processes can open the same file.
-    suffix = " [%s]" % os.getpid() if document else ""
+    suffix = " [%s]" % os.getpid()
     return ("Blender: %s" % name)[:LABEL_MAX - len(suffix)] + suffix
 
 

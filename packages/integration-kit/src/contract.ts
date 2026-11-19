@@ -203,9 +203,16 @@ export const RPC_SCHEMAS = {
     properties: {
       offerID: { type: "string", pattern: OFFER_ID_PATTERN },
       sessionID: { type: "string", pattern: SESSION_ID_PATTERN },
+      takeover: { type: "boolean" },
     },
   },
-  "attachHost.output": outcome(["attached", "busy", "gone", "refused"]),
+  "attachHost.output": {
+    ...outcome(["attached", "busy", "gone", "refused"]),
+    properties: {
+      outcome: { enum: ["attached", "busy", "gone", "refused"] },
+      replaced: { type: "boolean" },
+    },
+  },
   "detachHost.input": {
     type: "object",
     additionalProperties: false,
@@ -242,7 +249,13 @@ export const RPC_SCHEMAS = {
       },
     ],
   },
-  "advertise.output": outcome(["accepted", "renewed", "refused"]),
+  "advertise.output": {
+    ...outcome(["accepted", "renewed", "refused"]),
+    properties: {
+      outcome: { enum: ["accepted", "renewed", "refused"] },
+      panel_runtime: { type: "string", maxLength: 4096 },
+    },
+  },
   "withdraw.output": outcome(["withdrawn", "none"]),
   "status_changed.event": empty(),
   "hosts_changed.event": empty(),

@@ -3,13 +3,18 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import uuid
 
 import hou
 from PySide6 import QtCore, QtGui, QtWidgets
 
 import opencode_houdini
+
+
+def panel_launcher(results, override):
+    from .opencode_service import panel_launcher as choose
+
+    return choose(results, override)
 
 
 def _log(message: str) -> None:
@@ -37,29 +42,63 @@ class JsonlClient(QtCore.QObject):
         self._process.errorOccurred.connect(self._process_error)
         self._process.finished.connect(self._finished)
         self._stdout = b""
-        self._pending: list[bytes] = []
+        self._pending: list[tuple] = []
+        self._targets: dict[str, dict] = {}
+        self._problem = ""
         self._request = 0
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self.start)
+        self._timer.start(1000)
 
     def start(self) -> None:
-        if self._process.state() != QtCore.QProcess.ProcessState.NotRunning:
+        if not self._targets or self._process.state() != QtCore.QProcess.ProcessState.NotRunning:
             return
-        node = os.environ.get("NEURALNOMADS_HOUDINI_NODE") or shutil.which("node")
+        services = opencode_houdini.panelServices()
+        runtime, bun = panel_launcher(services, "NEURALNOMADS_HOUDINI_NODE")
         sidecar = str(Path(__file__).resolve().parents[2] / "sidecar.cjs")
-        if not node:
-            self.diagnostic.emit("Install Node.js 22 or set NEURALNOMADS_HOUDINI_NODE")
-            return
+        problem = ""
         if not Path(sidecar).is_file():
-            _log("sidecar missing: " + sidecar)
-            self.diagnostic.emit(
-                "OpenCode Link sidecar is missing; reinstall the application part."
-            )
+            problem = "OpenCode Link sidecar is missing; reinstall the application part."
+        elif not runtime and services:
+            problem = "No OpenCode runtime, NEURALNOMADS_HOUDINI_NODE executable, or Node on PATH."
+        if problem and problem != self._problem:
+            self.diagnostic.emit(problem)
+            self._problem = problem
+        if problem or not runtime:
             return
-        self._process.setProgram(node)
+        env = QtCore.QProcessEnvironment.systemEnvironment()
+        env.remove("BUN_BE_BUN")
+        if bun:
+            env.insert("BUN_BE_BUN", "1")
+        self._process.setProcessEnvironment(env)
+        self._process.setProgram(runtime)
         self._process.setArguments([sidecar])
         self._process.setWorkingDirectory(str(Path(sidecar).resolve().parent.parent))
         self._process.start()
 
     def send(self, channel: str, method: str, params: dict) -> None:
+        if method in ("connect", "new_session"):
+            previous = self._targets.get(channel, {})
+            if method == "new_session" or previous.get("directory") != params.get("directory"):
+                self._pending = [item for item in self._pending if item[0] != channel]
+            else:
+                params = {**params, "session_id": previous.get("session_id"), "draft": previous.get("draft", False)}
+            self._targets[channel] = params
+        elif method == "close":
+            self._targets.pop(channel, None)
+            self._pending = [item for item in self._pending if item[0] != channel]
+        if self._process.state() == QtCore.QProcess.ProcessState.Running:
+            self._write(channel, method, params)
+        elif method not in ("connect", "new_session", "close"):
+            if method == "interrupt":
+                self._pending = [item for item in self._pending if item[0] != channel or item[1] != "prompt"]
+            if len(self._pending) >= 100:
+                self.diagnostic.emit("OpenCode sidecar request queue is full")
+                return
+            self._pending.append((channel, method, params))
+        self.start()
+
+    def _write(self, channel, method, params):
         self._request += 1
         _log("send method=" + method + " channel=" + channel + " params=" + json.dumps({key: value for key, value in params.items() if key != "token"}, default=str))
         message = (
@@ -69,13 +108,7 @@ class JsonlClient(QtCore.QObject):
             )
             + "\n"
         ).encode("utf-8")
-        if self._process.state() == QtCore.QProcess.ProcessState.Running:
-            self._process.write(message)
-        elif len(self._pending) < 100:
-            self._pending.append(message)
-            self.start()
-        else:
-            self.diagnostic.emit("OpenCode sidecar request queue is full")
+        self._process.write(message)
 
     def stop(self) -> None:
         if self._process.state() != QtCore.QProcess.ProcessState.NotRunning:
@@ -85,8 +118,11 @@ class JsonlClient(QtCore.QObject):
     def _started(self) -> None:
         _log("sidecar started")
         pending, self._pending = self._pending, []
-        for message in pending:
-            self._process.write(message)
+        self._problem = ""
+        for channel, params in self._targets.items():
+            self._write(channel, "connect", params)
+        for item in pending:
+            self._write(*item)
 
     def _read_stdout(self) -> None:
         self._stdout += bytes(self._process.readAllStandardOutput())
@@ -98,12 +134,15 @@ class JsonlClient(QtCore.QObject):
                 message = json.loads(raw.decode("utf-8"))
                 _log("recv " + json.dumps(message, default=str)[:2000])
                 if message.get("event"):
+                    channel = str(message.get("channel", ""))
+                    if message["event"] == "session" and channel in self._targets:
+                        self._targets[channel] = {**self._targets[channel], "session_id": message["data"]["id"], "draft": message["data"].get("draft", False)}
                     self.eventReceived.emit(
-                        str(message.get("channel", "")),
+                        channel,
                         str(message["event"]),
                         message.get("data") or {},
                     )
-                elif message.get("error"):
+                elif message.get("error") and not message.get("id"):
                     self.diagnostic.emit(str(message["error"].get("message", message["error"])))
             except Exception:
                 self.diagnostic.emit("Malformed sidecar output: " + raw[:200].decode("utf-8", "replace"))
@@ -120,7 +159,9 @@ class JsonlClient(QtCore.QObject):
 
     def _finished(self, exit_code, exit_status) -> None:
         _log("sidecar finished exit=" + str(exit_code) + " status=" + str(exit_status))
-        self.diagnostic.emit("OpenCode sidecar stopped with exit code " + str(exit_code))
+        self._stdout = b""
+        for channel in self._targets:
+            self.eventReceived.emit(channel, "status", {"state": "connecting"})
 
 
 class PromptEdit(QtWidgets.QPlainTextEdit):
@@ -132,6 +173,14 @@ class PromptEdit(QtWidgets.QPlainTextEdit):
             event.accept()
             return
         super().keyPressEvent(event)
+
+
+class Conversations(QtWidgets.QComboBox):
+    opening = QtCore.Signal()
+
+    def showPopup(self) -> None:
+        self.opening.emit()
+        super().showPopup()
 
 
 class OpenCodePanel(QtWidgets.QWidget):
@@ -150,7 +199,12 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._client.diagnostic.connect(self._diagnostic)
         self.destroyed.connect(self._destroyed)
         hou.hipFile.addEventCallback(self._hip_event)
-        self._status.setText("DISCONNECTED")
+        opencode_houdini.acquirePanel(self._channel)
+        self._target = None
+        self._sync()
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._sync)
+        self._timer.start(500)
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
@@ -162,16 +216,13 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._session = QtWidgets.QLabel("SESSION  connecting")
         self._status = QtWidgets.QLabel("STARTING")
         self._status.setObjectName("openCodeHoudiniStatus")
-        self._new = QtWidgets.QPushButton("New")
-        self._connect_button = QtWidgets.QPushButton("Connect")
-        self._disconnect_button = QtWidgets.QPushButton("Disconnect")
+        self._conversations = Conversations()
+        self._conversations.addItem("New conversation", None)
         header.addWidget(brand)
         header.addWidget(self._session)
         header.addStretch(1)
         header.addWidget(self._status)
-        header.addWidget(self._new)
-        header.addWidget(self._connect_button)
-        header.addWidget(self._disconnect_button)
+        header.addWidget(self._conversations)
         layout.addLayout(header)
 
         self._transcript = QtWidgets.QTextEdit()
@@ -200,8 +251,6 @@ class OpenCodePanel(QtWidgets.QWidget):
         self._stop = QtWidgets.QPushButton("Stop")
         self._send = QtWidgets.QPushButton("Send")
         self._stop.setEnabled(False)
-        self._send.setEnabled(False)
-        self._prompt.setEnabled(False)
         prompt_row.addWidget(self._prompt, 1)
         prompt_row.addWidget(self._stop)
         prompt_row.addWidget(self._send)
@@ -213,9 +262,8 @@ class OpenCodePanel(QtWidgets.QWidget):
             "#openCodeHoudiniStatus { color: #d5a657; font-weight: 600; }"
             "#openCodeHoudiniTranscript { border: 1px solid #34393e; background: #191b1d; }"
         )
-        self._new.clicked.connect(self._new_session)
-        self._connect_button.clicked.connect(self._connect)
-        self._disconnect_button.clicked.connect(self._disconnect)
+        self._conversations.activated.connect(self._choose_conversation)
+        self._conversations.opening.connect(lambda: self._client.send(self._channel, "list", {}))
         self._send.clicked.connect(self._send_prompt)
         self._prompt.sendRequested.connect(self._send_prompt)
         self._stop.clicked.connect(lambda: self._client.send(self._channel, "interrupt", {}))
@@ -230,41 +278,30 @@ class OpenCodePanel(QtWidgets.QWidget):
         offer = opencode_houdini.offerInfo()
         return {
             **info,
-            # This Houdini offers itself (OpenCode Link starts with Houdini): the panel finds that offer by its
-            # label and attaches its own conversation to it, which it takes back per file next time.
             "offer_label": offer["label"],
-            "sessions_file": str(Path(__file__).resolve().parents[3].parent / "panel-sessions.json"),
             "script_handle": opencode_houdini.scriptHandle(),
-            "script_key": "untitled:" + opencode_houdini.scriptHandle() if is_untitled else str(Path(file_name).resolve()),
-            "script_name": hou.hipFile.basename(),
             "directory": directory,
         }
 
-    def _connect(self) -> None:
+    def _sync(self) -> None:
         if self._disposed:
             return
-        opencode_houdini.acquirePanel(self._channel)
-        self._connected = False
-        self._status.setText("CONNECTING")
-        self._send.setEnabled(False)
-        self._prompt.setEnabled(False)
-        self._client.send(self._channel, "connect", self._connect_params())
+        params = self._connect_params()
+        if params != self._target:
+            self._target = params
+            self._client.send(self._channel, "connect", params)
 
     def _new_session(self) -> None:
         if self._disposed:
             return
-        opencode_houdini.acquirePanel(self._channel)
-        self._status.setText("CONNECTING")
-        self._client.send(self._channel, "new_session", self._connect_params())
+        self._client.send(self._channel, "new_session", self._target)
 
-    def _disconnect(self) -> None:
-        # The host and its offer stay: other conversations attached to this Houdini keep it.
-        opencode_houdini.releasePanel(self._channel)
-        self._client.send(self._channel, "close", {})
-        self._connected = False
-        self._send.setEnabled(False)
-        self._prompt.setEnabled(False)
-        self._status.setText("DISCONNECTED")
+    def _choose_conversation(self, index: int) -> None:
+        session = self._conversations.itemData(index)
+        if session:
+            self._client.send(self._channel, "open", {"session_id": session})
+        else:
+            self._new_session()
 
     def _send_prompt(self) -> None:
         if self._busy:
@@ -273,7 +310,6 @@ class OpenCodePanel(QtWidgets.QWidget):
         if not text:
             return
         self._prompt.clear()
-        self._append("user", text)
         self._client.send(self._channel, "prompt", {"text": text})
 
     def _permission_reply(self, reply: str) -> None:
@@ -293,12 +329,22 @@ class OpenCodePanel(QtWidgets.QWidget):
             return
         if name == "session":
             self._connected = True
-            self._session.setText("SESSION  " + str(data.get("id", ""))[-8:])
+            self._session.setText("SESSION  " + str(data["id"])[-8:] if data.get("id") else "New conversation")
             self._append("system", "Resumed session" if data.get("resumed") else "New session")
         elif name == "history":
             self._transcript.clear()
             for message in data.get("messages", []):
                 self._append(message.get("role", "system"), message.get("text", ""))
+        elif name == "conversations":
+            self._conversations.clear()
+            self._conversations.addItem("New conversation", None)
+            for entry in data["entries"]:
+                self._conversations.addItem(entry.get("title") or "Untitled", entry["id"])
+            self._conversations.setCurrentIndex(max(0, self._conversations.findData(data.get("selected"))))
+        elif name == "notice":
+            self._append("system", data["message"])
+        elif name == "user_message":
+            self._append("user", data["text"])
         elif name == "assistant_start":
             self._start_assistant()
         elif name == "assistant_delta":
@@ -316,10 +362,14 @@ class OpenCodePanel(QtWidgets.QWidget):
         elif name == "status":
             state = str(data.get("state", "unknown"))
             self._status.setText(state.upper())
+            if state == "connecting":
+                self._connected = False
+                self._permission_request = None
+                self._permission.hide()
             self._busy = state in ("busy", "retry")
-            self._stop.setEnabled(self._busy)
-            self._send.setEnabled(self._connected and not self._busy)
-            self._prompt.setEnabled(self._connected and not self._busy)
+            self._stop.setEnabled(self._busy or state == "connecting")
+            self._send.setEnabled(not self._busy)
+            self._prompt.setEnabled(not self._busy)
         elif name == "graph_revision":
             self._status.setToolTip("Houdini graph revision " + str(data.get("revision")))
         elif name == "error":
@@ -327,8 +377,8 @@ class OpenCodePanel(QtWidgets.QWidget):
             self._status.setText("ERROR")
             self._busy = False
             self._stop.setEnabled(False)
-            self._send.setEnabled(self._connected)
-            self._prompt.setEnabled(self._connected)
+            self._send.setEnabled(True)
+            self._prompt.setEnabled(True)
 
     @QtCore.Slot(str)
     def _diagnostic(self, text: str) -> None:
@@ -380,7 +430,7 @@ class OpenCodePanel(QtWidgets.QWidget):
             hou.hipFileEventType.AfterClear,
             hou.hipFileEventType.AfterLoad,
         ):
-            self._disconnect()
+            self._sync()
 
     def dispose(self) -> None:
         if self._disposed:

@@ -1,6 +1,6 @@
 # OpenCode for Gaffer (preview)
 
-Read, change and check the scripts open in Gaffer from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode for Gaffer** panel inside Gaffer. Gaffer 1.6 or later and OpenCode 2.2 or later are required; the panel also needs Node.js 22 or later.
+Read, change and check the scripts open in Gaffer from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode for Gaffer** panel inside Gaffer. Gaffer 1.6 or later and OpenCode 2.2 or later are required.
 
 ## Install
 
@@ -41,7 +41,7 @@ A call that outlasts its wait says whether Gaffer still runs it (OpenCode Link a
 
 ## The OpenCode for Gaffer panel
 
-The **OpenCode for Gaffer** editor is a conversation inside Gaffer. **Connect** attaches the panel's conversation to its script's own offer, resuming the conversation it had for this script; **New** starts another. Closing the panel releases its conversation only: the script stays offered and other conversations attached to it keep it. The panel and other conversations (CodeNomad's, for instance) can be attached to the same script together; both write to it, each change checked against its revision. The panel's conversation lives in the script's folder: the first Connect there waits while OpenCode opens that folder and loads its plugins. A failed Connect says which step failed and why. Node.js is found on `PATH`; `NEURALNOMADS_GAFFER_NODE` names another one.
+The **OpenCode for Gaffer** editor connects automatically to the latest conversation in the script’s folder. Opening another version in that folder keeps the selected conversation. The selector next to the model lists the folder’s conversations; **New conversation** creates nothing until you send a message. **Stop** interrupts the turn or clears queued prompts. The panel uses OpenCode’s executable, with Node.js 22+ (`NEURALNOMADS_GAFFER_NODE` or `PATH`) as a fallback.
 
 ## Limits
 

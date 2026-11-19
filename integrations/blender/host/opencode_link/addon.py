@@ -120,6 +120,7 @@ def pump(seconds, stop=None):
 _reload_at = None
 _quit_at = None
 _quit_requested = False
+_reloading = False
 
 
 def schedule_quit():
@@ -160,7 +161,7 @@ def schedule_reload():
 def run_pending_reload():
     """Disable the add-on, drop its modules and enable it again from disk, which offers the session again:
     a new listener, token and script handle (references are invalidated), the same offer key."""
-    global _reload_at
+    global _reload_at, _reloading
     if _reload_at is None:
         return None
     _reload_at = None
@@ -172,7 +173,11 @@ def run_pending_reload():
         return RELOAD_DELAY
     if _session is not None:
         process_state().revision = _session.app.revision()
-    addon_utils.disable(__package__, default_set=False, handle_error=None)
+    _reloading = True
+    try:
+        addon_utils.disable(__package__, default_set=False, handle_error=None)
+    finally:
+        _reloading = False
     for name in [name for name in sys.modules if name == __package__ or name.startswith(__package__ + ".")]:
         del sys.modules[name]
     addon_utils.enable(__package__, default_set=False, handle_error=None)
@@ -256,7 +261,6 @@ def _on_change(*_args):
 def _on_save(*args):
     if _session is not None:
         _session.app.saved(args[0] if args and isinstance(args[0], str) else None)
-        chat.check_document()
 
 
 @persistent
@@ -267,7 +271,6 @@ def _on_history(*_args):
 
 @persistent
 def _on_load(*_args):
-    chat.disconnect()
     if _session is not None:
         _session.app.loaded()
         _session.core.quarantined = False
@@ -335,7 +338,7 @@ def _start_offer():
 
 def unregister():
     global _session
-    chat.unregister()
+    chat.unregister(keep_language=_reloading)
     console.capture().uninstall()
     _remove_handlers()
     if _session is not None:

@@ -341,6 +341,7 @@ class HostTests(unittest.TestCase):
         fake._ready = lambda service, rpc, directory, deadline: (calls.append("status") or (200, {"output": {}}))
         fake._unavailable = lambda status, body: False
         fake._outcome = lambda method, status, body: body
+        fake.panel_runtime = lambda outcome, body: {}
         fake.call = lambda service, rpc, method, payload, directory, timeout: (
             calls.append("%s:%.0f" % (method, timeout)) or (200, outcomes.pop(0) if outcomes else "renewed"))
         sys.modules["opencode_houdini.opencode_service"] = fake

@@ -247,6 +247,16 @@ func advertise_once() -> Variant:
 	return results
 
 
+static func _advertise_result(service: String, label: String, answer: Array) -> Dictionary:
+	var said := outcome("advertise", answer[0], answer[1])
+	var result := {"service": service, "label": label, "outcome": said}
+	if said in ["accepted", "renewed"]:
+		var runtime: Variant = answer[1].output.get("panel_runtime")
+		if runtime is String and runtime.is_absolute_path():
+			result.panel_runtime = runtime
+	return result
+
+
 func _renew(offers: Array, project: String) -> Array:
 	_count += 1
 	var results := []
@@ -256,9 +266,9 @@ func _renew(offers: Array, project: String) -> Array:
 			var target: Array = _targets[name]
 			for offer in offers:
 				var answer := call_rpc(target[0], "advertise", offer, target[1], RENEW_TIMEOUT_MS)
-				var said := outcome("advertise", answer[0], answer[1])
-				results.append({"service": name, "label": offer.label, "outcome": said})
-				failed = failed or not said in ["accepted", "renewed"]
+				var result := _advertise_result(name, offer.label, answer)
+				results.append(result)
+				failed = failed or not result.outcome in ["accepted", "renewed"]
 		if not failed:
 			return results
 	var found := {}
@@ -273,12 +283,12 @@ func _renew(offers: Array, project: String) -> Array:
 			reached = true
 			var taken := false
 			for offer in offers:
-				var said := "error"
+				var sent := [500, null]
 				if answer[0] == 200:
-					var sent := call_rpc(service, "advertise", offer, directory, maxi(500, deadline - Time.get_ticks_msec()))
-					said = outcome("advertise", sent[0], sent[1])
-				results.append({"service": service.file, "label": offer.label, "outcome": said})
-				taken = taken or said in ["accepted", "renewed"]
+					sent = call_rpc(service, "advertise", offer, directory, maxi(500, deadline - Time.get_ticks_msec()))
+				var result := _advertise_result(service.file, offer.label, sent)
+				results.append(result)
+				taken = taken or result.outcome in ["accepted", "renewed"]
 			if taken:
 				found[service.file] = [service, directory]
 			break

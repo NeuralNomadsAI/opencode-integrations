@@ -6,17 +6,19 @@ import os
 from pathlib import Path
 import queue
 import re
-import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 import uuid
 
 import bpy
 
-from .opencode_service import registration_name
+from .opencode_service import panel_launcher, registration_name
+from .process import state as process_state
 
-HELP = "/connect  /stop  /disconnect  /new  /status  /help  /allow  /reject"
+HELP = "/list  /open <n>  /new  /stop  /status  /help  /allow  /reject"
 INTERVAL = 0.05
 
 
@@ -45,28 +47,29 @@ class Lines:
 
 
 class Pipes:
-    def __init__(self):
+    def __init__(self, launcher):
         self.out = queue.Queue()
         self.inbox = queue.Queue()
-        threading.Thread(target=self._read, daemon=True).start()
+        threading.Thread(target=self._read, args=launcher, daemon=True).start()
 
-    def _read(self):
+    def _read(self, runtime, bun):
         def failed(message):
             self.out.put({"event": "exit", "data": {"message": message}})
 
-        node = shutil.which(os.environ.get("NEURALNOMADS_BLENDER_NODE") or "node")
-        if not node:
-            return failed("Node.js 22+ not found. Set NEURALNOMADS_BLENDER_NODE or add Node to PATH.")
         script = Path(__file__).with_name("sidecar.cjs")
         if not script.is_file():
             return failed("Console sidecar missing. Install the built OpenCode Link add-on.")
+        env = os.environ.copy()
+        env.pop("BUN_BE_BUN", None)
+        if bun:
+            env["BUN_BE_BUN"] = "1"
         try:
             proc = subprocess.Popen(
-                [node, str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                [runtime, str(script)], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError:
-            return failed("Could not start Node.js.")
+            return failed("Could not start the OpenCode sidecar runtime.")
 
         def write():
             with proc.stdin:
@@ -86,7 +89,7 @@ class Pipes:
                     pass
         self.inbox.put(None)
         proc.wait()
-        failed("Console sidecar exited. Use /connect to try again.")
+        failed("")
 
 
 class Chat:
@@ -94,15 +97,28 @@ class Chat:
         self.pipes = None
         self.lines = Lines()
         self.permission = {}
-        self.path = ""
-        self.request = None
-        self.state, self.agent, self.model = "Disconnected", "", ""
+        self.target = None
+        self.unsent = []
+        self.entries = []
+        self.numbered = []
+        self.menu_time = 0
+        self.redraw = False
+        self.show_list = False
+        self.selected = None
+        self.draft = False
+        self.active = False
+        self.problem = ""
+        self.retry_at = 0
+        self.state, self.agent, self.model = "Connecting", "", ""
 
     def send(self, method, **params):
-        if self.pipes is None:
-            self.pipes = Pipes()
         request = uuid.uuid4().hex
-        self.pipes.inbox.put({"id": request, "channel": "blender", "method": method, "params": params})
+        if self.pipes:
+            self.pipes.inbox.put({"id": request, "channel": "blender", "method": method, "params": params})
+        elif method == "prompt":
+            self.unsent.append(params)
+        elif method == "interrupt":
+            self.unsent.clear()
         return request
 
     def close(self):
@@ -113,7 +129,32 @@ class Chat:
 
     def status(self):
         name = os.path.basename(bpy.data.filepath) or "Untitled"
+        if self.problem:
+            return f"OpenCode | {name} | {self.problem}"
         return f"OpenCode | {name} | {self.state} | agent: {self.agent or 'default'} | model: {self.model or 'default'}"
+
+    def blocked(self, message, append):
+        if message != self.problem:
+            self.problem = message
+            if message:
+                append("INFO", self.status())
+
+    def sync(self, target):
+        if target != self.target:
+            if target and self.target and target["directory"] != self.target["directory"]:
+                self.unsent.clear()
+                self.entries = []
+                self.numbered = []
+                self.selected = None
+                self.draft = False
+            self.target = target
+            self.state, self.agent, self.model = "Connecting", "", ""
+            self.lines = Lines()
+            self.permission.clear()
+            if target is not None:
+                self.send("connect", **target)
+            elif self.pipes:
+                self.send("close")
 
     def drain(self, append, limit=120):
         if not self.pipes:
@@ -135,35 +176,37 @@ class Chat:
                 append("OUTPUT", line)
 
         if name == "exit":
-            append("ERROR", data["message"])
-            self.close()
-        elif name == "error":
-            append("ERROR", data["message"])
-        elif item.get("id") and self.request and item["id"] == self.request[0]:
-            method = self.request[1]
-            self.request = None
-            if method == "close":
-                self.close()
-                append("INFO", "Disconnected.")
-            elif method in ("connect", "new_session") and item.get("error"):
-                self.state = "Disconnected"
-            elif method == "prompt" and item.get("error"):
-                self.state = "Ready"
-            elif method == "interrupt" and not item.get("error"):
-                append("INFO", "Stop requested.")
-        elif self.state == "Disconnecting":
-            return
-        elif name == "disconnected":
-            self.state = "Disconnected"
-            self.permission.clear()
             output(end=True)
-            append("ERROR", data["message"])
-        elif self.state == "Disconnected":
-            return
+            self.pipes = None
+            self.state = "Connecting"
+            self.retry_at = time.monotonic() + 2
+            self.blocked(data["message"], append)
+        elif name == "error":
+            if self.state == "Connecting":
+                self.blocked(data["message"], append)
+            else:
+                append("ERROR", data["message"])
+        elif name == "notice":
+            append("INFO", data["message"])
         elif name == "session":
+            self.selected = data["id"]
+            self.draft = data.get("draft", False)
             self.state, self.agent, self.model = "Ready", data.get("agent"), data.get("model")
-            append("INFO", "Resumed conversation." if data.get("resumed") else "New conversation attached.")
+            self.problem = ""
+            if self.selected:
+                append("INFO", "Resumed conversation." if data.get("resumed") else "New conversation attached.")
             append("INFO", self.status())
+        elif name == "conversations":
+            self.entries = data["entries"]
+            self.redraw = True
+            if self.show_list:
+                self.show_list = False
+                self.numbered = self.entries
+                for i, entry in enumerate(self.numbered, 1):
+                    mark = "*" if entry["id"] == data.get("selected") else " "
+                    append("INFO", f"{mark}{i}. {entry['title']}")
+                if not self.numbered:
+                    append("INFO", "No conversations in this folder yet.")
         elif name == "assistant_delta":
             output(data["text"])
         elif name == "assistant_end":
@@ -173,7 +216,10 @@ class Chat:
             duration = "" if elapsed is None else f" ({elapsed / 1000:.2f} s)"
             append("INFO", f"Tool: {data.get('name') or 'tool'} — {data['state']}{duration}")
         elif name == "status":
-            self.state = "Working" if data["state"] == "busy" else "Ready"
+            self.state = {"busy": "Working", "connecting": "Connecting"}.get(data["state"], "Ready")
+            if self.state == "Connecting":
+                output(end=True)
+                self.permission.clear()
             if self.state == "Ready":
                 output(end=True)
                 self.permission.clear()
@@ -200,64 +246,74 @@ def _append(kind, text):
     bpy.ops.console.scrollback_append(text=text, type=kind)
 
 
-def _broadcast(rows):
-    for window in bpy.context.window_manager.windows:
+def _areas():
+    manager = getattr(bpy.context, "window_manager", None)
+    for window in manager.windows if manager else ():
         for area in window.screen.areas:
             if area.type != "CONSOLE" or area.spaces.active.language != "opencode":
                 continue
             region = next((r for r in area.regions if r.type == "WINDOW"), None)
             if region is not None:
-                with bpy.context.temp_override(window=window, area=area, region=region):
-                    for kind, text in rows:
-                        _append(kind, text)
-                area.tag_redraw()
+                yield window, area, region
 
 
 def _drain():
+    areas = list(_areas())
+    chat.active = chat.active or bool(areas)
+    if not chat.active:
+        return 0.5
     rows = []
-    chat.drain(lambda kind, text: rows.append((kind, text)))
-    if rows:
-        _broadcast(rows)
-    return INTERVAL if chat.pipes else None
+    def append(kind, text):
+        rows.append((kind, text))
+    _sync(append)
+    chat.drain(append)
+    if rows or chat.redraw:
+        for window, area, region in areas:
+            with bpy.context.temp_override(window=window, area=area, region=region):
+                for kind, text in rows:
+                    _append(kind, text)
+            area.tag_redraw()
+        chat.redraw = False
+    return INTERVAL
 
 
-def disconnect():
-    if chat.pipes and chat.state != "Disconnecting":
-        chat.state = "Disconnecting"
-        chat.request = (chat.send("close"), "close")
-
-
-def check_document():
-    if chat.path and chat.path != bpy.data.filepath:
-        disconnect()
-
-
-def _connect(method):
+def _sync(append):
     from .addon import preferences, session
 
+    if time.monotonic() < chat.retry_at:
+        return
     path = bpy.data.filepath
-    if not path:
-        return _append("ERROR", "Save this .blend before connecting.")
+    if path:
+        directory = os.path.dirname(path)
+    else:
+        process = process_state()
+        if not getattr(process, "console_unsaved_folder", None):
+            process.console_unsaved_folder = tempfile.TemporaryDirectory(prefix="opencode-blender-")
+        directory = process.console_unsaved_folder.name
     host = session()
     port, token, handle, label = host.snapshot() if host else (0, None, "", "")
-    if not token:
-        return _append("ERROR", "OpenCode Link is not offering this Blender yet.")
     try:
-        registration = registration_name(preferences().service_name.strip())
+        prefs = preferences()
+        registration = registration_name(prefs.service_name.strip()) if prefs else None
     except (ValueError, AttributeError):
-        return _append("ERROR", "Invalid OpenCode service name in OpenCode Link preferences.")
-    chat.path = path
-    chat.state, chat.agent, chat.model = "Connecting", "", ""
-    chat.permission.clear()
-    chat.lines = Lines()
-    chat.request = (chat.send(
-        method, host="127.0.0.1", port=port, token=token, script_handle=handle, offer_label=label,
-        directory=os.path.dirname(path), document_name=os.path.basename(path),
-        document_key=os.path.normcase(os.path.abspath(path)), registration=registration,
-    ), method)
-    if not bpy.app.timers.is_registered(_drain):
-        bpy.app.timers.register(_drain, first_interval=0, persistent=True)
-    _append("INFO", "Connecting to OpenCode…")
+        chat.sync(None)
+        return chat.blocked("Invalid OpenCode service name in OpenCode Link preferences.", append)
+    chat.sync(dict(
+        host="127.0.0.1", port=port, token=token, script_handle=handle, offer_label=label,
+        directory=directory,
+        registration=registration,
+    ))
+    if not chat.pipes:
+        services = host.advertiser.results if host and host.advertiser else []
+        launcher = panel_launcher(services, "NEURALNOMADS_BLENDER_NODE")
+        if launcher[0]:
+            chat.pipes = Pipes(launcher)
+            chat.send("connect", **chat.target, session_id=chat.selected, draft=chat.draft)
+            for params in chat.unsent:
+                chat.send("prompt", **params)
+            chat.unsent.clear()
+        elif services:
+            chat.blocked("No OpenCode runtime, NEURALNOMADS_BLENDER_NODE executable, or Node on PATH.", append)
 
 
 def execute(context, is_interactive):
@@ -267,25 +323,31 @@ def execute(context, is_interactive):
         return {"CANCELLED"}
     _append("INPUT", "> " + text)
     bpy.ops.console.history_append(text="", current_character=0, remove_duplicates=True)
-    check_document()
+    chat.active = True
+    _sync(_append)
     if text in ("/help", "/status"):
         _append("INFO", HELP if text == "/help" else chat.status())
-    elif text in ("/connect", "/new"):
-        if chat.state in ("Connecting", "Working", "Disconnecting"):
-            _append("INFO", "Wait for the current operation or use /stop.")
-        else:
-            _connect("connect" if text == "/connect" else "new_session")
-    elif text == "/disconnect":
+    elif text == "/list":
         if chat.pipes:
-            disconnect()
+            chat.show_list = True
+            chat.send("list")
         else:
-            _append("INFO", "Disconnected.")
+            _append("INFO", chat.status())
+    elif text.startswith("/open "):
+        index = text[6:].strip()
+        if chat.pipes and index.isascii() and index.isdecimal() and len(index) < 8 and 1 <= int(index) <= len(chat.numbered):
+            chat.send("open", session_id=chat.numbered[int(index) - 1]["id"])
+        else:
+            _append("INFO", "Use /list, then /open <n>.")
+    elif text == "/new":
+        if chat.state == "Ready" and chat.target:
+            chat.send("new_session", **chat.target)
+        else:
+            _append("INFO", "Wait for OpenCode to be ready.")
     elif text.startswith("/") and text not in ("/stop", "/allow", "/reject"):
         _append("ERROR", "Unknown command. Use /help.")
-    elif chat.state not in ("Ready", "Working"):
-        _append("INFO", "Use /connect first.")
     elif text == "/stop":
-        chat.request = (chat.send("interrupt"), "interrupt")
+        chat.send("interrupt")
     elif text in ("/allow", "/reject"):
         if len(chat.permission) == 1:
             request_id = next(iter(chat.permission))
@@ -296,9 +358,10 @@ def execute(context, is_interactive):
             _append("INFO", "No permission is pending.")
     elif chat.state == "Working":
         _append("INFO", "OpenCode is working. Wait or use /stop.")
+    elif chat.target:
+        chat.send("prompt", text=text)
     else:
-        chat.state = "Working"
-        chat.request = (chat.send("prompt", text=text), "prompt")
+        _append("INFO", chat.status())
     return {"FINISHED"}
 
 
@@ -313,23 +376,78 @@ def copy_as_script(context):
 
 
 def banner(context):
+    chat.active = True
+    _sync(_append)
     context.space_data.prompt = "> "
     _append("INFO", chat.status())
     _append("INFO", HELP)
     return {"FINISHED"}
 
 
+def _header(self, context):
+    if context.space_data.language == "opencode":
+        selected = next((entry["title"] for entry in chat.entries if entry["id"] == chat.selected), "New conversation")
+        self.layout.menu("OPENCODE_MT_conversations", text=selected)
+
+
+def _menu_classes():
+    # Blender is optional for the pipe/console unit tests.
+    class OPENCODE_OT_console_conversation(bpy.types.Operator):
+        bl_idname = "opencode.console_conversation"
+        bl_label = "Open conversation"
+        session_id: bpy.props.StringProperty()
+
+        def execute(self, _context):
+            if self.session_id and chat.pipes:
+                chat.send("open", session_id=self.session_id)
+            elif chat.state == "Ready" and chat.target:
+                chat.send("new_session", **chat.target)
+            return {"FINISHED"}
+
+    class OPENCODE_MT_conversations(bpy.types.Menu):
+        bl_label = "Conversations"
+
+        def draw(self, _context):
+            now = time.monotonic()
+            if chat.pipes and now - chat.menu_time >= 1:
+                chat.menu_time = now
+                chat.send("list")
+            for entry in chat.entries:
+                item = self.layout.operator(
+                    "opencode.console_conversation", text=entry["title"],
+                    icon="CHECKMARK" if entry["id"] == chat.selected else "NONE",
+                )
+                item.session_id = entry["id"]
+            self.layout.operator("opencode.console_conversation", text="New conversation", icon="ADD").session_id = ""
+
+    return OPENCODE_OT_console_conversation, OPENCODE_MT_conversations
+
+
+_classes = ()
+
+
 def register():
+    global _classes
     # Blender 5.3 lists loaded _console_* modules (and imports them by this name on Enter).
     sys.modules["_console_opencode"] = sys.modules[__name__]
+    _classes = _menu_classes()
+    for cls in _classes:
+        bpy.utils.register_class(cls)
+    bpy.types.CONSOLE_HT_header.append(_header)
+    bpy.app.timers.register(_drain, first_interval=0, persistent=True)
 
 
-def unregister():
+def unregister(keep_language=False):
+    global _classes
     chat.close()
     if bpy.app.timers.is_registered(_drain):
         bpy.app.timers.unregister(_drain)
     if "_console_opencode" in sys.modules:
-        for screen in bpy.data.screens:
+        bpy.types.CONSOLE_HT_header.remove(_header)
+        for cls in reversed(_classes):
+            bpy.utils.unregister_class(cls)
+        _classes = ()
+        for screen in (() if keep_language else bpy.data.screens):
             for area in screen.areas:
                 for space in area.spaces:
                     if space.type == "CONSOLE" and space.language == "opencode":

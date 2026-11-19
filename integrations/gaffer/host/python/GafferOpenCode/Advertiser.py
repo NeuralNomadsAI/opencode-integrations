@@ -104,12 +104,13 @@ class Advertiser :
 			results, failed = [], False
 			for name, ( service, directory ) in targets.items() :
 				for offer in offers :
+					body = None
 					try :
 						status, body = opencode_service.call( service, RPC_ID, "advertise", offer, directory, RENEW_TIMEOUT )
 						outcome = opencode_service._outcome( "advertise", status, body )
 					except ( OSError, ValueError ) :
 						outcome = "error"
-					results.append( { "service" : name, "label" : offer["label"], "outcome" : outcome } )
+					results.append( { "service" : name, "label" : offer["label"], "outcome" : outcome, **opencode_service.panel_runtime( outcome, body ) } )
 					failed = failed or outcome not in ( "accepted", "renewed" )
 			if not failed :
 				return results
@@ -128,21 +129,21 @@ class Advertiser :
 					if opencode_service._unavailable( status, body ) :
 						continue
 					if status != 200 :
-						outcomes = [ ( offer, "error" ) for offer in offers ]
+						outcomes = [ ( offer, "error", None ) for offer in offers ]
 					else :
 						for offer in offers :
 							try :
 								status, body = opencode_service.call(
 									service, RPC_ID, "advertise", offer, directory, max( 0.5, deadline - time.monotonic() )
 								)
-								outcomes.append( ( offer, opencode_service._outcome( "advertise", status, body ) ) )
+								outcomes.append( ( offer, opencode_service._outcome( "advertise", status, body ), body ) )
 							except ( OSError, ValueError ) :
-								outcomes.append( ( offer, "error" ) )
+								outcomes.append( ( offer, "error", None ) )
 				except ( OSError, ValueError ) :
-					outcomes = [ ( offer, "error" ) for offer in offers ]
-				for offer, outcome in outcomes :
-					results.append( { "service" : service.file, "label" : offer["label"], "outcome" : outcome } )
-				if any( outcome in ( "accepted", "renewed" ) for _, outcome in outcomes ) :
+					outcomes = [ ( offer, "error", None ) for offer in offers ]
+				for offer, outcome, body in outcomes :
+					results.append( { "service" : service.file, "label" : offer["label"], "outcome" : outcome, **opencode_service.panel_runtime( outcome, body ) } )
+				if any( outcome in ( "accepted", "renewed" ) for _, outcome, _ in outcomes ) :
 					found[service.file] = ( service, directory )
 				break
 			else :

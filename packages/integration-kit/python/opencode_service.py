@@ -29,6 +29,7 @@ import hashlib
 import http.client
 import json
 import os
+import shutil
 import re
 import time
 import urllib.error
@@ -194,6 +195,14 @@ def _outcome(method, status, body):
     return value if status == 200 and value in OUTCOMES[method] else "error"
 
 
+def panel_runtime(outcome, body):
+    if outcome in ("accepted", "renewed") and isinstance(body, dict):
+        runtime = body.get("output", {}).get("panel_runtime")
+        if isinstance(runtime, str) and os.path.isabs(runtime):
+            return {"panel_runtime": runtime}
+    return {}
+
+
 def _ready(service, rpc_id, directory, deadline):
     # Registration is asynchronous on cold Locations. Only the payload-free
     # status read is repeated; an advertisement/withdrawal is never a probe.
@@ -213,6 +222,7 @@ def _each_service(method, rpc_id, payload, service_name, config_dir_setting, env
     results = []
     for service in discover(service_name, env, timeout):
         outcome = "unavailable"
+        runtime = {}
         for directory in location_candidates(config_dir_setting, env):
             try:
                 deadline = time.monotonic() + timeout
@@ -233,9 +243,23 @@ def _each_service(method, rpc_id, payload, service_name, config_dir_setting, env
                 outcome = "unavailable"
             else:
                 outcome = _outcome(method, status, body)
+                if method == "advertise":
+                    runtime = panel_runtime(outcome, body)
             break
-        results.append({"service": service.file, "outcome": outcome})
+        results.append({"service": service.file, "outcome": outcome, **runtime})
     return results
+
+
+def panel_launcher(results, override):
+    """Use the daemon's advertised executable, then the host override, then Node on PATH."""
+    for result in results:
+        runtime = result.get("panel_runtime")
+        if result.get("outcome") in ("accepted", "renewed") and isinstance(runtime, str) and os.path.isabs(runtime) and shutil.which(runtime):
+            return runtime, True
+    for candidate in (os.environ.get(override), "node"):
+        if candidate and (node := shutil.which(candidate)):
+            return node, False
+    return None, False
 
 
 def advertise_all(rpc_id, offer, service_name=None, config_dir_setting=None, env=None, timeout=TIMEOUT):

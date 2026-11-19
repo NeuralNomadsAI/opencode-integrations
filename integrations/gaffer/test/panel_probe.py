@@ -3,7 +3,6 @@
 Usage: python -I panel_probe.py <payload root holding python/ and sidecar.cjs>
 """
 import gc
-import hashlib
 import pathlib
 import sys
 import types
@@ -132,6 +131,10 @@ class FakeClient:
 
 
 api = Api()
+api.__path__ = []
+api.panelServices = lambda: []
+service = types.ModuleType("GafferOpenCode.opencode_service")
+service.panel_launcher = lambda results, override: (sys.executable, True)
 gaffer = types.ModuleType("Gaffer")
 gaffer.WeakMethod = weak_method
 gafferui = types.ModuleType("GafferUI")
@@ -146,6 +149,7 @@ sys.modules.update(
         "Gaffer": gaffer,
         "GafferUI": gafferui,
         "GafferOpenCode": api,
+        "GafferOpenCode.opencode_service": service,
         "IECore": MagicMock(),
         "imath": MagicMock(),
         "Qt": qt,
@@ -174,47 +178,31 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(Editor.registered, ("OpenCode for Gaffer", GafferOpenCodeUI.OpenCodeEditor))
         process = qt.QtCore.QProcess.return_value
         process.state.return_value = qt.QtCore.QProcess.NotRunning
-        with patch.dict("os.environ", {"NEURALNOMADS_GAFFER_NODE": ""}), patch.object(
-            client_module.shutil, "which", return_value="/usr/bin/node"
-        ) as which:
-            client_module.ClientProcess()
-        which.assert_called_with("node")
-        process.setProgram.assert_called_with("/usr/bin/node")
+        client = client_module.ClientProcess()
+        client.send("trial", "connect", {})
+        process.setProgram.assert_called_with(sys.executable)
+        qt.QtCore.QProcessEnvironment.systemEnvironment.return_value.insert.assert_called_with("BUN_BE_BUN", "1")
         process.setArguments.assert_called_with([str(PAYLOAD / "sidecar.cjs")])
         process.start.assert_called()
         self.assertTrue((PAYLOAD / "sidecar.cjs").is_file())
-        # NEURALNOMADS_GAFFER_NODE names Node explicitly.
-        with patch.dict("os.environ", {"NEURALNOMADS_GAFFER_NODE": "/opt/node22/bin/node"}):
-            client_module.ClientProcess()
-        process.setProgram.assert_called_with("/opt/node22/bin/node")
 
     def test_connect_targets_this_scripts_offer_and_closing_never_withdraws(self):
         shot = pathlib.Path(PAYLOAD / "shots" / "shot.gfr")
         script = Script("gaffer:shot", str(shot))
         api.offers[script.handle] = {"label": "Gaffer: shot.gfr", "offer_key": "gaffer-shot", "advertising": True}
         editor = GafferOpenCodeUI.OpenCodeEditor(script)
-        # Opening the panel attaches nothing: Gaffer already offers the script by itself.
-        self.assertEqual(api.calls, [])
-        self.assertEqual(self.client.sent, [])
-
-        private(editor, "toggleConnection")()
         channel, method, params = self.client.sent[-1]
         self.assertEqual(api.calls, [("acquire", channel)])
         self.assertEqual(method, "connect")
-        key = "document:" + hashlib.sha256(str(shot.resolve()).encode("utf-8")).hexdigest()
         self.assertEqual(
             params,
             {
                 **HOST,
                 "script_handle": "gaffer:shot",
                 "offer_label": "Gaffer: shot.gfr",
-                "script_key": key,
-                "script_name": "shot.gfr",
                 "directory": str(shot.resolve().parent),
             },
         )
-        self.client.emit(channel, "session", {"id": "ses_shot", "resumed": True})
-        self.client.emit(channel, "status", {"state": "idle"})
         prompt = private(editor, "prompt")
         prompt.getText.return_value = "Add a sphere"
         private(editor, "send")(None)
@@ -224,28 +212,14 @@ class PanelTests(unittest.TestCase):
         private(editor, "newSession")(None)
         self.assertEqual(self.client.sent[-1], (channel, "new_session", params))
 
-        # Disconnect releases the panel's conversation only.
-        private(editor, "toggleConnection")()
-        self.assertEqual(self.client.sent[-1], (channel, "close", {}))
-        self.assertEqual(api.calls[-1], ("release", channel))
-        # A reply to the closed connection is ignored.
-        self.client.emit(channel, "session", {"id": "ses_late"})
-        self.assertFalse(private(editor, "connected"))
-
-        # Connect again asks for the same script's conversation: the sidecar resumes the session marked with it.
-        private(editor, "toggleConnection")()
-        self.assertEqual(self.client.sent[-1], (channel, "connect", params))
-
-        # Save As: another file is another script's conversation.
+        # Save As updates the offer but keeps the same folder.
         moved = PAYLOAD / "shots" / "shot_v2.gfr"
         api.offers[script.handle]["label"] = "Gaffer: shot_v2.gfr"
         script.setFileName(str(moved))
-        self.assertEqual(self.client.sent[-1], (channel, "close", {}))
-        self.assertEqual(api.calls[-1], ("release", channel))
-        private(editor, "toggleConnection")()
+        self.assertEqual(self.client.sent[-1][1], "connect")
         moved_params = self.client.sent[-1][2]
         self.assertEqual(moved_params["offer_label"], "Gaffer: shot_v2.gfr")
-        self.assertNotEqual(moved_params["script_key"], key)
+        self.assertEqual(moved_params["directory"], params["directory"])
 
         # Closing the editor (its last reference gone) releases its conversation and the panel registration.
         del editor, prompt
@@ -260,16 +234,13 @@ class PanelTests(unittest.TestCase):
         api.offers[first.handle] = {"label": "Gaffer: untitled", "offer_key": "gaffer-one", "advertising": True}
         api.offers[second.handle] = {"label": "Gaffer: untitled (2)", "offer_key": "gaffer-two", "advertising": True}
         editors = [GafferOpenCodeUI.OpenCodeEditor(first), GafferOpenCodeUI.OpenCodeEditor(second)]
-        for editor in editors:
-            private(editor, "toggleConnection")()
         (a, _, one), (b, _, two) = self.client.sent
         self.assertNotEqual(a, b)
-        self.assertEqual((one["offer_label"], one["script_key"]), ("Gaffer: untitled", "untitled:gaffer:one"))
-        self.assertEqual((two["offer_label"], two["script_key"]), ("Gaffer: untitled (2)", "untitled:gaffer:two"))
+        self.assertEqual(one["offer_label"], "Gaffer: untitled")
+        self.assertEqual(two["offer_label"], "Gaffer: untitled (2)")
         # A second panel on the same script takes back the same conversation.
         third = GafferOpenCodeUI.OpenCodeEditor(first)
-        private(third, "toggleConnection")()
-        self.assertEqual(self.client.sent[-1][2]["script_key"], "untitled:gaffer:one")
+        self.assertEqual(self.client.sent[-1][2]["directory"], one["directory"])
         # Closing one panel leaves the others (and every offer) alone.
         del third
         gc.collect()
@@ -277,17 +248,14 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(api.calls[-1], ("release", "channel-2"))
         self.assertEqual([call for call in api.calls if call[0] == "release"], [("release", "channel-2")])
 
-    def test_a_script_not_offered_is_said_without_connecting(self):
+    def test_a_missing_offer_is_left_to_the_shared_sidecar(self):
         script = Script("gaffer:private")
         api.offers[script.handle] = {"label": "Gaffer: untitled", "offer_key": "gaffer-private", "advertising": False}
         editor = GafferOpenCodeUI.OpenCodeEditor(script)
         append = MagicMock()
         setattr(editor, "_OpenCodeEditor__append", append)
-        private(editor, "toggleConnection")()
-        self.assertEqual(self.client.sent, [])
-        self.assertEqual(api.calls, [])
-        append.assert_called_once_with("error", "OpenCode Link does not offer this script to OpenCode.")
-        self.assertFalse(private(editor, "active"))
+        self.assertEqual(self.client.sent[0][1], "connect")
+        append.assert_not_called()
 
 
 if __name__ == "__main__":

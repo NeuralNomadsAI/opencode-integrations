@@ -118,6 +118,10 @@ def offerInfo() -> dict:
     return {"label": _host.label, "offer_key": OFFER_KEY, "advertising": _advertiser is not None}
 
 
+def panelServices() -> list:
+    return _advertiser.results if _advertiser is not None else []
+
+
 def scriptHandle(script=None) -> str:
     if _host is None:
         raise RuntimeError("OpenCode Houdini host has not been initialised")
