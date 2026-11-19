@@ -386,8 +386,6 @@ def banner(context):
     chat.active = True
     _sync(_append)
     context.space_data.prompt = "> "
-    if chat.state != "Ready" or chat.selected:
-        _append("INFO", chat.status())
     _append("INFO", HELP)
     return {"FINISHED"}
 

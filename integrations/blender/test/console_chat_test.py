@@ -13,6 +13,19 @@ from opencode_link import _console_opencode as console
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_banner_reports_ready_once_with_model(self):
+        console.bpy.data = NS(filepath="/project/shot.blend")
+        chat = console.Chat()
+        rows = []
+        append = lambda kind, text: rows.append((kind, text))
+        chat._event({"event": "session", "data": {"id": None}}, append)
+        self.assertEqual(rows, [])
+        chat._event({"event": "session", "data": {"id": "ses_shot", "model": "provider/model"}}, append)
+        self.assertEqual(rows, [
+            ("INFO", "New conversation attached."),
+            ("INFO", "OpenCode | shot.blend | Ready | agent: default | model: provider/model"),
+        ])
+
     def test_lines(self):
         lines = console.Lines()
         self.assertEqual(lines.feed("## Heading\r\n**hel"), ["Heading"])
