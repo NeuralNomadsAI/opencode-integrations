@@ -228,18 +228,13 @@ describe("OpenCode Link in a real Godot editor", { skip: !godot, concurrency: fa
     await code(
       'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.found = dock != null\ndock.reparent(EditorInterface.get_base_control())\ndock.show()',
     )
-    const transcript = await until(
-      async () => {
-        const read = await code(
-          'result.text = EditorInterface.get_base_control().find_child("OpenCode", true, false).transcript()',
-          { read_only: true },
-        )
-        return /Could not connect|Start OpenCode/.test(read.result.text) ? read.result.text : ""
-      },
-      30_000,
-      "the dock's answer",
+    await until(() => service.calls.some(({ method }) => method === "hosts"), 30_000, "the dock's offer lookup")
+    const read = await code(
+      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.text = dock.transcript()\nresult.status = dock.state().status',
+      { read_only: true },
     )
-    assert.match(transcript, /Could not connect|Start OpenCode/)
+    assert.equal(read.result.status, "CONNECTING")
+    assert.equal(read.result.text, "")
   })
 
   it("says that the editor crashed, with its log", async () => {
