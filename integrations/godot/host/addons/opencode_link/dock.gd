@@ -26,7 +26,6 @@ var _permission := ""
 var _models: Array = []
 var _model := ""
 
-var _session_label := Label.new()
 var _status_label := Label.new()
 var _agent_label := Label.new()
 var _model_button := OptionButton.new()
@@ -45,10 +44,7 @@ func _ready() -> void:
 	var brand := Label.new()
 	brand.text = "OpenCode"
 	header.add_child(brand)
-	_session_label.text = ""
-	_session_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_session_label.clip_text = true
-	header.add_child(_session_label)
+	header.add_spacer(false)
 	_status_label.text = "CONNECTING"
 	header.add_child(_status_label)
 	add_child(header)
@@ -337,8 +333,7 @@ func _event(name: String, data: Dictionary) -> void:
 			_connected = true
 			_selected = str(data.id) if data.get("id") else ""
 			_draft = data.get("draft", false)
-			_session_label.text = "Session " + _selected.right(8) if _selected != "" else "New conversation"
-			_session_label.tooltip_text = "Workspace: " + str(data.get("workspace", ""))
+			_conversations.tooltip_text = "Workspace: " + str(data.get("workspace", ""))
 			_agent_label.text = str(data.get("agent", "")) if data.get("agent") else "default agent"
 			_set_model(str(data.get("model", "")))
 		"conversations":

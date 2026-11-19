@@ -216,13 +216,12 @@ class OpenCodePanel(QtWidgets.QWidget):
         header = QtWidgets.QHBoxLayout()
         brand = QtWidgets.QLabel("OPENCODE / HOUDINI")
         brand.setObjectName("openCodeHoudiniBrand")
-        self._session = QtWidgets.QLabel("SESSION  connecting")
         self._status = QtWidgets.QLabel("STARTING")
         self._status.setObjectName("openCodeHoudiniStatus")
         self._conversations = Conversations()
+        self._conversations.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._conversations.addItem("New conversation", None)
         header.addWidget(brand)
-        header.addWidget(self._session)
         header.addStretch(1)
         header.addWidget(self._status)
         header.addWidget(self._conversations)
@@ -332,7 +331,6 @@ class OpenCodePanel(QtWidgets.QWidget):
             return
         if name == "session":
             self._connected = True
-            self._session.setText("SESSION  " + str(data["id"])[-8:] if data.get("id") else "New conversation")
             self._append("system", "Resumed session" if data.get("resumed") else "New session")
         elif name == "history":
             self._transcript.clear()

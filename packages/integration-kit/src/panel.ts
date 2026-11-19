@@ -23,7 +23,7 @@ type Channel = {
   handle: string
   rpc: Rpc
   abort: AbortController
-  tools: Map<string, { name: string; inner?: string; started: number }>
+  tools: Map<string, { name: string; display?: string | null; started: number }>
   busy: boolean
   model?: ModelRef
 }
@@ -62,16 +62,19 @@ export type PanelDependencies = {
 class PanelError extends Error {}
 class WaitingForOffer extends Error {}
 
-function innerTools(input: unknown) {
+function toolDisplay(name: string, input: unknown) {
+  if (name !== "execute") return name
   const code = (input as { code?: unknown } | null)?.code
-  if (typeof code !== "string") return undefined
+  if (typeof code !== "string") return name
   const names = new Set(
     Array.from(
       code.matchAll(/\btools\.(\w+)(?:\.(\w+)|\[['"]([\w-]+)['"]\])\s*\(/g),
       ([, ns, dot, key]) => `${ns}_${dot ?? key}`,
     ),
   )
-  return names.size ? [...names].join(", ") : undefined
+  if (names.size) return [...names].join(", ")
+  // Code Mode discovery is a separate execute call, not an application tool invocation.
+  return /\bsearch\s*\(/.test(code) ? null : name
 }
 
 // An error in one line for the panel: its first line, bounded, without a token, an authorization or a port.
@@ -118,7 +121,8 @@ function history(messages: ReadonlyArray<Message>) {
     return (message.content ?? []).flatMap((part) => {
       if (part.type === "text") return [{ role: "assistant", text: part.text ?? "" }]
       if (part.type === "tool") {
-        const name = (part.name === "execute" && innerTools(part.state?.input)) || part.name || "tool"
+        const name = toolDisplay(part.name || "tool", part.state?.input)
+        if (name === null) return []
         return [{ role: "tool", text: `${name} / ${part.state?.status ?? "unknown"}` }]
       }
       return []
@@ -238,16 +242,17 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       if (data.name !== "execute") event(c, "tool", { id: data.id, name: data.name, state: "starting" })
     } else if (type === "session.tool.called") {
       const tool = c.tools.get(String(data.id))
-      if (tool?.name === "execute") {
-        tool.inner = innerTools(data.input)
-        event(c, "tool", { id: data.id, name: tool.inner ?? tool.name, state: "starting" })
+      if (tool?.name === "execute" && tool.display === undefined) {
+        tool.display = toolDisplay(tool.name, data.input)
+        if (tool.display !== null) event(c, "tool", { id: data.id, name: tool.display, state: "starting" })
       }
     } else if (type === "session.tool.success" || type === "session.tool.failed") {
       const tool = c.tools.get(String(data.id))
       c.tools.delete(String(data.id))
+      if (tool?.display === null) return
       event(c, "tool", {
         id: data.id,
-        name: tool?.inner ?? tool?.name,
+        name: tool?.display ?? tool?.name,
         state: type === "session.tool.success" ? "completed" : "failed",
         ...(config.consoleEvents && tool ? { duration_ms: Math.round(performance.now() - tool.started) } : {}),
       })

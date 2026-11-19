@@ -105,7 +105,6 @@ class PanelTests(unittest.TestCase):
                 widget._status = Mock()
                 widget._send = Mock()
                 widget._prompt = Mock()
-                widget._session = Mock()
                 widget._append = Mock()
                 widget._target = None
                 integration.acquirePanel(widget._channel)

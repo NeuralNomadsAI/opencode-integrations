@@ -101,6 +101,9 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
     await emit("session.text.delta", { delta: "hello\n" })
     await emit("session.tool.input.started", { id: "tool_1", name: "blender_context" })
     await emit("session.tool.success", { id: "tool_1" })
+    await emit("session.tool.input.started", { id: "lookup", name: "execute" })
+    await emit("session.tool.called", { id: "lookup", input: { code: 'return search({ namespace: "blender" })' } })
+    await emit("session.tool.success", { id: "lookup" })
     await emit("session.tool.input.started", { id: "tool_2", name: "execute" })
     await emit("session.tool.called", { id: "tool_2", input: { code: "await tools.blender.context({})" } })
     await emit("session.tool.success", { id: "tool_2" })
@@ -118,6 +121,10 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
     assert.ok(completed.data.duration_ms >= 0)
     assert.equal((out[5] as typeof completed).data.name, "blender_context")
     assert.equal((out[6] as typeof completed).data.name, "blender_context")
+    assert.equal(
+      out.some((item) => JSON.stringify(item).includes('"name":"execute"')),
+      false,
+    )
     assert.deepEqual(out.at(-1), event("status", { state: "idle", interrupted: true }))
     assert.deepEqual(calls, [
       { sessionID: session.id, text: "hello" },

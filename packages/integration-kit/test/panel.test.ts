@@ -111,6 +111,10 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
     await until(() => prompt.length === 1)
     assert.equal(sessions[0]?.title, "Test: shot")
     assert.deepEqual(prompt[0], { sessionID: "created-0", text: "early" })
+    assert.deepEqual(
+      out.filter(({ event }) => event === "user_message").map(({ data }) => data.text),
+      ["early"],
+    )
 
     sessions.push(
       { id: "codenomad", title: "CodeNomad", location: { directory }, time: { updated: 200 } },
