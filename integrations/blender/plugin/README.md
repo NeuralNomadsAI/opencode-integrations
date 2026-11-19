@@ -32,6 +32,14 @@
 
 The **Plugins** section lists OpenCode for Blender as an integration: its version, whether the add-on is installed and up to date, and whether the conversation is attached; its menu installs or updates the add-on after a confirmation and detaches the conversation. **Plugins ▸ Add** also accepts the package name.
 
+## Chat in Blender (prototype)
+
+With OpenCode running and OpenCode Link enabled, save your `.blend`, open a **Python Console** editor (`Shift–F4`), then choose **Console → Languages → Opencode**. Enter `/connect` to resume that file's conversation or start one, then type a message and press Enter. `/new` starts a fresh conversation, `/stop` interrupts the current turn, and `/disconnect` detaches only this conversation. Use `/status` or `/help` at any time. Node.js 22+ must be on `PATH`, or set `NEURALNOMADS_BLENDER_NODE` to its executable. The console uses the shared OpenCode service unless another service is named in the add-on preferences.
+
+The Console wraps lines and keeps its own Up-arrow history. An unfinished line appears when the stream finishes or the next newline arrives. **Copy as Script** copies this area's scrollback as plain text, not executable Python. Earlier messages stay in OpenCode when you reconnect; they are not replayed into Blender. `/allow` approves a single pending OpenCode permission once; `/reject` declines it. Use OpenCode to handle questions or multiple pending approvals.
+
+CodeNomad can stay attached separately. Blender cannot repaint or accept console input while a main-thread Python operation or bake is running. Output queues and appears once the main thread is free; `/stop` does not preempt Python already running in Blender.
+
 ## How it works
 
 - **Discovery and consent.** While OpenCode Link is enabled, the add-on listens on `127.0.0.1` on a random port with a random 256-bit token kept in memory, and offers the session to every OpenCode service registered for your user (or to one: the add-on setting _OpenCode service_). Offers last 15 seconds and are renewed every 5 seconds.

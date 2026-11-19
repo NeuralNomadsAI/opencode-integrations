@@ -47,6 +47,7 @@
     }
   },
   "devDependencies": {
+    "@opencode/client": "2.2.5",
     "@opencode/plugin": "2.2.5",
     "esbuild": "0.28.2"
   },
@@ -63,7 +64,7 @@
       "range": "^0.4.8",
       "appVersions": ">=5.3",
       "payload": "host/blender/opencode_link-0.4.8.zip",
-      "sha256": "d5b94052efdc503c2cd3e3ff183913733b22a52d9765a5e06e03d17d5f95a01b"
+      "sha256": "fe3b9eb7b0648a1fc4032d4e788d1eed27970628d27dbd736f8dcc7695387133"
     }
   }
 }

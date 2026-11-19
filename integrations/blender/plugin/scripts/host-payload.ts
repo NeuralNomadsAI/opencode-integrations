@@ -6,22 +6,15 @@ import { createHash } from "node:crypto"
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { buildSync } from "esbuild"
 
 import { writeStoredZip } from "../src/zip.ts"
 
 export const pluginRoot = fileURLToPath(new URL("..", import.meta.url))
+const repoRoot = join(pluginRoot, "..", "..", "..")
 export const hostRoot = join(pluginRoot, "..", "host")
 export const addonRoot = join(hostRoot, "opencode_link")
-export const kitServicePath = join(
-  pluginRoot,
-  "..",
-  "..",
-  "..",
-  "packages",
-  "integration-kit",
-  "python",
-  "opencode_service.py",
-)
+export const kitServicePath = join(repoRoot, "packages", "integration-kit", "python", "opencode_service.py")
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true })
@@ -50,9 +43,26 @@ export function payloadEntries(): Array<{ name: string; data: Buffer }> {
     .map((file) => relative(addonRoot, file).split(sep).join("/"))
     .filter((name) => !name.split("/").includes("__pycache__") && !name.endsWith(".pyc"))
   if (!files.includes("opencode_service.py")) files.push("opencode_service.py")
-  return files.sort().map((name) => ({
+  const sidecar = buildSync({
+    absWorkingDir: repoRoot,
+    entryPoints: [join(pluginRoot, "src", "sidecar.ts")],
+    preserveSymlinks: true,
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: "node22",
+    write: false,
+    legalComments: "eof",
+  }).outputFiles[0]
+  if (!sidecar) throw new Error("No Blender console sidecar was built")
+  return [...files, "sidecar.cjs"].sort().map((name) => ({
     name,
-    data: name === "opencode_service.py" ? serviceBytes() : lf(readFileSync(join(addonRoot, name))),
+    data:
+      name === "sidecar.cjs"
+        ? Buffer.from(sidecar.contents)
+        : name === "opencode_service.py"
+          ? serviceBytes()
+          : lf(readFileSync(join(addonRoot, name))),
   }))
 }
 

@@ -18,6 +18,8 @@ const version = /^version="([^"]+)"$/m.exec(readFileSync(join(addon, "plugin.cfg
 if (version !== pkg.version) throw new Error("Host and plugin versions differ")
 const check = process.argv.includes("--check")
 const bundle = await build({
+  absWorkingDir: join(root, "..", "..", ".."),
+  preserveSymlinks: true,
   entryPoints: [join(root, "src", "sidecar.ts")],
   bundle: true,
   format: "cjs",

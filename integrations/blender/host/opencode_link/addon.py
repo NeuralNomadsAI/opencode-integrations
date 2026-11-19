@@ -15,6 +15,7 @@ from bpy.props import StringProperty
 
 from . import advertiser as advertiser_module
 from . import console
+from . import _console_opencode as chat
 from .blender_app import BlenderApp
 from .core import HostCore, require_app_version
 from .process import state as process_state
@@ -255,6 +256,7 @@ def _on_change(*_args):
 def _on_save(*args):
     if _session is not None:
         _session.app.saved(args[0] if args and isinstance(args[0], str) else None)
+        chat.check_document()
 
 
 @persistent
@@ -265,6 +267,7 @@ def _on_history(*_args):
 
 @persistent
 def _on_load(*_args):
+    chat.disconnect()
     if _session is not None:
         _session.app.loaded()
         _session.core.quarantined = False
@@ -317,6 +320,7 @@ def register():
     if bpy.app.background:
         _start_offer()
     else:
+        chat.register()
         bpy.app.timers.register(_start_offer, first_interval=0.1, persistent=True)
 
 
@@ -331,6 +335,7 @@ def _start_offer():
 
 def unregister():
     global _session
+    chat.unregister()
     console.capture().uninstall()
     _remove_handlers()
     if _session is not None:
