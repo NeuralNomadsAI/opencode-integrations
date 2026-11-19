@@ -15,6 +15,7 @@ var _pending: Array[Dictionary] = []
 var _selected := ""
 var _draft := false
 var _retry_at := 0
+var _launch_at := 0
 var _problem := ""
 var _next := 0
 var _active := false
@@ -159,20 +160,25 @@ static func _node() -> String:
 func _start() -> void:
 	var services: Array = link.advertiser_results()
 	var runtime := ""
+	var ready := false
+	var waiting := Time.get_ticks_msec() < _launch_at
 	for result in services:
+		if not result.get("outcome") in ["accepted", "renewed"]:
+			continue
+		ready = true
 		var advertised: String = result.get("panel_runtime", "")
 		if advertised.is_absolute_path() and FileAccess.file_exists(advertised):
 			runtime = advertised
 			break
 	var bun := runtime != ""
-	if not bun:
+	if not bun and (ready or not waiting):
 		runtime = _node()
 	var sidecar := ProjectSettings.globalize_path(get_script().resource_path.get_base_dir().path_join("sidecar.cjs"))
 	if not FileAccess.file_exists(sidecar):
 		_blocked("The OpenCode dock's sidecar is missing: install OpenCode Link again (godot_install_host).")
 		return
 	if runtime == "":
-		if not services.is_empty():
+		if not waiting:
 			_blocked("No OpenCode runtime, NEURALNOMADS_GODOT_NODE executable, or Node on PATH.")
 		return
 	var inherited := OS.get_environment("BUN_BE_BUN")
@@ -226,6 +232,7 @@ func _process(_delta: float) -> void:
 		if not is_visible_in_tree():
 			return
 		_active = true
+		_launch_at = Time.get_ticks_msec() + 5000
 	_sync()
 	if _stdio == null:
 		if Time.get_ticks_msec() >= _retry_at:

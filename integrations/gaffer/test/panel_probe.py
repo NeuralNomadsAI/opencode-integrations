@@ -134,7 +134,7 @@ api = Api()
 api.__path__ = []
 api.panelServices = lambda: []
 service = types.ModuleType("GafferOpenCode.opencode_service")
-service.panel_launcher = lambda results, override: (sys.executable, True)
+service.panel_launcher = lambda results, override, wait=False: (sys.executable, True)
 gaffer = types.ModuleType("Gaffer")
 gaffer.WeakMethod = weak_method
 gafferui = types.ModuleType("GafferUI")

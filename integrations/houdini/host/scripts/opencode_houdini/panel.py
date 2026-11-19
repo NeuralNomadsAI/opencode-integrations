@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import time
 import uuid
 
 import hou
@@ -11,10 +12,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 import opencode_houdini
 
 
-def panel_launcher(results, override):
+def panel_launcher(results, override, wait=False):
     from .opencode_service import panel_launcher as choose
 
-    return choose(results, override)
+    return choose(results, override, wait=wait)
 
 
 def _log(message: str) -> None:
@@ -45,6 +46,7 @@ class JsonlClient(QtCore.QObject):
         self._pending: list[tuple] = []
         self._targets: dict[str, dict] = {}
         self._problem = ""
+        self._launch_at = time.monotonic() + 5
         self._request = 0
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self.start)
@@ -54,12 +56,13 @@ class JsonlClient(QtCore.QObject):
         if not self._targets or self._process.state() != QtCore.QProcess.ProcessState.NotRunning:
             return
         services = opencode_houdini.panelServices()
-        runtime, bun = panel_launcher(services, "NEURALNOMADS_HOUDINI_NODE")
+        waiting = time.monotonic() < self._launch_at
+        runtime, bun = panel_launcher(services, "NEURALNOMADS_HOUDINI_NODE", wait=waiting)
         sidecar = str(Path(__file__).resolve().parents[2] / "sidecar.cjs")
         problem = ""
         if not Path(sidecar).is_file():
             problem = "OpenCode Link sidecar is missing; reinstall the application part."
-        elif not runtime and services:
+        elif not runtime and not waiting:
             problem = "No OpenCode runtime, NEURALNOMADS_HOUDINI_NODE executable, or Node on PATH."
         if problem and problem != self._problem:
             self.diagnostic.emit(problem)

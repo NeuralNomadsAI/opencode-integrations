@@ -109,6 +109,7 @@ class Chat:
         self.active = False
         self.problem = ""
         self.retry_at = 0
+        self.launch_at = time.monotonic() + 5
         self.state, self.agent, self.model = "Connecting", "", ""
 
     def send(self, method, **params):
@@ -189,6 +190,8 @@ class Chat:
         elif name == "notice":
             append("INFO", data["message"])
         elif name == "session":
+            if data.get("draft") and not self.draft:
+                append("CLEAR", "")
             self.selected = data["id"]
             self.draft = data.get("draft", False)
             self.state, self.agent, self.model = "Ready", data.get("agent"), data.get("model")
@@ -243,7 +246,10 @@ chat = Chat()
 
 
 def _append(kind, text):
-    bpy.ops.console.scrollback_append(text=text, type=kind)
+    if kind == "CLEAR":
+        bpy.ops.console.clear(scrollback=True, history=False)
+    else:
+        bpy.ops.console.scrollback_append(text=text, type=kind)
 
 
 def _areas():
@@ -305,14 +311,15 @@ def _sync(append):
     ))
     if not chat.pipes:
         services = host.advertiser.results if host and host.advertiser else []
-        launcher = panel_launcher(services, "NEURALNOMADS_BLENDER_NODE")
+        waiting = time.monotonic() < chat.launch_at
+        launcher = panel_launcher(services, "NEURALNOMADS_BLENDER_NODE", wait=waiting)
         if launcher[0]:
             chat.pipes = Pipes(launcher)
             chat.send("connect", **chat.target, session_id=chat.selected, draft=chat.draft)
             for params in chat.unsent:
                 chat.send("prompt", **params)
             chat.unsent.clear()
-        elif services:
+        elif not waiting:
             chat.blocked("No OpenCode runtime, NEURALNOMADS_BLENDER_NODE executable, or Node on PATH.", append)
 
 

@@ -24,6 +24,7 @@ type Channel = {
   rpc: Rpc
   abort: AbortController
   tools: Map<string, { name: string; inner?: string; started: number }>
+  busy: boolean
   model?: ModelRef
 }
 type Target = {
@@ -87,7 +88,7 @@ export function briefly(error: unknown) {
 const modelKey = (model: ModelRef | undefined) =>
   model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ""}` : ""
 
-type Part = { type?: string; text?: string; name?: string; state?: { status?: string } }
+type Part = { type?: string; text?: string; name?: string; state?: { status?: string; input?: unknown } }
 type Message = { type?: string; text?: string; content?: Part[] }
 type Conversation = { id: string; title?: string; time?: { updated?: number } }
 
@@ -116,7 +117,10 @@ function history(messages: ReadonlyArray<Message>) {
     if (message.type !== "assistant") return []
     return (message.content ?? []).flatMap((part) => {
       if (part.type === "text") return [{ role: "assistant", text: part.text ?? "" }]
-      if (part.type === "tool") return [{ role: "tool", text: `${part.name} / ${part.state?.status ?? "unknown"}` }]
+      if (part.type === "tool") {
+        const name = (part.name === "execute" && innerTools(part.state?.input)) || part.name || "tool"
+        return [{ role: "tool", text: `${name} / ${part.state?.status ?? "unknown"}` }]
+      }
       return []
     })
   })
@@ -225,7 +229,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     else if (config.consoleEvents && type === "session.step.started") {
       c.model = data.model
       event(c, "profile", { agent: data.agent, model: modelKey(c.model) })
-    } else if (type === "session.execution.started") event(c, "status", { state: "busy" })
+    } else if (type === "session.execution.started") status(c, true)
     else if (type === "session.text.started") event(c, "assistant_start", {})
     else if (type === "session.text.delta") event(c, "assistant_delta", { text: data.delta ?? "" })
     else if (type === "session.text.ended") event(c, "assistant_end", {})
@@ -251,15 +255,17 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       event(c, "permission", { request_id: data.id, action: data.action, resources: data.resources ?? [] })
     else if (config.consoleEvents && type === "permission.replied")
       event(c, "permission_done", { request_id: data.requestID })
-    else if (type === "session.execution.succeeded" || type === "session.idle") event(c, "status", { state: "idle" })
+    else if (type === "session.execution.succeeded" || type === "session.idle") status(c, false)
     else if (type === "session.execution.interrupted" || type === "session.execution.failed") {
       if (type === "session.execution.failed") event(c, "error", { message: "OpenCode execution failed." })
-      event(c, "status", {
-        state: "idle",
-        ...(config.consoleEvents && type === "session.execution.interrupted" ? { interrupted: true } : {}),
-      })
+      status(c, false, config.consoleEvents && type === "session.execution.interrupted")
       void host(c, "cancel").catch(() => {})
     }
+  }
+
+  function status(c: Channel, busy: boolean, interrupted?: boolean) {
+    c.busy = busy
+    event(c, "status", { state: busy ? "busy" : "idle", ...(interrupted ? { interrupted: true } : {}) })
   }
 
   async function stream(c: Channel, service: Api) {
@@ -344,6 +350,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       rpc: currentRpc,
       abort: new AbortController(),
       tools: new Map(),
+      busy: false,
       model: (session as { model?: ModelRef }).model,
     }
     try {
@@ -382,9 +389,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
         entries: (known ? sessions : [session, ...sessions]).map(conversationEntry),
       })
       if (result.replaced) event(c, "notice", { message: "Conversation moved from another host to this one." })
-      event(c, "status", {
-        state: (active as Record<string, { type?: string }>)[c.sessionID]?.type === "running" ? "busy" : "idle",
-      })
+      status(c, (active as Record<string, { type?: string }>)[c.sessionID]?.type === "running")
       void stream(c, service)
     } catch (error) {
       await close(c)
@@ -433,7 +438,14 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
         if (targets.get(target.id) !== target) return
         const c = channels.get(target.id)
         if (c && !(await attached(c).catch(() => false))) await reconnect(target, c)
-        else await reconcile(target)
+        else {
+          if (c?.busy) {
+            const active = await (await api()).session.active().catch(() => undefined)
+            if (active && (active as Record<string, { type?: string }>)[c.sessionID]?.type !== "running" && c.busy)
+              status(c, false)
+          }
+          await reconcile(target)
+        }
       })
     }, ms)
     target.retry.unref?.()
@@ -535,7 +547,19 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
               event(target, "notice", { message: "Queued messages were not sent to the new conversation." })
             target.pending = []
           }
+          const previous = target.params
           target.params = params
+          if (
+            c &&
+            previous &&
+            !fresh &&
+            !moved &&
+            ["host", "port", "token", "registration", "script_handle"].every((key) => params[key] === previous[key])
+          ) {
+            // A rename of the same live offer does not move the attachment or interrupt its stream.
+            deps.send({ id: request.id, result: {} })
+            return
+          }
           if (fresh || moved) {
             target.selected = undefined
             target.fresh = fresh

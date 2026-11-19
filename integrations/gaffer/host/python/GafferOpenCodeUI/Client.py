@@ -1,5 +1,6 @@
 import json
 import pathlib
+import time
 import uuid
 import weakref
 
@@ -35,6 +36,7 @@ class ClientProcess :
 		self.__stdout = b""
 		self.__nextRequest = 0
 		self.__problem = ""
+		self.__launchAt = time.monotonic() + 5
 		self.__timer = QtCore.QTimer( self.__process )
 		self.__timer.timeout.connect( self.__start )
 		self.__timer.start( 1000 )
@@ -94,15 +96,16 @@ class ClientProcess :
 		if not self.__targets or self.__process.state() != QtCore.QProcess.NotRunning :
 			return
 		services = panelServices()
-		runtime, bun = panel_launcher( services, "NEURALNOMADS_GAFFER_NODE" )
+		waiting = time.monotonic() < self.__launchAt
+		runtime, bun = panel_launcher( services, "NEURALNOMADS_GAFFER_NODE", wait = waiting )
 		# Built into the installed part, beside the Python packages.
 		sidecar = pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.cjs"
 		problem = ( "OpenCode Link sidecar is missing; reinstall the application part." if not sidecar.is_file() else
-		            "No OpenCode runtime, NEURALNOMADS_GAFFER_NODE executable, or Node on PATH." if not runtime else "" )
-		if problem and services and problem != self.__problem :
+		            "No OpenCode runtime, NEURALNOMADS_GAFFER_NODE executable, or Node on PATH." if not runtime and not waiting else "" )
+		if problem and problem != self.__problem :
 			self.__emitAll( "error", { "message" : problem } )
 			self.__problem = problem
-		if problem :
+		if problem or not runtime :
 			return
 		environment = QtCore.QProcessEnvironment.systemEnvironment()
 		environment.remove( "BUN_BE_BUN" )

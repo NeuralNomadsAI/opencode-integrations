@@ -74,6 +74,7 @@ class PanelTests(unittest.TestCase):
         client._process = process
         client._targets = {"test": {}}
         client._problem = ""
+        client._launch_at = 0
         qt.QtCore.QProcessEnvironment = Mock()
         with patch.object(panel, "panel_launcher", return_value=(sys.executable, True)):
             client.start()
@@ -162,12 +163,13 @@ class PanelTests(unittest.TestCase):
                 client.send.side_effect = None
                 # A new panel uses the same host, authority unchanged.
                 third = panel.OpenCodePanel.__new__(panel.OpenCodePanel)
-                third.__dict__.update(second.__dict__, _disposed=False, _channel="third")
-                third._connect()
+                third.__dict__.update(second.__dict__, _disposed=False, _channel="third", _target=None)
+                integration.acquirePanel(third._channel)
+                third._sync()
                 self.assertIs(integration._server, server)
                 params = client.send.call_args.args[2]
                 self.assertEqual(params["offer_label"], "Houdini: untitled.hip")
-                self.assertTrue(params["sessions_file"].endswith("panel-sessions.json"))
+                self.assertEqual(params["directory"], os.getcwd())
                 third._destroyed()
                 self.assertTrue(server.running)
             finally:

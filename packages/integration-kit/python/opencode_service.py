@@ -250,12 +250,14 @@ def _each_service(method, rpc_id, payload, service_name, config_dir_setting, env
     return results
 
 
-def panel_launcher(results, override):
+def panel_launcher(results, override, wait=False):
     """Use the daemon's advertised executable, then the host override, then Node on PATH."""
     for result in results:
         runtime = result.get("panel_runtime")
         if result.get("outcome") in ("accepted", "renewed") and isinstance(runtime, str) and os.path.isabs(runtime) and shutil.which(runtime):
             return runtime, True
+    if wait and not any(result.get("outcome") in ("accepted", "renewed") for result in results):
+        return None, False
     for candidate in (os.environ.get(override), "node"):
         if candidate and (node := shutil.which(candidate)):
             return node, False

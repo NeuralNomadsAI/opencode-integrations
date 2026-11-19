@@ -226,7 +226,7 @@ describe("OpenCode Link in a real Godot editor", { skip: !godot, concurrency: fa
 
   it("the visible dock starts its sidecar automatically", async () => {
     await code(
-      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.found = dock != null\ndock.show()',
+      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.found = dock != null\ndock.reparent(EditorInterface.get_base_control())\ndock.show()',
     )
     const transcript = await until(
       async () => {
