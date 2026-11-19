@@ -384,7 +384,7 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       )
       if (!c.model && configured.data) c.model = configured.data as ModelRef
       const recent = history(messages.data.slice(0, HISTORY_LIMIT).reverse())
-      if (messages.data.length > HISTORY_LIMIT || messages.cursor?.next)
+      if (messages.data.length > HISTORY_LIMIT)
         recent.unshift({ role: "system", text: "Earlier messages are available in OpenCode." })
       event(c, "history", { messages: recent })
       event(c, "session", {

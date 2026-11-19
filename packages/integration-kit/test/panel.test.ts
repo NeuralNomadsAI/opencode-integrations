@@ -69,7 +69,7 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
       active: async () => ({}),
     },
     model: { list: async () => ({ data: [] }), default: async () => ({}) },
-    message: { list: async () => ({ data: [] }) },
+    message: { list: async () => ({ data: [], cursor: { next: "end" } }) },
     event: {
       subscribe: async function* ({ signal }: { signal: AbortSignal }) {
         await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }))
@@ -115,6 +115,7 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
     assert.equal(prompt.length, 0)
     label = "v001"
     await until(() => prompt.length === 1)
+    assert.deepEqual(out.findLast(({ event }) => event === "history")?.data.messages, [])
     assert.equal(sessions[0]?.title, "OpenCode default")
     assert.deepEqual(prompt[0], { sessionID: "created-0", text: "early" })
     assert.deepEqual(
