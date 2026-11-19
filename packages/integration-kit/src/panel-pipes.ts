@@ -30,8 +30,8 @@ export function runPanel(config: PanelHost) {
     }
   })
   input.on("close", () => {
-    void Promise.allSettled(queues.values())
-      .then(panel.closeAll)
-      .finally(() => process.exit(0))
+    // Blender can close its pipe while Connect is pending. Detach if that Connect reaches the service.
+    const closed = config.consoleEvents ? Promise.allSettled(queues.values()).then(panel.closeAll) : panel.closeAll()
+    void closed.finally(() => process.exit(0))
   })
 }
