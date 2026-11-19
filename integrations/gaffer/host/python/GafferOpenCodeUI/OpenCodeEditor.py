@@ -160,6 +160,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		elif name == "model" :
 			self.__setModel( str( data.get( "selected", "" ) ) )
 		elif name == "history" :
+			self.__streaming = False
 			self.__transcript.setText( "" )
 			for message in data.get( "messages", [] ) :
 				self.__append( message.get( "role", "system" ), message.get( "text", "" ) )

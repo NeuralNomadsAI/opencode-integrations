@@ -333,6 +333,7 @@ class OpenCodePanel(QtWidgets.QWidget):
             self._connected = True
             self._append("system", "Resumed session" if data.get("resumed") else "New session")
         elif name == "history":
+            self._streaming = False
             self._transcript.clear()
             for message in data.get("messages", []):
                 self._append(message.get("role", "system"), message.get("text", ""))

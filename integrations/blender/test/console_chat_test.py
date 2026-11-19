@@ -34,6 +34,25 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(lines.feed("", end=True), ["Tail"])
         self.assertEqual(lines.feed("## prose\n"), ["prose"])
 
+    def test_history_clears_and_uses_live_formats(self):
+        chat = console.Chat()
+        rows = []
+        append = lambda kind, text: rows.append((kind, text))
+        chat._event({"event": "assistant_delta", "data": {"text": "stale"}}, append)
+        chat._event({"event": "history", "data": {"messages": [
+            {"role": "user", "text": "Read the scene."},
+            {"role": "tool", "text": "blender_context / completed", "name": "blender_context", "state": "completed"},
+            {"role": "assistant", "text": "**Done.**"},
+        ]}}, append)
+        chat._event({"event": "assistant_delta", "data": {"text": "Live reply\n"}}, append)
+        self.assertEqual(rows, [
+            ("CLEAR", ""),
+            ("INPUT", "> Read the scene."),
+            ("INFO", "Tool: blender_context — completed"),
+            ("OUTPUT", "Done."),
+            ("OUTPUT", "Live reply"),
+        ])
+
     def test_timer_broadcasts_complete_lines_only_to_opencode_areas(self):
         context = console.bpy.context = NS()
 

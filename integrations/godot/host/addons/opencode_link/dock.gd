@@ -366,6 +366,7 @@ func _event(name: String, data: Dictionary) -> void:
 		"agent":
 			_agent_label.text = str(data.get("agent", ""))
 		"history":
+			_streaming = false
 			_transcript.clear()
 			for message in data.get("messages", []):
 				_append(str(message.get("role", "system")), str(message.get("text", "")))

@@ -1,7 +1,7 @@
 // An in-app chat is a plain client: attach its conversation to the host's existing offer, never announce one.
 
 import { normalize } from "node:path"
-import type { OpenCode } from "@opencode/client"
+import type { OpenCode, SessionMessageInfo } from "@opencode/client"
 import { rpcDefinition } from "./contract.ts"
 import { requestHost as kitRequestHost } from "./host-client.ts"
 
@@ -91,8 +91,7 @@ export function briefly(error: unknown) {
 const modelKey = (model: ModelRef | undefined) =>
   model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ""}` : ""
 
-type Part = { type?: string; text?: string; name?: string; state?: { status?: string; input?: unknown } }
-type Message = { type?: string; text?: string; content?: Part[] }
+const HISTORY_LIMIT = 20
 type Conversation = { id: string; title?: string; time?: { updated?: number } }
 
 function conversationEntry({ id, title, time }: Conversation) {
@@ -114,7 +113,7 @@ type EventData = {
   model?: ModelRef
 }
 
-function history(messages: ReadonlyArray<Message>) {
+function history(messages: ReadonlyArray<SessionMessageInfo>) {
   return messages.flatMap((message) => {
     if (message.type === "user") return [{ role: "user", text: message.text ?? "" }]
     if (message.type !== "assistant") return []
@@ -123,7 +122,11 @@ function history(messages: ReadonlyArray<Message>) {
       if (part.type === "tool") {
         const name = toolDisplay(part.name || "tool", part.state?.input)
         if (name === null) return []
-        return [{ role: "tool", text: `${name} / ${part.state?.status ?? "unknown"}` }]
+        const state =
+          { running: "starting", streaming: "starting", error: "failed", completed: "completed" }[
+            part.state?.status ?? ""
+          ] ?? "unknown"
+        return [{ role: "tool", text: `${name} / ${state}`, name, state }]
       }
       return []
     })
@@ -373,13 +376,17 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       channels.set(id, c)
       const [messages, models, configured, active] = await step("loading the conversation", () =>
         Promise.all([
-          service.message.list({ sessionID: c.sessionID, order: "desc", limit: 200 }),
+          service.message.list({ sessionID: c.sessionID, order: "desc", limit: HISTORY_LIMIT + 1 }),
           service.model.list({ location: { directory } }),
           service.model.default({ location: { directory } }),
           service.session.active(),
         ]),
       )
       if (!c.model && configured.data) c.model = configured.data as ModelRef
+      const recent = history(messages.data.slice(0, HISTORY_LIMIT).reverse())
+      if (messages.data.length > HISTORY_LIMIT || messages.cursor?.next)
+        recent.unshift({ role: "system", text: "Earlier messages are available in OpenCode." })
+      event(c, "history", { messages: recent })
       event(c, "session", {
         id: c.sessionID,
         resumed: Boolean(known),
@@ -393,7 +400,6 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
           .filter((model) => model.enabled)
           .map((model) => ({ id: model.id, provider_id: model.providerID, name: model.name })),
       })
-      event(c, "history", { messages: history([...messages.data].reverse() as never) })
       event(target, "conversations", {
         selected: session.id,
         entries: (known ? sessions : [session, ...sessions]).map(conversationEntry),

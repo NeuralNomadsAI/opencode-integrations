@@ -62,7 +62,7 @@
       "range": "^0.1.0",
       "appVersions": ">=4.7 <5",
       "payload": "host/godot/opencode_link-0.1.0.zip",
-      "sha256": "2f20561a8949d8a3fec63e65a2866f7df5792559d09a00ce6e1544325b7dfe7f"
+      "sha256": "0c01eed4a1f30ae09f191d6a3ce29688d00cc9cfae3437c5b0c5bfcdfc075203"
     }
   }
 }

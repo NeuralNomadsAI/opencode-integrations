@@ -176,6 +176,15 @@ class Chat:
             for line in self.lines.feed(text, end):
                 append("OUTPUT", line)
 
+        def user(text):
+            for line in text.splitlines():
+                append("INPUT", "> " + line)
+
+        def tool(data):
+            elapsed = data.get("duration_ms")
+            duration = "" if elapsed is None else f" ({elapsed / 1000:.2f} s)"
+            append("INFO", f"Tool: {data.get('name') or 'tool'} — {data['state']}{duration}")
+
         if name == "exit":
             output(end=True)
             self.pipes = None
@@ -190,8 +199,6 @@ class Chat:
         elif name == "notice":
             append("INFO", data["message"])
         elif name == "session":
-            if data.get("draft") and not self.draft:
-                append("CLEAR", "")
             self.selected = data["id"]
             self.draft = data.get("draft", False)
             self.state, self.agent, self.model = "Ready", data.get("agent"), data.get("model")
@@ -199,6 +206,21 @@ class Chat:
             if self.selected:
                 append("INFO", "Resumed conversation." if data.get("resumed") else "New conversation attached.")
                 append("INFO", self.status())
+        elif name == "history":
+            self.lines = Lines()
+            append("CLEAR", "")
+            for message in data["messages"]:
+                role, text = message["role"], message["text"]
+                if role == "user":
+                    user(text)
+                elif role == "assistant":
+                    output(text, end=True)
+                elif role == "tool":
+                    tool(message)
+                else:
+                    append("INFO", text)
+        elif name == "user_message":
+            user(data["text"])
         elif name == "conversations":
             self.entries = data["entries"]
             self.redraw = True
@@ -215,9 +237,7 @@ class Chat:
         elif name == "assistant_end":
             output(end=True)
         elif name == "tool":
-            elapsed = data.get("duration_ms")
-            duration = "" if elapsed is None else f" ({elapsed / 1000:.2f} s)"
-            append("INFO", f"Tool: {data.get('name') or 'tool'} — {data['state']}{duration}")
+            tool(data)
         elif name == "status":
             self.state = {"busy": "Working", "connecting": "Connecting"}.get(data["state"], "Ready")
             if self.state == "Connecting":
@@ -328,7 +348,8 @@ def execute(context, is_interactive):
     history = context.space_data.history
     if not history or not (text := history[-1].body.strip()):
         return {"CANCELLED"}
-    _append("INPUT", "> " + text)
+    if text.startswith("/"):
+        _append("INPUT", "> " + text)
     bpy.ops.console.history_append(text="", current_character=0, remove_duplicates=True)
     chat.active = True
     _sync(_append)

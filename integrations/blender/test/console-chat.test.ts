@@ -44,7 +44,32 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
       prompt: async (value: unknown) => calls.push(value),
       interrupt: async (value: unknown) => calls.push(value),
     },
-    message: { list: async () => ({ data: [] }) },
+    message: {
+      list: async (input: unknown) => {
+        assert.deepEqual(input, { sessionID: session.id, order: "desc", limit: 21 })
+        return {
+          data: [
+            {
+              type: "assistant",
+              content: [
+                {
+                  type: "tool",
+                  name: "execute",
+                  state: { status: "completed", input: { code: 'return search("context")' } },
+                },
+                {
+                  type: "tool",
+                  name: "execute",
+                  state: { status: "completed", input: { code: "return tools.blender.context({})" } },
+                },
+                { type: "text", text: "Scene read." },
+              ],
+            },
+            ...Array.from({ length: 20 }, (_, i) => ({ type: "user", text: `Question ${i + 1}` })),
+          ],
+        }
+      },
+    },
     model: { list: async () => ({ data: [] }), default: async () => ({ data: { providerID: "ok", id: "model" } }) },
     event: {
       subscribe: async function* ({ signal }: { signal: AbortSignal }) {
@@ -95,6 +120,18 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
     })
     assert.ok(out.some((item) => JSON.stringify(item).includes('"resumed":true')))
     assert.equal(bindings.get(session.id), "offer_here")
+    const recent = (
+      out.find((item) => (item as { event?: string }).event === "history") as {
+        data: { messages: unknown[] }
+      }
+    ).data.messages
+    assert.deepEqual(recent[0], { role: "system", text: "Earlier messages are available in OpenCode." })
+    assert.deepEqual(recent[1], { role: "user", text: "Question 19" })
+    assert.deepEqual(recent.slice(-3), [
+      { role: "user", text: "Question 1" },
+      { role: "tool", text: "blender_context / completed", name: "blender_context", state: "completed" },
+      { role: "assistant", text: "Scene read." },
+    ])
     out.length = 0
     await call("prompt", { text: "hello" })
     await emit("session.text.delta", { delta: "not ours" }, "ses_codenomad")
