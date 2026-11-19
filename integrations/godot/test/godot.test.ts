@@ -233,7 +233,7 @@ describe("OpenCode Link in a real Godot editor", { skip: !godot, concurrency: fa
       'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.text = dock.transcript()\nresult.status = dock.state().status',
       { read_only: true },
     )
-    assert.equal(read.result.status, "CONNECTING")
+    assert.equal(read.result.status, "CONNECTING", read.result.text)
     assert.equal(read.result.text, "")
   })
 

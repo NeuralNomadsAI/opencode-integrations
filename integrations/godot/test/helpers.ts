@@ -205,7 +205,12 @@ export async function fakeService(plugin: LoadedPlugin, root: string, loadedAt: 
       const input = ((await body(request)) as { input?: unknown })?.input
       const directory = url.searchParams.get("location[directory]")
       calls.push({ method: match[1] ?? "", directory })
-      if (!directory || !loadedAt(directory)) return send(400, { _tag: "RpcError", type: "rpc.unavailable" })
+      if (!directory || !loadedAt(directory))
+        return send(400, {
+          _tag: "RpcError",
+          type: "rpc.unavailable",
+          message: "RPC is unavailable: neuralnomads.godot",
+        })
       return send(200, { output: await plugin.rpc(match[1] ?? "", input as object) })
     }
     send(404, { type: "not_found" })

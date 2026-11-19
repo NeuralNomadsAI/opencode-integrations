@@ -7,7 +7,6 @@ import weakref
 from Qt import QtCore
 
 from GafferOpenCode import panelServices
-from GafferOpenCode.opencode_service import panel_launcher
 
 
 class ClientProcess :
@@ -95,17 +94,19 @@ class ClientProcess :
 
 		if not self.__targets or self.__process.state() != QtCore.QProcess.NotRunning :
 			return
+		# Built into the installed part, beside the Python packages.
+		sidecar = pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.cjs"
+		if not sidecar.is_file() :
+			self.__blocked( "OpenCode Link sidecar is missing; reinstall the application part." )
+			return
+		from GafferOpenCode.opencode_service import panel_launcher
+
 		services = panelServices()
 		waiting = time.monotonic() < self.__launchAt
 		runtime, bun = panel_launcher( services, "NEURALNOMADS_GAFFER_NODE", wait = waiting )
-		# Built into the installed part, beside the Python packages.
-		sidecar = pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.cjs"
-		problem = ( "OpenCode Link sidecar is missing; reinstall the application part." if not sidecar.is_file() else
-		            "No OpenCode runtime, NEURALNOMADS_GAFFER_NODE executable, or Node on PATH." if not runtime and not waiting else "" )
-		if problem and problem != self.__problem :
-			self.__emitAll( "error", { "message" : problem } )
-			self.__problem = problem
-		if problem or not runtime :
+		if not runtime :
+			if not waiting :
+				self.__blocked( "No OpenCode runtime, NEURALNOMADS_GAFFER_NODE executable, or Node on PATH." )
 			return
 		environment = QtCore.QProcessEnvironment.systemEnvironment()
 		environment.remove( "BUN_BE_BUN" )
@@ -116,6 +117,12 @@ class ClientProcess :
 		self.__process.setArguments( [ str( sidecar ) ] )
 		self.__process.setWorkingDirectory( str( sidecar.parent.parent ) )
 		self.__process.start()
+
+	def __blocked( self, message ) :
+
+		if message != self.__problem :
+			self.__problem = message
+			self.__emitAll( "error", { "message" : message } )
 
 	def __started( self ) :
 

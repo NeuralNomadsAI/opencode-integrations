@@ -71,7 +71,7 @@ finally:
     state.close()
 
 # --- the installed part as Gaffer's interface starts it, and the panel ------------------------------------------
-# Opening the panel does not start its sidecar nor touch the offers: Connect is the consent boundary.
+# Opening the panel requests its own conversation immediately, without changing the script's offers.
 import GafferOpenCode
 from GafferOpenCodeUI.OpenCodeEditor import OpenCodeEditor
 root = Gaffer.ApplicationRoot("PrivatePanel")
@@ -83,9 +83,9 @@ root["scripts"].addChild(third)
 GafferOpenCode.initialise(types.SimpleNamespace(root=lambda: root), advertise=False)
 host = GafferOpenCode.currentHost()
 editor = OpenCodeEditor(script)
-assert editor._OpenCodeEditor__channel is None
-assert editor._OpenCodeEditor__client is None
-assert editor._OpenCodeEditor__connectButton.getText() == "Connect"
+assert editor._OpenCodeEditor__channel is not None
+assert editor._OpenCodeEditor__client is not None
+assert editor._OpenCodeEditor__conversationButton.getText() == "New conversation"
 print("GAFFER_PANEL_OK")
 
 # Each script is its own offer, labelled with its file (numbered when two scripts share it), under its own key.

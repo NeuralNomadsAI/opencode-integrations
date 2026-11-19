@@ -2,7 +2,7 @@
 // Run after build with OPENCODE_TEST_BIN; this service has private config, state and credentials.
 import assert from "node:assert/strict"
 import { mkdirSync } from "node:fs"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { it } from "node:test"
 
 import { startFakeHost } from "../../../packages/testing/src/index.ts"
@@ -93,7 +93,9 @@ it("native exact-session binding: two Locations, move, delete, revocation and se
     assert.deepEqual(await read(a, "ses_native_missing"), { state: "unknown" })
 
     const offer = announcement(host.endpoint, host.scriptHandle)
-    assert.deepEqual(await rpc(a, "advertise", offer), { outcome: "accepted" })
+    const advertised = await rpc(a, "advertise", offer)
+    assert.equal(advertised.outcome, "accepted")
+    assert.ok(isAbsolute(advertised.panel_runtime))
     const offerID = (await rpc(b, "hosts")).offers[0].offerID
     assert.deepEqual(await rpc(a, "attachHost", { offerID, sessionID: second.id }), { outcome: "refused" })
     assert.deepEqual(await rpc(a, "attachHost", { offerID, sessionID: first.id }), { outcome: "attached" })
@@ -121,6 +123,7 @@ it("native exact-session binding: two Locations, move, delete, revocation and se
 
     const beforeLabel = await read(b, second.id)
     assert.deepEqual(await rpc(a, "advertise", { ...offer, label: "Blender: native renamed.blend" }), {
+      ...advertised,
       outcome: "renewed",
     })
     const renamed = await read(b, second.id)
