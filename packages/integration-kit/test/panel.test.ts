@@ -54,8 +54,14 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
     }),
     session: {
       list: async () => ({ data: sessions, cursor: {} }),
-      create: async ({ title, location }: { title: string; location: { directory: string } }) => {
-        const item = { id: `created-${sessions.length}`, title, location, time: { updated: 100 } }
+      create: async (input: { location: { directory: string } }) => {
+        assert.deepEqual(input, { location: { directory } })
+        const item = {
+          id: `created-${sessions.length}`,
+          title: "OpenCode default",
+          location: input.location,
+          time: { updated: 100 },
+        }
         sessions.push(item)
         return item
       },
@@ -109,7 +115,7 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
     assert.equal(prompt.length, 0)
     label = "v001"
     await until(() => prompt.length === 1)
-    assert.equal(sessions[0]?.title, "Test: shot")
+    assert.equal(sessions[0]?.title, "OpenCode default")
     assert.deepEqual(prompt[0], { sessionID: "created-0", text: "early" })
     assert.deepEqual(
       out.filter(({ event }) => event === "user_message").map(({ data }) => data.text),
@@ -124,13 +130,18 @@ it("queues during startup, starts drafts lazily and selects/rebinds folder conve
     label = "v002"
     await call("connect", params(label))
     assert.equal(current(), "created-0")
+    const first = sessions[0]
+    assert.ok(first)
+    first.title = "Generated from the first message"
     await call("list")
+    const entries = out.findLast((item) => item.event === "conversations")?.data.entries as
+      | { id: string; title: string }[]
+      | undefined
     assert.deepEqual(
-      ((out.findLast((item) => item.event === "conversations")?.data.entries ?? []) as { id: string }[]).map(
-        ({ id }) => id,
-      ),
+      entries?.map(({ id }) => id),
       ["codenomad", "created-0"],
     )
+    assert.match(entries?.[1]?.title ?? "", /^Generated from the first message \(.+ ago\)$/)
     attached.set("codenomad", "other-host")
     await call("open", { session_id: "codenomad" })
     assert.equal(current(), "codenomad")

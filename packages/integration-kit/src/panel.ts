@@ -1,6 +1,6 @@
 // An in-app chat is a plain client: attach its conversation to the host's existing offer, never announce one.
 
-import { basename, normalize } from "node:path"
+import { normalize } from "node:path"
 import type { OpenCode } from "@opencode/client"
 import { rpcDefinition } from "./contract.ts"
 import { requestHost as kitRequestHost } from "./host-client.ts"
@@ -277,7 +277,13 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
     try {
       for await (const item of service.event.subscribe({ signal: c.abort.signal })) {
         const data = item.data as unknown as EventData
-        if (data?.sessionID === c.sessionID) forward(c, item.type, data)
+        if (data?.sessionID !== c.sessionID) continue
+        if (item.type === "session.renamed") {
+          void serialize(c.id, async () => {
+            const target = targets.get(c.id)
+            if (target && channels.get(c.id) === c) await conversationList(target, c.directory)
+          }).catch(() => {}) // Opening the selector refreshes the list again.
+        } else forward(c, item.type, data)
       }
     } catch {
       // ended below
@@ -337,7 +343,6 @@ export function createPanel(config: PanelHost, deps: PanelDependencies) {
       known ??
       (await step(`creating this ${config.document}'s conversation`, () =>
         service.session.create({
-          title: `${config.app}: ${basename(directory) || directory}`,
           location: { directory },
         }),
       ))

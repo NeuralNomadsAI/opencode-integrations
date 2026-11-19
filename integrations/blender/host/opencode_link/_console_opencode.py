@@ -198,7 +198,7 @@ class Chat:
             self.problem = ""
             if self.selected:
                 append("INFO", "Resumed conversation." if data.get("resumed") else "New conversation attached.")
-            append("INFO", self.status())
+                append("INFO", self.status())
         elif name == "conversations":
             self.entries = data["entries"]
             self.redraw = True
@@ -386,7 +386,8 @@ def banner(context):
     chat.active = True
     _sync(_append)
     context.space_data.prompt = "> "
-    _append("INFO", chat.status())
+    if chat.state != "Ready" or chat.selected:
+        _append("INFO", chat.status())
     _append("INFO", HELP)
     return {"FINISHED"}
 
@@ -402,6 +403,7 @@ def _menu_classes():
     class OPENCODE_OT_console_conversation(bpy.types.Operator):
         bl_idname = "opencode.console_conversation"
         bl_label = "Open conversation"
+        bl_description = "Switch to a conversation in this folder, or start a new one"
         session_id: bpy.props.StringProperty()
 
         def execute(self, _context):
