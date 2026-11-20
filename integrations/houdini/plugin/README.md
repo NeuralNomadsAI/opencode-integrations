@@ -1,6 +1,6 @@
 # OpenCode for Houdini (preview)
 
-Read, change and check the scene open in Houdini from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode Link** panel inside Houdini. Houdini 21 or later and OpenCode 2.2 or later are required; the panel also needs Node.js 22 or later.
+Read, change and check the scene open in Houdini from any OpenCode conversation: CodeNomad, the terminal, the desktop app, or the **OpenCode Link** panel inside Houdini. Houdini 21 or later and OpenCode 2.2 or later are required.
 
 ## Install
 
@@ -41,7 +41,7 @@ A call that outlasts its wait says whether Houdini still runs it (OpenCode Link 
 
 ## The OpenCode Link panel
 
-The **OpenCode Link** Python panel is a conversation inside Houdini. **Connect** attaches the panel's conversation to this Houdini's own offer, taking back the conversation it had for this file; **New** starts another. Closing the panel releases its conversation only: Houdini stays offered and other conversations attached to it keep it. The panel and other conversations (CodeNomad's, for instance) can be attached to the same Houdini together; both write to the same scene, each change checked against its revision. The panel's conversation lives in its project folder: the first Connect there waits while OpenCode opens that folder and loads its plugins. A failed Connect says which step failed and why. Node.js is found on `PATH`; `NEURALNOMADS_HOUDINI_NODE` names another one.
+The **OpenCode Link** Python panel connects automatically to the latest conversation in the HIP file’s folder. Opening another version in that folder keeps the selected conversation. Use the selector to switch or choose **New conversation**; nothing is created until you send a message. **Stop** interrupts or clears queued prompts. The panel uses OpenCode’s executable, with Node.js 22+ (`NEURALNOMADS_HOUDINI_NODE` or `PATH`) as a fallback.
 
 ## Limits
 

@@ -1,11 +1,12 @@
 import json
-import os
 import pathlib
-import shutil
+import time
 import uuid
 import weakref
 
 from Qt import QtCore
+
+from GafferOpenCode import panelServices
 
 
 class ClientProcess :
@@ -29,10 +30,15 @@ class ClientProcess :
 		self.__process.finished.connect( self.__finished )
 		self.__process.errorOccurred.connect( self.__processError )
 		self.__channels = {}
+		self.__targets = {}
 		self.__pending = []
 		self.__stdout = b""
 		self.__nextRequest = 0
-		self.__start()
+		self.__problem = ""
+		self.__launchAt = time.monotonic() + 5
+		self.__timer = QtCore.QTimer( self.__process )
+		self.__timer.timeout.connect( self.__start )
+		self.__timer.start( 1000 )
 
 	## One panel's events; the callback is held weakly.
 	def register( self, callback ) :
@@ -51,18 +57,28 @@ class ClientProcess :
 			return
 		self.send( channel, "close", {} )
 		self.__channels.pop( channel, None )
+		self.__targets.pop( channel, None )
+		self.__pending = [item for item in self.__pending if item[0] != channel]
 
 	def send( self, channel, method, params ) :
 
-		message = self.__message( channel, method, params )
+		if method in ( "connect", "new_session" ) :
+			previous = self.__targets.get( channel, {} )
+			if method == "new_session" or previous.get( "directory" ) != params.get( "directory" ) :
+				self.__pending = [item for item in self.__pending if item[0] != channel]
+			else :
+				params = { **params, "session_id" : previous.get( "session_id" ), "draft" : previous.get( "draft", False ) }
+			self.__targets[channel] = params
 		if self.__process.state() == QtCore.QProcess.Running :
-			self.__process.write( message )
-		else :
+			self.__process.write( self.__message( channel, method, params ) )
+		elif method not in ( "connect", "new_session", "close" ) :
+			if method == "interrupt" :
+				self.__pending = [item for item in self.__pending if item[0] != channel or item[1] != "prompt"]
 			if len( self.__pending ) >= 100 :
 				self.__emit( channel, "error", { "message" : "OpenCode sidecar request queue is full" } )
 				return
-			self.__pending.append( message )
-			self.__start()
+			self.__pending.append( ( channel, method, params ) )
+		self.__start()
 
 	def __message( self, channel, method, params ) :
 
@@ -76,39 +92,55 @@ class ClientProcess :
 
 	def __start( self ) :
 
-		if self.__process.state() != QtCore.QProcess.NotRunning :
-			return
-		node = os.environ.get( "NEURALNOMADS_GAFFER_NODE" ) or shutil.which( "node" )
-		if not node :
-			self.__pending = []
-			self.__emitAll( "error", { "message" : "Install Node.js 22 or set NEURALNOMADS_GAFFER_NODE" } )
+		if not self.__targets or self.__process.state() != QtCore.QProcess.NotRunning :
 			return
 		# Built into the installed part, beside the Python packages.
 		sidecar = pathlib.Path( __file__ ).resolve().parents[2] / "sidecar.cjs"
 		if not sidecar.is_file() :
-			self.__pending = []
-			self.__emitAll( "error", { "message" : "OpenCode Link sidecar is missing; reinstall the application part." } )
+			self.__blocked( "OpenCode Link sidecar is missing; reinstall the application part." )
 			return
-		self.__process.setProgram( node )
+		from GafferOpenCode.opencode_service import panel_launcher
+
+		services = panelServices()
+		waiting = time.monotonic() < self.__launchAt
+		runtime, bun = panel_launcher( services, "NEURALNOMADS_GAFFER_NODE", wait = waiting )
+		if not runtime :
+			if not waiting :
+				self.__blocked( "No OpenCode runtime, NEURALNOMADS_GAFFER_NODE executable, or Node on PATH." )
+			return
+		environment = QtCore.QProcessEnvironment.systemEnvironment()
+		environment.remove( "BUN_BE_BUN" )
+		if bun :
+			environment.insert( "BUN_BE_BUN", "1" )
+		self.__process.setProcessEnvironment( environment )
+		self.__process.setProgram( runtime )
 		self.__process.setArguments( [ str( sidecar ) ] )
 		self.__process.setWorkingDirectory( str( sidecar.parent.parent ) )
 		self.__process.start()
+
+	def __blocked( self, message ) :
+
+		if message != self.__problem :
+			self.__problem = message
+			self.__emitAll( "error", { "message" : message } )
 
 	def __started( self ) :
 
 		pending = self.__pending
 		self.__pending = []
-		for message in pending :
-			self.__process.write( message )
+		self.__problem = ""
+		for channel, params in self.__targets.items() :
+			self.__process.write( self.__message( channel, "connect", params ) )
+		for channel, method, params in pending :
+			self.__process.write( self.__message( channel, method, params ) )
 
 	def __finished( self, exitCode, unusedExitStatus ) :
 
-		self.__pending = []
-		self.__emitAll( "error", { "message" : "OpenCode sidecar stopped with exit code " + str( exitCode ) } )
+		self.__stdout = b""
+		self.__emitAll( "status", { "state" : "connecting" } )
 
 	def __processError( self, unusedError ) :
 
-		self.__pending = []
 		self.__emitAll( "error", { "message" : "OpenCode sidecar process error: " + self.__process.errorString() } )
 
 	def __readStdout( self ) :
@@ -126,8 +158,10 @@ class ClientProcess :
 				continue
 			channel = message.get( "channel" )
 			if channel and message.get( "event" ) :
+				if message["event"] == "session" and channel in self.__targets :
+					self.__targets[channel] = { **self.__targets[channel], "session_id" : message["data"]["id"], "draft" : message["data"].get( "draft", False ) }
 				self.__emit( channel, message["event"], message.get( "data" ) or {} )
-			elif message.get( "error" ) :
+			elif message.get( "error" ) and not message.get( "id" ) :
 				self.__emitAll( "error", message["error"] )
 
 	def __readStderr( self ) :

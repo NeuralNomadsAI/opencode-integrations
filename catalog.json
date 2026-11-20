@@ -22,7 +22,7 @@
     {
       "id": "blender",
       "package": "@neuralnomads/opencode-blender",
-      "range": "^0.4",
+      "range": "^0.5",
       "displayName": "OpenCode for Blender",
       "family": "native",
       "plugin": "neuralnomads.blender",
@@ -32,7 +32,7 @@
         "fr": "Lire et modifier la scène ouverte dans Blender grâce à l'extension OpenCode Link : changements typés en un pas d'annulation, inspection du Blender lancé, rendus de vérification et en arrière-plan."
       },
       "app": { "name": "Blender", "versions": ">=5.3" },
-      "host": { "protocol": 1, "range": "^0.4.8" },
+      "host": { "protocol": 1, "range": "^0.5.0" },
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/blender/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/blender/plugin"] }
@@ -40,7 +40,7 @@
     {
       "id": "gaffer",
       "package": "@neuralnomads/opencode-gaffer",
-      "range": "^0.3",
+      "range": "^0.4",
       "displayName": "OpenCode for Gaffer",
       "family": "native",
       "plugin": "neuralnomads.gaffer",
@@ -50,7 +50,7 @@
         "fr": "Lire, modifier et vérifier les scripts ouverts dans Gaffer depuis toute conversation OpenCode, avec un panneau facultatif dans Gaffer."
       },
       "app": { "name": "Gaffer", "versions": ">=1.6" },
-      "host": { "protocol": 1, "range": "^0.3.0" },
+      "host": { "protocol": 1, "range": "^0.4.0" },
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/gaffer/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/gaffer/plugin"] }
@@ -58,7 +58,7 @@
     {
       "id": "godot",
       "package": "@neuralnomads/opencode-godot",
-      "range": "^0.1",
+      "range": "^0.2",
       "displayName": "OpenCode for Godot",
       "family": "native",
       "plugin": "neuralnomads.godot",
@@ -68,7 +68,7 @@
         "fr": "Lire, modifier et vérifier le projet ouvert dans l'éditeur Godot depuis toute conversation OpenCode : GDScript en une action d'annulation, vérifications et exécutions dans un Godot en arrière-plan, et un dock de conversation facultatif dans l'éditeur."
       },
       "app": { "name": "Godot", "versions": ">=4.7 <5" },
-      "host": { "protocol": 1, "range": "^0.1.0" },
+      "host": { "protocol": 1, "range": "^0.2.0" },
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/godot/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/godot/plugin"] }
@@ -76,7 +76,7 @@
     {
       "id": "houdini",
       "package": "@neuralnomads/opencode-houdini",
-      "range": "^0.3",
+      "range": "^0.4",
       "displayName": "OpenCode for Houdini",
       "family": "native",
       "plugin": "neuralnomads.houdini",
@@ -86,7 +86,7 @@
         "fr": "Lire, modifier et vérifier la scène Houdini ouverte depuis toute conversation OpenCode, avec un panneau facultatif dans Houdini."
       },
       "app": { "name": "Houdini", "versions": ">=21.0" },
-      "host": { "protocol": 1, "range": "^0.3.1" },
+      "host": { "protocol": 1, "range": "^0.4.0" },
       "docs": "https://github.com/NeuralNomadsAI/opencode-integrations/blob/main/integrations/houdini/plugin/README.md",
       "status": "preview",
       "sources": { "git": ["github:NeuralNomadsAI/opencode-integrations#main::path:integrations/houdini/plugin"] }

@@ -107,13 +107,20 @@ export function createIntegrationRpc(options: IntegrationRpcOptions) {
     handlers.installHost = () => installHost()
     handlers.hosts = async () => registry.hosts()
     handlers.attachHost = async (input, context) => {
-      const { offerID, sessionID } = input as { offerID: string; sessionID: string }
-      return bindings.attach(offerID, sessionID, context?.signal)
+      const { offerID, sessionID, takeover } = input as { offerID: string; sessionID: string; takeover?: boolean }
+      return bindings.attach(offerID, sessionID, context?.signal, takeover)
     }
     handlers.detachHost = async (input, context) =>
       bindings.detach((input as { sessionID: string }).sessionID, context?.signal)
     handlers.bindingRead = (input, context) => bindings.read(input, context?.signal)
-    handlers.advertise = (input) => registry.advertise(input)
+    handlers.advertise = async (input) => {
+      const result = await registry.advertise(input)
+      return result.outcome !== "refused" &&
+        process.versions.bun &&
+        !/^bun(?:\.exe)?$/i.test(process.execPath.split(/[/\\]/).at(-1) ?? "")
+        ? { ...result, panel_runtime: process.execPath }
+        : result
+    }
     handlers.withdraw = async (input) => registry.withdraw(input)
   }
 

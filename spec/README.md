@@ -19,9 +19,9 @@ The integration's `package.json` carries a marker under `opencodeIntegration`, r
   "host": {
     "app": "blender",
     "protocol": 1,
-    "range": "^0.4.8",
+    "range": "^0.5.0",
     "appVersions": ">=5.3",
-    "payload": "host/blender/opencode_link-0.4.8.zip",
+    "payload": "host/blender/opencode_link-0.5.0.zip",
     "sha256": "<sha256 of the payload>"
   }
 }

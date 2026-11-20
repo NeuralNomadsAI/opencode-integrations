@@ -105,6 +105,11 @@ def offerInfo( script ) :
 	return { "label" : label, "offer_key" : key, "advertising" : __advertiser is not None }
 
 
+def panelServices() :
+
+	return __advertiser.results if __advertiser is not None else []
+
+
 def scriptHandle( script ) :
 
 	if __host is None :

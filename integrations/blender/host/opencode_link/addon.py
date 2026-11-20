@@ -15,6 +15,7 @@ from bpy.props import StringProperty
 
 from . import advertiser as advertiser_module
 from . import console
+from . import _console_opencode as chat
 from .blender_app import BlenderApp
 from .core import HostCore, require_app_version
 from .process import state as process_state
@@ -119,6 +120,7 @@ def pump(seconds, stop=None):
 _reload_at = None
 _quit_at = None
 _quit_requested = False
+_reloading = False
 
 
 def schedule_quit():
@@ -159,7 +161,7 @@ def schedule_reload():
 def run_pending_reload():
     """Disable the add-on, drop its modules and enable it again from disk, which offers the session again:
     a new listener, token and script handle (references are invalidated), the same offer key."""
-    global _reload_at
+    global _reload_at, _reloading
     if _reload_at is None:
         return None
     _reload_at = None
@@ -171,7 +173,11 @@ def run_pending_reload():
         return RELOAD_DELAY
     if _session is not None:
         process_state().revision = _session.app.revision()
-    addon_utils.disable(__package__, default_set=False, handle_error=None)
+    _reloading = True
+    try:
+        addon_utils.disable(__package__, default_set=False, handle_error=None)
+    finally:
+        _reloading = False
     for name in [name for name in sys.modules if name == __package__ or name.startswith(__package__ + ".")]:
         del sys.modules[name]
     addon_utils.enable(__package__, default_set=False, handle_error=None)
@@ -317,6 +323,7 @@ def register():
     if bpy.app.background:
         _start_offer()
     else:
+        chat.register()
         bpy.app.timers.register(_start_offer, first_interval=0.1, persistent=True)
 
 
@@ -331,6 +338,7 @@ def _start_offer():
 
 def unregister():
     global _session
+    chat.unregister(keep_language=_reloading)
     console.capture().uninstall()
     _remove_handlers()
     if _session is not None:

@@ -59,7 +59,7 @@ export type OfferRegistry = {
   advertise(input: unknown): Promise<{ outcome: AdvertiseOutcome }>
   withdraw(input: unknown): { outcome: WithdrawOutcome }
   hosts(): { offers: HostOffer[] }
-  attach(offerID: string, sessionID: string): { outcome: AttachOutcome }
+  attach(offerID: string, sessionID: string, takeover?: boolean): { outcome: AttachOutcome; replaced?: boolean }
   detach(sessionID: string): { outcome: "detached" | "none" }
   binding(sessionID: string): HostBinding | null
   liveHellos(): LiveHello[]
@@ -315,7 +315,7 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       }
     },
 
-    attach(offerID, sessionID) {
+    attach(offerID, sessionID, takeover) {
       if (!active()) return { outcome: "refused" }
       if (typeof sessionID !== "string" || !SESSION_ID.test(sessionID)) return { outcome: "refused" }
       if (typeof offerID !== "string" || !OFFER_ID.test(offerID)) return { outcome: "gone" }
@@ -325,11 +325,11 @@ export function createOfferRegistry(options: OfferRegistryOptions): OfferRegistr
       if (record.compatibility === "incompatible") return { outcome: "refused" }
       const bound = sessions.get(sessionID)
       if (bound === offerID) return { outcome: "attached" }
-      if (bound !== undefined) return { outcome: "busy" }
-      if (sessions.size >= MAX_SESSIONS) return { outcome: "refused" }
+      if (bound !== undefined && !takeover) return { outcome: "busy" }
+      if (bound === undefined && sessions.size >= MAX_SESSIONS) return { outcome: "refused" }
       sessions.set(sessionID, offerID)
       changed("status")
-      return { outcome: "attached" }
+      return bound !== undefined ? { outcome: "attached", replaced: true } : { outcome: "attached" }
     },
 
     detach(sessionID) {

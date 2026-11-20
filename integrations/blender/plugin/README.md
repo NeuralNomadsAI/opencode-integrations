@@ -32,6 +32,14 @@
 
 The **Plugins** section lists OpenCode for Blender as an integration: its version, whether the add-on is installed and up to date, and whether the conversation is attached; its menu installs or updates the add-on after a confirmation and detaches the conversation. **Plugins ▸ Add** also accepts the package name.
 
+## Chat in Blender (prototype)
+
+With OpenCode running and OpenCode Link enabled, open a **Python Console** (`Shift–F4`) and choose **Console → Languages → Opencode**. It connects on its own, even for an unsaved scene, and keeps the current conversation when you open another file in the same folder. Use the conversation menu in the header, or `/list` then `/open <n>`, to switch. **New conversation** (`/new`) stays empty until you send a message. `/stop` interrupts or clears queued messages; `/status` and `/help` are always available. The console uses OpenCode’s executable; Node.js 22+ (`NEURALNOMADS_BLENDER_NODE` or `PATH`) is only a fallback. The add-on preferences can target a named OpenCode service.
+
+The Console wraps lines and keeps its own Up-arrow history. An unfinished line appears when the stream finishes or the next newline arrives. **Copy as Script** copies this area's scrollback as plain text, not executable Python. Earlier messages stay in OpenCode when you reconnect; they are not replayed into Blender. `/allow` approves a single pending OpenCode permission once; `/reject` declines it. Use OpenCode to handle questions or multiple pending approvals.
+
+CodeNomad can stay attached separately. Blender cannot repaint or accept console input while a main-thread Python operation or bake is running. Output queues and appears once the main thread is free; `/stop` does not preempt Python already running in Blender.
+
 ## How it works
 
 - **Discovery and consent.** While OpenCode Link is enabled, the add-on listens on `127.0.0.1` on a random port with a random 256-bit token kept in memory, and offers the session to every OpenCode service registered for your user (or to one: the add-on setting _OpenCode service_). Offers last 15 seconds and are renewed every 5 seconds.

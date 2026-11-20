@@ -224,22 +224,17 @@ describe("OpenCode Link in a real Godot editor", { skip: !godot, concurrency: fa
     assert.match(crash.crash, /Program crashed/)
   })
 
-  it("the dock reaches its sidecar (Node) from the editor", async () => {
+  it("the visible dock starts its sidecar automatically", async () => {
     await code(
-      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.found = dock != null\ndock.toggle_connection()',
+      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.found = dock != null\ndock.reparent(EditorInterface.get_base_control())\ndock.show()',
     )
-    const transcript = await until(
-      async () => {
-        const read = await code(
-          'result.text = EditorInterface.get_base_control().find_child("OpenCode", true, false).transcript()',
-          { read_only: true },
-        )
-        return /Connect failed|Start OpenCode/.test(read.result.text) ? read.result.text : ""
-      },
-      30_000,
-      "the dock's answer",
+    await until(() => service.calls.some(({ method }) => method === "hosts"), 30_000, "the dock's offer lookup")
+    const read = await code(
+      'var dock = EditorInterface.get_base_control().find_child("OpenCode", true, false)\nresult.text = dock.transcript()\nresult.status = dock.state().status',
+      { read_only: true },
     )
-    assert.match(transcript, /Connect failed while finding this project's conversation|Start OpenCode/)
+    assert.equal(read.result.status, "CONNECTING", read.result.text)
+    assert.equal(read.result.text, "")
   })
 
   it("says that the editor crashed, with its log", async () => {

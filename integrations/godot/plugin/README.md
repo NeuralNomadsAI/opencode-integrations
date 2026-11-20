@@ -1,6 +1,6 @@
 # OpenCode for Godot (preview)
 
-Read, edit and check the project open in Godot from an OpenCode conversation. Requires Godot 4.7 or later in the 4.x series and OpenCode 2.2 or later. The optional editor dock needs Node.js 22 or later; discovery and the editor tools do not.
+Read, edit and check the project open in Godot from an OpenCode conversation. Requires Godot 4.7 or later in the 4.x series and OpenCode 2.2 or later.
 
 ## Install
 
@@ -31,9 +31,9 @@ Edits to scene-owned nodes and stored properties are grouped into one undo actio
 
 ## Editor dock
 
-Open **OpenCode** and select **Connect**. It creates or resumes the project conversation and displays the agent, model, streamed replies and tool calls. Use **Stop** to interrupt a response and **Disconnect** to release the dock's attachment. You can connect an independent OpenCode conversation to the same editor. Duplicate offer labels are refused by the dock rather than choosing an editor arbitrarily.
+Open the **OpenCode** dock. It automatically resumes the latest conversation in the scene’s folder, or the project folder when no saved scene is open. Open another scene in the same folder to keep the selected conversation. The selector lists the folder’s conversations; **New conversation** creates nothing until you send a message. Use **Stop** to interrupt or clear queued prompts.
 
-The add-on handles discovery and editor requests in GDScript using the local offer protocol. The dock starts a Node client over private pipes, using OpenCode's SDK for sessions and events, following Gaffer's panel. Node is found on `PATH` or via `NEURALNOMADS_GODOT_NODE`. The dock never starts OpenCode. Set `OPENCODE_GODOT_OFFER=0` in the editor environment to disable advertising.
+The dock uses OpenCode’s executable. Node.js 22+ (`NEURALNOMADS_GODOT_NODE` or `PATH`) is only a fallback. The dock never starts the OpenCode service. Set `OPENCODE_GODOT_OFFER=0` to disable advertising.
 
 ## Tests
 

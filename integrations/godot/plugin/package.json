@@ -1,6 +1,6 @@
 {
   "name": "@neuralnomads/opencode-godot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode for Godot: GDScript in the editor as one undo action, checks and runs in a background Godot, through an authenticated local add-on, with an optional in-editor conversation dock.",
   "license": "MIT",
   "type": "module",
@@ -59,10 +59,10 @@
     "host": {
       "app": "godot",
       "protocol": 1,
-      "range": "^0.1.0",
+      "range": "^0.2.0",
       "appVersions": ">=4.7 <5",
-      "payload": "host/godot/opencode_link-0.1.0.zip",
-      "sha256": "49bde399ddbaf859baae7d6686f8b4ee849ef82b15fad28fc132db9b7b0a5b2b"
+      "payload": "host/godot/opencode_link-0.2.0.zip",
+      "sha256": "43059cb68ada77d6cb55cf9d20b745c07ca46455a68c12551c1034ad7701e127"
     }
   }
 }

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { Agent, request } from "node:http"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { Readable } from "node:stream"
 
 const agent = new Agent({ keepAlive: true, proxyEnv: {} })
@@ -62,8 +62,13 @@ export function serviceFetch(baseUrl: string): typeof globalThis.fetch {
 
 export async function discoverService(
   file = join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "opencode", "service.json"),
+  registrationFile?: string,
 ) {
   try {
+    if (registrationFile) {
+      if (!/^service(?:-[A-Za-z0-9._-]{1,64})?\.json$/.test(registrationFile)) return undefined
+      file = join(dirname(file), registrationFile)
+    }
     const registration = JSON.parse(await readFile(file, "utf8"))
     if (
       typeof registration.url !== "string" ||

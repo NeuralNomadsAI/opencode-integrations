@@ -73,10 +73,10 @@ export function createSessionBindings(registry: OfferRegistry, native?: NativeSe
     return parseBindingReadOutput(registry.read(parsed.sessionID)) ?? { state: "unknown" }
   }
 
-  const attach = async (offerID: string, sessionID: string, signal?: AbortSignal) => {
+  const attach = async (offerID: string, sessionID: string, signal?: AbortSignal, takeover?: boolean) => {
     const authority = await snapshot(sessionID, signal)
     return authority && !signal?.aborted && registry.current(authority)
-      ? registry.attach(offerID, sessionID)
+      ? registry.attach(offerID, sessionID, takeover)
       : { outcome: "refused" as const }
   }
   const detach = async (sessionID: string, signal?: AbortSignal) => {

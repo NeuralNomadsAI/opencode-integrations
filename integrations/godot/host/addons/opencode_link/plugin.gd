@@ -41,6 +41,8 @@ func _scene_changed(_value: Variant = null) -> void:
 	if link != null:
 		link.refresh_label()
 		link.bump()
+		if dock != null:
+			dock._sync()
 
 
 func _process(_delta: float) -> void:

@@ -1,5 +1,4 @@
 import functools
-import hashlib
 import os
 import pathlib
 import weakref
@@ -32,8 +31,9 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		self.__header = GafferUI.ListContainer( GafferUI.ListContainer.Orientation.Horizontal, spacing = 6 )
 		self.__brand = GafferUI.Label( "OpenCode for Gaffer" )
 		self.__brand._qtWidget().setObjectName( "gafferOpenCodeBrand" )
-		self.__sessionLabel = GafferUI.Label( "SESSION  disconnected" )
-		self.__sessionLabel._qtWidget().setObjectName( "gafferOpenCodeSession" )
+		self.__conversations = []
+		self.__selected = None
+		self.__conversationButton = GafferUI.MenuButton( "New conversation", menu = GafferUI.Menu( Gaffer.WeakMethod( self.__conversationMenu ) ) )
 		self.__models = []
 		self.__model = ""
 		self.__modelButton = GafferUI.MenuButton(
@@ -41,18 +41,13 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			menu = GafferUI.Menu( Gaffer.WeakMethod( self.__modelMenuDefinition ), title = "Model" ),
 		)
 		self.__modelButton.setEnabled( False )
-		self.__newButton = GafferUI.Button( "New" )
-		self.__newButton.setEnabled( False )
-		self.__connectButton = GafferUI.Button( "Connect" )
 		self.__header.append( self.__brand )
-		self.__header.append( self.__sessionLabel )
 		self.__header.append( GafferUI.Spacer( imath.V2i( 1 ), maximumSize = imath.V2i( 100000, 1 ) ), expand = True )
-		self.__statusLabel = GafferUI.Label( "DISCONNECTED" )
+		self.__statusLabel = GafferUI.Label( "CONNECTING" )
 		self.__statusLabel._qtWidget().setObjectName( "gafferOpenCodeStatus" )
 		self.__header.append( self.__statusLabel )
 		self.__header.append( self.__modelButton )
-		self.__header.append( self.__newButton )
-		self.__header.append( self.__connectButton )
+		self.__header.append( self.__conversationButton )
 		self.__column.append( self.__header )
 
 		self.__transcript = GafferUI.MultiLineTextWidget(
@@ -81,7 +76,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			wrapMode = GafferUI.MultiLineTextWidget.WrapMode.Word,
 		)
 		self.__sendButton = GafferUI.Button( "Send" )
-		self.__sendButton.setEnabled( False )
+		self.__sendButton.setEnabled( True )
 		self.__stopButton = GafferUI.Button( "Stop" )
 		self.__stopButton.setEnabled( False )
 		self.__promptRow.append( self.__prompt, expand = True )
@@ -97,8 +92,6 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			"#gafferOpenCodeTranscript { border-top: 1px solid #34393e; border-bottom: 1px solid #34393e; }"
 		)
 
-		self.__newButton.clickedSignal().connect( Gaffer.WeakMethod( self.__newSession ) )
-		self.__connectButton.clickedSignal().connect( Gaffer.WeakMethod( self.__toggleConnection ) )
 		self.__sendButton.clickedSignal().connect( Gaffer.WeakMethod( self.__send ) )
 		self.__stopButton.clickedSignal().connect( Gaffer.WeakMethod( self.__stop ) )
 		self.__allowButton.clickedSignal().connect( Gaffer.WeakMethod( self.__allow ) )
@@ -112,14 +105,18 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		# panel is open; the panel only attaches its own conversation to that offer.
 		self.__client = None
 		self.__channel = None
-		self.__active = False
 		self.__connected = False
 		if not GafferOpenCode.scriptHandle( scriptNode ) :
 			raise RuntimeError( "OpenCodeEditor requires a ScriptNode registered with the Gaffer application" )
-		self.__scriptKey = self.__currentScriptKey()
 		self.__scriptConnections = [
 			scriptNode.plugSetSignal().connect( Gaffer.WeakMethod( self.__scriptPlugSet ), scoped = True ),
 		]
+		GafferOpenCode.acquirePanel( self.__ensureChannel() )
+		self.__target = None
+		self.__sync()
+		self.__timer = QtCore.QTimer( self._qtWidget() )
+		self.__timer.timeout.connect( Gaffer.WeakMethod( self.__sync ) )
+		self.__timer.start( 500 )
 
 	def __repr__( self ) :
 
@@ -142,50 +139,18 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			weakref.finalize( self, OpenCodeEditor.__release, self.__client, self.__channel )
 		return self.__channel
 
-	def __toggleConnection( self, unusedButton = None ) :
-
-		if self.__active :
-			self.__disconnect()
-		else :
-			self.__connect( "connect" )
-
-	def __connect( self, method ) :
-
+	def __sync( self ) :
 		params = self.__connectParams()
-		if params is None :
-			return
-		channel = self.__ensureChannel()
-		GafferOpenCode.acquirePanel( channel )
-		self.__active = True
-		self.__connected = False
-		self.__connectButton.setText( "Disconnect" )
-		self.__newButton.setEnabled( True )
-		self.__statusLabel.setText( "CONNECTING" )
-		self.__sendButton.setEnabled( False )
-		self.__client.send( channel, method, params )
-
-	def __disconnect( self ) :
-
-		self.__active = False
-		self.__connected = False
-		if self.__channel is not None :
-			self.__client.send( self.__channel, "close", {} )
-			GafferOpenCode.releasePanel( self.__channel )
-		self.__connectButton.setText( "Connect" )
-		self.__statusLabel.setText( "DISCONNECTED" )
-		self.__sendButton.setEnabled( False )
-		self.__stopButton.setEnabled( False )
-		self.__newButton.setEnabled( False )
-		self.__modelButton.setEnabled( False )
+		if params != self.__target :
+			self.__target = params
+			self.__client.send( self.__channel, "connect", params )
 
 	def __event( self, name, data ) :
 
-		if not self.__active and name != "error" :
-			return  # a reply to a connection this editor has since closed
 		if name == "session" :
 			self.__connected = True
-			self.__sessionLabel.setText( "SESSION  " + str( data.get( "id", "" ) )[-8:] )
-			self.__sessionLabel.setToolTip( "Workspace: " + str( data.get( "workspace", "" ) ) )
+			self.__selected = data.get( "id" )
+			self.__conversationButton.setToolTip( "Workspace: " + str( data.get( "workspace", "" ) ) )
 			self.__setModel( str( data.get( "model", "" ) ) )
 			self.__append( "system", "Resumed session" if data.get( "resumed" ) else "New session" )
 		elif name == "models" :
@@ -195,9 +160,19 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		elif name == "model" :
 			self.__setModel( str( data.get( "selected", "" ) ) )
 		elif name == "history" :
+			self.__streaming = False
 			self.__transcript.setText( "" )
 			for message in data.get( "messages", [] ) :
 				self.__append( message.get( "role", "system" ), message.get( "text", "" ) )
+		elif name == "conversations" :
+			self.__conversations = data["entries"]
+			self.__selected = data.get( "selected" )
+			title = next( (item["title"] for item in self.__conversations if item["id"] == self.__selected), "New conversation" )
+			self.__conversationButton.setText( title )
+		elif name == "notice" :
+			self.__append( "system", data["message"] )
+		elif name == "user_message" :
+			self.__append( "user", data["text"] )
 		elif name == "assistant_start" :
 			self.__startAssistant()
 		elif name == "assistant_delta" :
@@ -215,9 +190,13 @@ class OpenCodeEditor( GafferUI.Editor ) :
 		elif name == "status" :
 			state = str( data.get( "state", "unknown" ) )
 			self.__statusLabel.setText( state.upper() )
+			if state == "connecting" :
+				self.__connected = False
+				self.__permissionRequest = None
+				self.__permissionRow.setVisible( False )
 			self.__busy = state in ( "busy", "retry" )
-			self.__stopButton.setEnabled( self.__busy )
-			self.__sendButton.setEnabled( self.__connected and not self.__busy )
+			self.__stopButton.setEnabled( self.__busy or state == "connecting" )
+			self.__sendButton.setEnabled( not self.__busy )
 			self.__prompt.setEnabled( not self.__busy )
 			self.__modelButton.setEnabled( self.__connected and bool( self.__models ) and not self.__busy )
 		elif name == "error" :
@@ -226,7 +205,7 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			self.__busy = False
 			self.__streaming = False
 			self.__stopButton.setEnabled( False )
-			self.__sendButton.setEnabled( self.__connected )
+			self.__sendButton.setEnabled( True )
 			self.__prompt.setEnabled( True )
 			self.__modelButton.setEnabled( self.__connected and bool( self.__models ) )
 
@@ -261,30 +240,33 @@ class OpenCodeEditor( GafferUI.Editor ) :
 			return
 		self.__client.send( self.__channel, "switch_model", { "model" : model } )
 
-	## The conversation marked for this script is taken back at Connect: a saved script by its file, an unsaved
-	# one while it stays open.
-	def __currentScriptKey( self ) :
+	def __conversationMenu( self ) :
 
-		scriptNode = self.scriptNode()
-		fileName = str( scriptNode["fileName"].getValue() )
-		if not fileName :
-			return "untitled:" + GafferOpenCode.scriptHandle( scriptNode )
-		return "document:" + hashlib.sha256( str( pathlib.Path( fileName ).resolve() ).encode( "utf-8" ) ).hexdigest()
+		self.__client.send( self.__channel, "list", {} )
+		menu = IECore.MenuDefinition()
+		menu.append( "/New conversation", { "command" : Gaffer.WeakMethod( self.__newSession ), "checkBox" : self.__selected is None, "active" : not self.__busy } )
+		for i, item in enumerate( self.__conversations, 1 ) :
+			title = (item.get( "title" ) or "Untitled").replace( "/", "／" )
+			menu.append( f"/{i}. {title}", {
+				"command" : functools.partial( Gaffer.WeakMethod( self.__openConversation ), item["id"] ),
+				"checkBox" : item["id"] == self.__selected,
+				"active" : not self.__busy,
+			} )
+		return menu
+
+	def __openConversation( self, session, unusedMenu = None ) :
+
+		self.__client.send( self.__channel, "open", { "session_id" : session } )
 
 	def __connectParams( self ) :
 
 		scriptNode = self.scriptNode()
 		offer = GafferOpenCode.offerInfo( scriptNode )
-		if not offer.get( "advertising" ) or not offer.get( "label" ) :
-			self.__append( "error", "OpenCode Link does not offer this script to OpenCode." )
-			return None
 		fileName = str( scriptNode["fileName"].getValue() )
 		params = dict( GafferOpenCode.hostInfo() )
 		params.update( {
 			"script_handle" : GafferOpenCode.scriptHandle( scriptNode ),
-			"offer_label" : offer["label"],
-			"script_key" : self.__scriptKey,
-			"script_name" : pathlib.Path( fileName ).name if fileName else scriptNode.getName(),
+			"offer_label" : offer.get( "label" ),
 			"directory" : str( pathlib.Path( fileName ).resolve().parent ) if fileName else os.getcwd(),
 		} )
 		return params
@@ -293,25 +275,20 @@ class OpenCodeEditor( GafferUI.Editor ) :
 
 		if not plug.isSame( self.scriptNode()["fileName"] ) :
 			return
-		previousKey = self.__scriptKey
-		self.__scriptKey = self.__currentScriptKey()
-		# Another file is another script's conversation: Connect takes that one.
-		if self.__scriptKey != previousKey and self.__active :
-			self.__disconnect()
+		self.__sync()
 
-	def __newSession( self, unusedButton ) :
+	def __newSession( self, unusedButton = None ) :
 
-		self.__connect( "new_session" )
+		self.__client.send( self.__channel, "new_session", self.__target )
 
 	def __send( self, unusedWidget ) :
 
-		if self.__busy or not self.__connected :
+		if self.__busy :
 			return
 		text = self.__prompt.getText().strip()
 		if not text :
 			return
 		self.__prompt.setText( "" )
-		self.__append( "user", text )
 		self.__client.send( self.__channel, "prompt", { "text" : text } )
 
 	def __stop( self, unusedButton ) :

@@ -1,9 +1,7 @@
 @tool
 extends VBoxContainer
 ## The OpenCode dock: this project's conversation inside the editor. A plain client of the OpenCode service through a
-## Node sidecar (sidecar.cjs, beside this file; Node on PATH, or NEURALNOMADS_GODOT_NODE): Godot offers its project
-## by itself (link.gd), the dock only attaches its own conversation to that offer, and Disconnect (or closing the
-## editor) releases that conversation only. Other conversations attached to the same project stay attached.
+## Private sidecar: Godot offers its project (link.gd), and this dock attaches the current folder's conversation.
 
 var link: RefCounted
 
@@ -12,6 +10,13 @@ var _stdio: FileAccess
 var _stderr: FileAccess
 var _buffer := PackedByteArray()
 var _channel := ""
+var _target := {}
+var _pending: Array[Dictionary] = []
+var _selected := ""
+var _draft := false
+var _retry_at := 0
+var _launch_at := 0
+var _problem := ""
 var _next := 0
 var _active := false
 var _connected := false
@@ -21,12 +26,10 @@ var _permission := ""
 var _models: Array = []
 var _model := ""
 
-var _session_label := Label.new()
 var _status_label := Label.new()
 var _agent_label := Label.new()
 var _model_button := OptionButton.new()
-var _new_button := Button.new()
-var _connect_button := Button.new()
+var _conversations := OptionButton.new()
 var _transcript := RichTextLabel.new()
 var _permission_row := HBoxContainer.new()
 var _permission_label := Label.new()
@@ -37,19 +40,12 @@ var _stop_button := Button.new()
 
 func _ready() -> void:
 	_channel = "dock-" + Crypto.new().generate_random_bytes(8).hex_encode()
-	visibility_changed.connect(func():
-		if _active and not is_visible_in_tree():
-			disconnect_dock()
-	)
 	var header := HBoxContainer.new()
 	var brand := Label.new()
 	brand.text = "OpenCode"
 	header.add_child(brand)
-	_session_label.text = "disconnected"
-	_session_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_session_label.clip_text = true
-	header.add_child(_session_label)
-	_status_label.text = "DISCONNECTED"
+	header.add_spacer(false)
+	_status_label.text = "CONNECTING"
 	header.add_child(_status_label)
 	add_child(header)
 
@@ -61,13 +57,19 @@ func _ready() -> void:
 	_model_button.clip_text = true
 	_model_button.item_selected.connect(_select_model)
 	row.add_child(_model_button)
-	_new_button.text = "New"
-	_new_button.disabled = true
-	_new_button.pressed.connect(func(): _connect("new_session"))
-	row.add_child(_new_button)
-	_connect_button.text = "Connect"
-	_connect_button.pressed.connect(toggle_connection)
-	row.add_child(_connect_button)
+	_conversations.clip_text = true
+	_conversations.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_conversations.add_item("New conversation")
+	_conversations.set_item_metadata(0, "")
+	_conversations.get_popup().about_to_popup.connect(func(): _send("list", {}))
+	_conversations.item_selected.connect(func(index: int):
+		var id: String = _conversations.get_item_metadata(index)
+		if id == "":
+			_send("new_session", _target)
+		else:
+			_send("open", {"session_id": id})
+	)
+	row.add_child(_conversations)
 	add_child(row)
 
 	_transcript.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -103,15 +105,12 @@ func _ready() -> void:
 	_stop_button.pressed.connect(stop)
 	buttons.add_child(_stop_button)
 	_send_button.text = "Send"
-	_send_button.disabled = true
 	_send_button.pressed.connect(func(): send_text(_prompt.text))
 	buttons.add_child(_send_button)
 	add_child(buttons)
 
 
 func _exit_tree() -> void:
-	if _active:
-		disconnect_dock()
 	if _stdio != null:
 		# The sidecar ends once its input closes, after releasing its conversations.
 		_stdio.close()
@@ -120,38 +119,16 @@ func _exit_tree() -> void:
 
 # --- what a user (or a script driving the dock) does ---
 
-func toggle_connection() -> void:
-	if _active:
-		disconnect_dock()
-	else:
-		_connect("connect")
-
-
 func send_text(text: String) -> void:
 	text = text.strip_edges()
-	if _busy or not _connected or text == "":
+	if _busy or text == "":
 		return
 	_prompt.text = ""
-	_append("user", text)
 	_send("prompt", {"text": text})
 
 
 func stop() -> void:
 	_send("interrupt", {})
-
-
-func disconnect_dock() -> void:
-	_active = false
-	_connected = false
-	_send("close", {})
-	_connect_button.text = "Connect"
-	_status_label.text = "DISCONNECTED"
-	_permission = ""
-	_permission_row.hide()
-	_streaming = false
-	_set_busy(false)
-	_new_button.disabled = true
-	_model_button.disabled = true
 
 
 func transcript() -> String:
@@ -166,7 +143,7 @@ func state() -> Dictionary:
 
 static func _node() -> String:
 	var configured := OS.get_environment("NEURALNOMADS_GODOT_NODE")
-	if configured != "":
+	if configured != "" and FileAccess.file_exists(configured):
 		return configured
 	var windows := OS.get_name() == "Windows"
 	for directory in OS.get_environment("PATH").split(";" if windows else ":", false):
@@ -176,32 +153,70 @@ static func _node() -> String:
 	return ""
 
 
-func _start() -> bool:
-	if _pid > 0 and OS.is_process_running(_pid):
-		return true
-	var node := _node()
-	if node == "":
-		_append("error", "Install Node.js 22 or later, or set NEURALNOMADS_GODOT_NODE.")
-		return false
+func _start() -> void:
+	var services: Array = link.advertiser_results()
+	var runtime := ""
+	var ready := false
+	var waiting := Time.get_ticks_msec() < _launch_at
+	for result in services:
+		if not result.get("outcome") in ["accepted", "renewed"]:
+			continue
+		ready = true
+		var advertised: String = result.get("panel_runtime", "")
+		if advertised.is_absolute_path() and FileAccess.file_exists(advertised):
+			runtime = advertised
+			break
+	var bun := runtime != ""
+	if not bun and (ready or not waiting):
+		runtime = _node()
 	var sidecar := ProjectSettings.globalize_path(get_script().resource_path.get_base_dir().path_join("sidecar.cjs"))
 	if not FileAccess.file_exists(sidecar):
-		_append("error", "The OpenCode dock's sidecar is missing: install OpenCode Link again (godot_install_host).")
-		return false
-	var started := OS.execute_with_pipe(node, [sidecar], false)
+		_blocked("The OpenCode dock's sidecar is missing: install OpenCode Link again (godot_install_host).")
+		return
+	if runtime == "":
+		if not waiting:
+			_blocked("No OpenCode runtime, NEURALNOMADS_GODOT_NODE executable, or Node on PATH.")
+		return
+	var inherited := OS.get_environment("BUN_BE_BUN")
+	var had_inherited := OS.has_environment("BUN_BE_BUN")
+	if bun:
+		OS.set_environment("BUN_BE_BUN", "1")
+	else:
+		OS.unset_environment("BUN_BE_BUN")
+	var started := OS.execute_with_pipe(runtime, [sidecar], false)
+	if had_inherited:
+		OS.set_environment("BUN_BE_BUN", inherited)
+	else:
+		OS.unset_environment("BUN_BE_BUN")
 	if started.is_empty():
-		_append("error", "Node.js did not start: %s" % node)
-		return false
+		_blocked("The OpenCode sidecar runtime did not start.")
+		return
 	_pid = started.pid
 	_stdio = started.stdio
 	_stderr = started.stderr
 	_buffer = PackedByteArray()
-	return true
+	_problem = ""
+	var params := _target.duplicate()
+	params.session_id = _selected
+	params.draft = _draft
+	_send("connect", params)
+	for item in _pending:
+		_send(item.method, item.params)
+	_pending.clear()
+
+
+func _blocked(message: String) -> void:
+	if message != _problem:
+		_problem = message
+		_event("error", {"message": message})
 
 
 func _send(method: String, params: Dictionary) -> void:
-	if method == "close" and (_stdio == null or not OS.is_process_running(_pid)):
-		return
-	if not _start():
+	if _stdio == null or not OS.is_process_running(_pid):
+		if method == "interrupt":
+			_pending.clear()
+		elif method == "prompt":
+			_pending.append({"method": method, "params": params})
 		return
 	_next += 1
 	var line := JSON.stringify({"id": str(_next), "channel": _channel, "method": method, "params": params}) + "\n"
@@ -209,7 +224,16 @@ func _send(method: String, params: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	if not _active:
+		if not is_visible_in_tree():
+			return
+		_active = true
+		_launch_at = Time.get_ticks_msec() + 5000
+	_sync()
 	if _stdio == null:
+		if Time.get_ticks_msec() >= _retry_at:
+			_retry_at = Time.get_ticks_msec() + 1000
+			_start()
 		return
 	var available := _stdio.get_length()
 	if available > 0:
@@ -225,7 +249,7 @@ func _process(_delta: float) -> void:
 			var message: Dictionary = parser.data
 			if message.get("channel") == _channel and message.get("event") is String:
 				_event(message.event, message.get("data", {}) if message.get("data") is Dictionary else {})
-			elif message.get("error") is Dictionary and message.get("channel") == null:
+			elif message.get("error") is Dictionary and not message.has("id"):
 				_event("error", message.error)
 	if _stderr != null and _stderr.get_length() > 0:
 		_stderr.get_buffer(_stderr.get_length())
@@ -233,30 +257,30 @@ func _process(_delta: float) -> void:
 		_stdio = null
 		_stderr = null
 		_pid = -1
-		if _active:
-			_event("error", {"message": "The OpenCode sidecar stopped; choose Connect to start it again."})
+		_event("status", {"state": "connecting"})
 
 
-func _connect(method: String) -> void:
-	if link == null or not link.advertising():
-		_append("error", "OpenCode Link does not offer this project to OpenCode (OPENCODE_GODOT_OFFER=0?).")
+func _sync() -> void:
+	if link == null or not _active:
 		return
 	var project: String = link.project_dir()
+	var scene := EditorInterface.get_edited_scene_root()
+	var directory := project
+	if scene != null and scene.scene_file_path.begins_with("res://"):
+		directory = link.native(ProjectSettings.globalize_path(scene.scene_file_path).get_base_dir())
 	var params: Dictionary = link.info()
 	params.merge({
 		"script_handle": link.script_handle,
 		"offer_label": link.label(),
-		"project_key": "project:" + project.to_lower().replace("\\", "/").sha256_text(),
-		"project_name": link.project_name(),
-		"directory": project,
+		"directory": directory,
 	})
-	_active = true
-	_connected = false
-	_connect_button.text = "Disconnect"
-	_new_button.disabled = false
-	_status_label.text = "CONNECTING"
-	_send_button.disabled = true
-	_send(method, params)
+	if params != _target:
+		if directory != _target.get("directory"):
+			_selected = ""
+			_draft = false
+			_pending.clear()
+		_target = params
+		_send("connect", params)
 
 
 func _select_model(index: int) -> void:
@@ -282,8 +306,8 @@ func _reply_permission(reply: String) -> void:
 
 func _set_busy(busy: bool) -> void:
 	_busy = busy
-	_stop_button.disabled = not busy
-	_send_button.disabled = not _connected or busy
+	_stop_button.disabled = not busy and _status_label.text != "CONNECTING"
+	_send_button.disabled = busy
 	_prompt.editable = not busy
 	_model_button.disabled = not _connected or busy or _models.is_empty()
 
@@ -307,11 +331,27 @@ func _event(name: String, data: Dictionary) -> void:
 	match name:
 		"session":
 			_connected = true
-			_session_label.text = "session " + str(data.get("id", "")).right(8)
-			_session_label.tooltip_text = "Workspace: " + str(data.get("workspace", ""))
+			_selected = str(data.id) if data.get("id") else ""
+			_draft = data.get("draft", false)
+			_conversations.tooltip_text = "Workspace: " + str(data.get("workspace", ""))
 			_agent_label.text = str(data.get("agent", "")) if data.get("agent") else "default agent"
 			_set_model(str(data.get("model", "")))
-			_append("system", "Resumed conversation" if data.get("resumed") else "New conversation")
+		"conversations":
+			_conversations.clear()
+			_conversations.add_item("New conversation")
+			_conversations.set_item_metadata(0, "")
+			var index := 0
+			for item in data.get("entries", []):
+				var title: String = item.get("title", "")
+				_conversations.add_item(title if title != "" else "Untitled")
+				_conversations.set_item_metadata(_conversations.item_count - 1, item.id)
+				if item.id == _selected:
+					index = _conversations.item_count - 1
+			_conversations.select(index)
+		"notice":
+			_append("system", data.message)
+		"user_message":
+			_append("user", data.text)
 		"models":
 			_models = data.get("models", [])
 			_model_button.clear()
@@ -326,6 +366,7 @@ func _event(name: String, data: Dictionary) -> void:
 		"agent":
 			_agent_label.text = str(data.get("agent", ""))
 		"history":
+			_streaming = false
 			_transcript.clear()
 			for message in data.get("messages", []):
 				_append(str(message.get("role", "system")), str(message.get("text", "")))
@@ -348,6 +389,10 @@ func _event(name: String, data: Dictionary) -> void:
 		"status":
 			var value := str(data.get("state", "unknown"))
 			_status_label.text = value.to_upper()
+			if value == "connecting":
+				_connected = false
+				_permission = ""
+				_permission_row.hide()
 			_set_busy(value in ["busy", "retry"])
 		"error":
 			_append("error", str(data.get("message", "Unknown OpenCode error")))

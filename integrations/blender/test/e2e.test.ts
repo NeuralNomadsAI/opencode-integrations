@@ -49,7 +49,7 @@ describe("OpenCode 2.2.5 service with a background Blender", { skip }, () => {
         return listed.offers.length > 0 ? listed.offers : undefined
       })
       assert.equal(offers.length, 1)
-      assert.equal(offers[0]?.label, "Blender: Untitled")
+      assert.match(offers[0]?.label ?? "", /^Blender: Untitled \[\d+\]$/)
       assert.equal(offers[0]?.protocol, "ok")
       assert.deepEqual(await rpc("attachHost", { offerID: offers[0]?.offerID, sessionID: session.id }), {
         outcome: "attached",

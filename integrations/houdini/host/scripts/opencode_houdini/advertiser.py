@@ -85,12 +85,13 @@ class Advertiser:
         if targets and self._count % DISCOVER_EVERY:
             results, kept = [], {}
             for name, (service, directory) in targets.items():
+                body = None
                 try:
                     status, body = opencode_service.call(service, RPC_ID, "advertise", offer, directory, RENEW_TIMEOUT)
                     outcome = opencode_service._outcome("advertise", status, body)
                 except (OSError, ValueError):
                     outcome = "error"
-                results.append({"service": name, "outcome": outcome})
+                results.append({"service": name, "outcome": outcome, **opencode_service.panel_runtime(outcome, body)})
                 if outcome in ("accepted", "renewed"):
                     kept[name] = (service, directory)
             self._targets = kept
@@ -104,6 +105,7 @@ class Advertiser:
             services = []
         for service in services:
             outcome = "unavailable"
+            body = None
             for directory in opencode_service.location_candidates(None, self._env):
                 try:
                     deadline = time.monotonic() + RENEW_TIMEOUT
@@ -121,7 +123,7 @@ class Advertiser:
                 if outcome in ("accepted", "renewed"):
                     found[service.file] = (service, directory)
                 break
-            results.append({"service": service.file, "outcome": outcome})
+            results.append({"service": service.file, "outcome": outcome, **opencode_service.panel_runtime(outcome, body)})
         self._targets = found
         return results
 
