@@ -1,6 +1,6 @@
 {
   "name": "@neuralnomads/opencode-gaffer",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "OpenCode for Gaffer: bounded graph editing through an authenticated local host, with an optional in-app conversation panel.",
   "license": "MIT",
   "type": "module",
@@ -59,10 +59,10 @@
     "host": {
       "app": "gaffer",
       "protocol": 1,
-      "range": "^0.3.0",
+      "range": "^0.4.0",
       "appVersions": ">=1.6",
-      "payload": "host/gaffer/opencode_link-0.3.0.zip",
-      "sha256": "95e9e3086bd172541de755aacb2795a80aab48b896ad92e37c281d49a8e32885"
+      "payload": "host/gaffer/opencode_link-0.4.0.zip",
+      "sha256": "974f1c670359218641153e24ee46f6c90b372372aaf2abaa64f7bf34ad90c0d1"
     }
   }
 }
