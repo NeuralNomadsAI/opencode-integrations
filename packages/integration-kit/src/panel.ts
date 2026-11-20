@@ -89,7 +89,9 @@ export function briefly(error: unknown) {
 }
 
 const modelKey = (model: ModelRef | undefined) =>
-  model ? `${model.providerID}/${model.id}${model.variant ? `#${model.variant}` : ""}` : ""
+  model
+    ? `${model.providerID}/${model.id}${model.variant && model.variant !== "default" ? `#${model.variant}` : ""}`
+    : ""
 
 const HISTORY_LIMIT = 20
 type Conversation = { id: string; title?: string; time?: { updated?: number } }

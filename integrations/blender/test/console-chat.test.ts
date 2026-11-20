@@ -19,7 +19,12 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
   const out: unknown[] = []
   const bindings = new Map([["ses_codenomad", "offer_here"]])
   const location = { directory: import.meta.dirname }
-  const session = { id: "ses_console", agent: "build", time: { updated: 2 } }
+  const session = {
+    id: "ses_console",
+    agent: "build",
+    time: { updated: 2 },
+    model: { providerID: "ok", id: "model", variant: "default" },
+  }
   let push: (value: unknown) => void = () => {}
   const api = {
     rpc: (rpc: { id: string }) => {
@@ -119,6 +124,7 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
       registration: "service-example.json",
     })
     assert.ok(out.some((item) => JSON.stringify(item).includes('"resumed":true')))
+    assert.ok(out.some((item) => JSON.stringify(item).includes('"model":"ok/model"')))
     assert.equal(bindings.get(session.id), "offer_here")
     const recent = (
       out.find((item) => (item as { event?: string }).event === "history") as {
@@ -163,6 +169,8 @@ it("the sidecar resumes a folder conversation and streams wrapped tool names and
       false,
     )
     assert.deepEqual(out.at(-1), event("status", { state: "idle", interrupted: true }))
+    await emit("session.step.started", { model: { providerID: "ok", id: "model", variant: "high" } })
+    assert.deepEqual(out.at(-1), event("profile", { agent: undefined, model: "ok/model#high" }))
     assert.deepEqual(calls, [
       { sessionID: session.id, text: "hello" },
       { sessionID: session.id, resume: false },
